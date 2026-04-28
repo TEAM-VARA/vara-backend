@@ -1,0 +1,6 @@
+.env
+go.sum
+vara-backend
+/out/
+.idea/
+.vscode/
