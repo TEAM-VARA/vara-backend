@@ -1,0 +1,65 @@
+# VARA compliance API (Go gin 서버).
+# RDS 자격증명은 Secret(vara-postgres)에서, embedding-server URL 은 ConfigMap 에서 가져온다.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vara-api
+  namespace: vara-compliance
+  labels:
+    app: vara-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vara-api
+  template:
+    metadata:
+      labels:
+        app: vara-api
+    spec:
+      containers:
+        - name: vara-api
+          image: REPLACE_WITH_REGISTRY/vara-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: vara-postgres
+            - configMapRef:
+                name: vara-compliance-config
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vara-api
+  namespace: vara-compliance
+spec:
+  type: ClusterIP
+  selector:
+    app: vara-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

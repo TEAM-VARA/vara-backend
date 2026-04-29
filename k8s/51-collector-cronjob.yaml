@@ -1,0 +1,53 @@
+# 자산/취약점/노출도/Evidence 수집 CronJob.
+# 매 6시간마다 클러스터 + AWS RDS 를 스캔해 vara-api 로 결과를 푸시한다.
+# Trivy DB 다운로드 캐시는 emptyDir 에 둔다 — 영구 캐시가 필요하면 PVC 로 전환.
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vara-collector
+  namespace: vara-compliance
+spec:
+  # 매 6시간 (00:00, 06:00, 12:00, 18:00 UTC)
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+          serviceAccountName: vara-collector
+          restartPolicy: OnFailure
+          containers:
+            - name: collector
+              image: REPLACE_WITH_REGISTRY/vara-collector:latest
+              imagePullPolicy: IfNotPresent
+              envFrom:
+                - configMapRef:
+                    name: vara-compliance-config
+              env:
+                # ConfigMap 의 VARA_API_BASE 를 그대로 사용 (envFrom 으로 이미 주입됨)
+                - name: TRIVY_CACHE_DIR
+                  value: /tmp/trivy-cache
+              volumeMounts:
+                - name: trivy-cache
+                  mountPath: /tmp/trivy-cache
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: "300m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "2"
+                  memory: "1500Mi"
+          volumes:
+            - name: trivy-cache
+              emptyDir:
+                sizeLimit: 1Gi
+            - name: tmp
+              emptyDir:
+                sizeLimit: 500Mi

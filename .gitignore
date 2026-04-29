@@ -1,6 +1,36 @@
-.env
-go.sum
-vara-backend
-/out/
+# Go
+*.exe
+*.test
+*.out
+/dist/
+/bin/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+
+# IDE
 .idea/
 .vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local secrets / configs
+.env
+.env.local
+*.pem
+kubeconfig
+
+# Hugging Face / model cache (just in case anyone runs locally)
+.cache/
+hf-cache/
+
+# k8s manifests with real secrets after substitution (optional — keep templates tracked)
+k8s/*.local.yaml

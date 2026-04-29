@@ -1,0 +1,19 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EKSIRSATrust",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::REPLACE_WITH_AWS_ACCOUNT_ID:oidc-provider/REPLACE_WITH_OIDC_PROVIDER"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "REPLACE_WITH_OIDC_PROVIDER:sub": "system:serviceaccount:vara-compliance:vara-collector",
+          "REPLACE_WITH_OIDC_PROVIDER:aud": "sts.amazonaws.com"
+        }
+      }
+    }
+  ]
+}

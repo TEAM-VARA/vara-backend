@@ -1,0 +1,202 @@
+[
+  {
+    "control_id": "2.5.1",
+    "domain": "인증 및 권한 관리",
+    "title": "사용자 계정 관리",
+    "description": "정보시스템과 개인정보 및 중요정보에 접근할 수 있는 사용자 계정을 등록·변경·삭제하는 절차를 수립·이행하고, 사용자 등록·해지 및 권한 부여·회수에 대한 책임과 역할을 명확히 구분하여야 한다. 클라우드 환경에서는 IAM 사용자, IAM Role, ServiceAccount, Kubernetes RBAC Subject가 모두 관리 대상에 해당한다.",
+    "keywords": ["IAM", "ServiceAccount", "RBAC", "사용자 계정", "권한 부여", "계정 회수", "kube-system", "least privilege"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.5.3",
+    "domain": "인증 및 권한 관리",
+    "title": "사용자 인증",
+    "description": "정보시스템과 개인정보 및 중요정보에 대한 사용자의 접근은 안전한 인증절차와 강화된 인증방식을 적용하여야 한다. 클라우드 콘솔, kube-apiserver, RDS 접속, 컨테이너 레지스트리에 대해 MFA, 토큰 기반 인증, 단기 자격증명을 적용해야 한다.",
+    "keywords": ["MFA", "다중인증", "kube-apiserver", "RDS 인증", "IAM 토큰", "anonymous-auth", "kubeconfig"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.5.4",
+    "domain": "인증 및 권한 관리",
+    "title": "비밀번호 관리",
+    "description": "법적 요구사항, 외부 위협 요인 등을 고려하여 사용자 및 이용자가 사용하는 비밀번호 관리절차를 수립·이행하여야 한다. 데이터베이스 계정, 컨테이너 이미지 내 하드코딩 비밀번호, Kubernetes Secret 평문 저장, 환경변수 노출이 주요 위반 사례에 해당한다.",
+    "keywords": ["비밀번호", "secret", "하드코딩 자격증명", "RDS 패스워드", "환경변수", "credentials"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.5.5",
+    "domain": "인증 및 권한 관리",
+    "title": "특수 계정 및 권한 관리",
+    "description": "정보시스템 관리, 개인정보 및 중요정보 관리 등 특수 목적을 위하여 사용하는 계정 및 권한은 최소한의 인원에게 부여하고 별도로 식별·통제하여야 한다. cluster-admin, 루트 IAM, RDS master user, privileged 컨테이너 권한 등이 해당된다.",
+    "keywords": ["cluster-admin", "root", "privileged", "RDS master", "특수 권한", "관리자 계정"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.5.6",
+    "domain": "인증 및 권한 관리",
+    "title": "접근권한 검토",
+    "description": "정보시스템과 개인정보 및 중요정보에 접근하는 사용자 계정의 등록·이용·삭제 및 접근권한의 부여·이용·말소 내역을 기록하고 주기적으로 검토하여 적정성 여부를 점검하여야 한다.",
+    "keywords": ["권한 검토", "access review", "RBAC 검토", "IAM 정책", "주기적 점검"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.6.1",
+    "domain": "접근통제",
+    "title": "네트워크 접근",
+    "description": "네트워크에 대한 비인가 접근을 통제하기 위하여 IP관리, 단말인증, 네트워크 영역 분리 등 관리적·기술적 보호대책을 수립·이행하여야 한다. Security Group, NACL, NetworkPolicy, VPC Peering, Pod 간 통신 제어가 적용 대상이다.",
+    "keywords": ["security group", "NACL", "VPC", "NetworkPolicy", "네트워크 분리", "ingress 제한", "egress"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.6.2",
+    "domain": "접근통제",
+    "title": "정보시스템 접근",
+    "description": "서버, 네트워크장비 등 정보시스템에 접근을 통제하기 위하여 사용자 인증, 관리자 및 특수권한 사용 제한, 세션관리 등 접근통제 정책을 수립·이행하여야 한다.",
+    "keywords": ["서버 접근", "SSH", "bastion", "kubectl exec", "세션 관리", "관리자 접근"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.6.4",
+    "domain": "접근통제",
+    "title": "데이터베이스 접근",
+    "description": "테이블 목록 등 데이터베이스 내에서 저장·관리되고 있는 정보를 식별하고, 정보의 중요도와 응용프로그램 및 사용자 유형 등에 따른 접근통제 정책을 수립·이행하여야 한다. RDS 보안그룹 0.0.0.0/0 개방, public access 활성화, 동일 VPC 외 접근 허용 등이 미준수 사례이다.",
+    "keywords": ["RDS", "데이터베이스 접근", "public access", "DB 보안그룹", "IAM DB Authentication", "snapshot 공개"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.6.6",
+    "domain": "접근통제",
+    "title": "원격접근 통제",
+    "description": "보호대책에 따라 안전이 입증되지 않은 원격접근에 대해서는 차단하고, 임직원·외부자에 대한 원격접근은 사전 승인 및 보호대책을 적용한 후 허용하여야 한다.",
+    "keywords": ["원격접근", "VPN", "bastion host", "kubectl 외부 접근", "0.0.0.0/0", "공인 IP"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.6.7",
+    "domain": "접근통제",
+    "title": "인터넷 접속 통제",
+    "description": "인터넷을 통한 외부 접근으로부터 내부 정보시스템과 개인정보, 중요정보를 보호하기 위하여 적절한 통제대책을 수립·이행하여야 한다. LoadBalancer/Ingress의 외부 노출, NodePort 직접 노출, 공개 S3 버킷, RDS public endpoint가 이에 해당한다.",
+    "keywords": ["인터넷 노출", "public ingress", "LoadBalancer", "NodePort", "public endpoint", "외부 노출", "E3", "E4"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.7.1",
+    "domain": "암호화 적용",
+    "title": "암호정책 적용",
+    "description": "개인정보 및 주요정보 보호를 위하여 법적 요구사항을 반영한 암호화 대상, 암호 강도, 암호 사용 정책을 수립하고 개인정보 및 주요정보의 저장·전송·전달 시 암호화를 적용하여야 한다. RDS storage encryption, EBS 볼륨 암호화, Secret 저장 암호화, TLS 적용이 주요 점검 항목이다.",
+    "keywords": ["암호화", "TLS", "RDS 암호화", "EBS 암호화", "KMS", "전송 구간 암호화", "저장 구간 암호화"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.7.2",
+    "domain": "암호화 적용",
+    "title": "암호키 관리",
+    "description": "암호키의 안전한 생성·이용·보관·배포·파기를 위하여 안전한 암호키 관리 절차를 수립·이행하고, 필요시 복구방안을 마련하여야 한다.",
+    "keywords": ["KMS", "암호키", "키 회전", "key rotation", "secret rotation"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.8.5",
+    "domain": "정보시스템 도입 및 개발 보안",
+    "title": "소스 프로그램 관리",
+    "description": "소스 프로그램에 대한 변경관리 및 비인가자에 의한 소스 프로그램 접근, 유출, 변조 등이 발생하지 않도록 통제절차를 수립·이행하여야 한다. 컨테이너 이미지 내 자격증명 포함, public 레지스트리 사용, 서명되지 않은 이미지 배포가 위반 사례이다.",
+    "keywords": ["이미지 서명", "container registry", "image scanning", "소스코드 보호", "public 이미지"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.9.1",
+    "domain": "시스템 및 서비스 운영관리",
+    "title": "변경관리",
+    "description": "정보시스템 관련 자산의 모든 변경내역을 통제할 수 있도록 절차를 수립·이행하고, 변경 전 시스템에 미치는 영향을 분석하여야 한다. 클러스터 변경, 이미지 태그 변경, RDS 파라미터 그룹 변경, 보안그룹 룰 변경에 대한 승인 및 기록이 필요하다.",
+    "keywords": ["변경관리", "GitOps", "image tag", "RDS 파라미터", "보안그룹 변경"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.9.4",
+    "domain": "시스템 및 서비스 운영관리",
+    "title": "로그 및 접속기록 관리",
+    "description": "서버, 응용프로그램, 보안시스템, 네트워크시스템 등 정보시스템에 대한 사용자 접속기록, 시스템 로그, 권한부여 내역 등의 로그유형, 보존기간, 보존방법 등을 정하고 위변조, 도난, 분실 되지 않도록 안전하게 보존·관리하여야 한다.",
+    "keywords": ["CloudTrail", "audit log", "kube-audit", "RDS audit log", "VPC Flow Logs", "로그 보존"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.9.5",
+    "domain": "시스템 및 서비스 운영관리",
+    "title": "로그 및 접속기록 점검",
+    "description": "정보시스템의 정상적인 사용을 보장하고 사용자 오·남용을 방지하기 위하여 로그 검토 기준을 수립하여 주기적으로 점검하며, 문제 발생 시 사후 조치를 적시에 수행하여야 한다.",
+    "keywords": ["로그 점검", "GuardDuty", "이상행위 탐지", "SIEM", "CloudWatch Alarm"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.10.1",
+    "domain": "시스템 및 서비스 보안관리",
+    "title": "보안시스템 운영",
+    "description": "보안시스템 유형별로 관리자 지정, 최신 정책 업데이트, 룰셋 변경, 이벤트 모니터링 등의 운영절차를 수립·이행하고 보안시스템별 정책적용 현황을 관리하여야 한다.",
+    "keywords": ["WAF", "GuardDuty", "Security Hub", "보안시스템", "IDS", "IPS", "Falco"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.10.2",
+    "domain": "시스템 및 서비스 보안관리",
+    "title": "클라우드 보안",
+    "description": "클라우드 서비스 이용 시 정보보호 관련 법적 요구사항과 위탁 운영에 따른 책임 소재를 명확히 하여야 하며, 클라우드 서비스 유형(SaaS, PaaS, IaaS)에 따른 보안통제 책임을 정의하고 보안통제 방안을 수립·이행하여야 한다. EKS, RDS, S3, IAM, Security Group 설정의 적정성이 점검 대상이다.",
+    "keywords": ["클라우드 보안", "EKS", "AWS", "공동책임모델", "IaaS", "Pod Security Standard", "CIS Benchmark"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.10.3",
+    "domain": "시스템 및 서비스 보안관리",
+    "title": "공개서버 보안",
+    "description": "외부 네트워크에 공개되는 서버는 내부 네트워크와 분리하고 취약점 점검, 접근통제, 인증 등의 보호대책을 수립·이행하여야 한다. 공개 Ingress/LoadBalancer 뒤에 위치한 Pod, 공개 Endpoint, public RDS가 이에 해당한다.",
+    "keywords": ["공개서버", "DMZ", "public ingress", "public LoadBalancer", "외부 노출 Pod"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.10.8",
+    "domain": "시스템 및 서비스 보안관리",
+    "title": "패치관리",
+    "description": "소프트웨어, 운영체제, 보안시스템 등의 취약점으로 인한 침해사고를 예방하기 위하여 최신 패치 적용, 패치 미적용 시 보완대책 마련 등의 절차를 수립·이행하여야 한다. 컨테이너 이미지 베이스 OS 패치, 애플리케이션 라이브러리 패치, kubelet/kube-apiserver 버전 관리가 포함된다.",
+    "keywords": ["패치", "CVE", "fixed version", "이미지 패치", "kubelet 버전", "취약 패키지", "out-of-date"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.10.9",
+    "domain": "시스템 및 서비스 보안관리",
+    "title": "악성코드 통제",
+    "description": "바이러스·웜·트로이목마·랜섬웨어 등의 악성코드로부터 정보시스템을 보호하기 위하여 악성코드 예방·탐지·대응 등의 보호대책을 수립·이행하여야 한다. 컨테이너 이미지 멀웨어 스캔, 런타임 위협 탐지(Falco) 등이 포함된다.",
+    "keywords": ["악성코드", "malware", "Falco", "런타임 보안", "container scanning"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.11.2",
+    "domain": "사고 예방 및 대응",
+    "title": "취약점 점검 및 조치",
+    "description": "정보시스템의 취약점이 노출되어 있는지를 확인하기 위하여 정기적으로 취약점 점검을 수행하고 발견된 취약점에 대해서는 신속하게 조치하여야 한다. Trivy/Grype 등의 SBOM 기반 컨테이너 이미지 취약점 점검, RDS 파라미터 점검, EKS 노드 점검이 적용된다.",
+    "keywords": ["취약점 점검", "vulnerability scan", "Trivy", "CVSS", "EPSS", "KEV", "SBOM", "patch_status"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.11.3",
+    "domain": "사고 예방 및 대응",
+    "title": "이상행위 분석 및 모니터링",
+    "description": "내·외부에 의한 침해시도, 개인정보 유출 시도, 부정행위 등을 신속하게 탐지·대응할 수 있도록 네트워크 및 데이터 흐름 등을 분석하여 이상행위를 모니터링하여야 한다.",
+    "keywords": ["이상행위", "anomaly detection", "GuardDuty", "VPC Flow Logs", "kube-audit", "런타임 탐지"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.11.5",
+    "domain": "사고 예방 및 대응",
+    "title": "사고 대응 및 복구",
+    "description": "침해사고 및 개인정보 유출 발생 시 신속한 대응 및 복구가 가능하도록 사고 대응절차를 수립·이행하고, 사고 대응결과에 대하여 분석한 후 재발방지 대책을 수립하여야 한다.",
+    "keywords": ["침해사고", "incident response", "IR", "복구", "재발 방지"],
+    "generate_embedding": true
+  },
+  {
+    "control_id": "2.12.1",
+    "domain": "재해복구",
+    "title": "재해·재난 대비 안전조치",
+    "description": "정보시스템의 가용성과 데이터 무결성을 유지하기 위하여 재해·재난에 대한 대응 절차를 수립·이행하여야 한다. RDS 자동 백업, Multi-AZ, 스냅샷, 클러스터 복구 절차가 점검 대상이다.",
+    "keywords": ["RDS 백업", "Multi-AZ", "snapshot", "DR", "재해복구", "RPO", "RTO"],
+    "generate_embedding": true
+  }
+]

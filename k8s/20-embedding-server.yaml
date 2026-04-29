@@ -1,0 +1,79 @@
+# BGE-M3 임베딩 서버 (Python FastAPI).
+# 첫 기동 시 HuggingFace Hub 에서 약 2.3GB 모델을 다운로드하므로 startupProbe 를 길게 잡았다.
+# emptyDir 에 캐시를 두므로 Pod 재시작 시 재다운로드가 발생한다 — 영구 캐시가 필요하면 PVC 로 전환.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vara-embedding-server
+  namespace: vara-compliance
+  labels:
+    app: vara-embedding-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vara-embedding-server
+  template:
+    metadata:
+      labels:
+        app: vara-embedding-server
+    spec:
+      containers:
+        - name: embedding-server
+          image: REPLACE_WITH_REGISTRY/vara-embedding-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9000
+          env:
+            - name: HF_HOME
+              value: /cache/hf
+            - name: TRANSFORMERS_CACHE
+              value: /cache/hf
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /cache/hf
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "3Gi"
+            limits:
+              cpu: "2"
+              memory: "5Gi"
+          # 모델 다운로드 + 첫 임베딩 까지 5분 정도 잡는다.
+          startupProbe:
+            httpGet:
+              path: /docs
+              port: http
+            failureThreshold: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /docs
+              port: http
+            periodSeconds: 30
+          livenessProbe:
+            httpGet:
+              path: /docs
+              port: http
+            periodSeconds: 60
+      volumes:
+        - name: hf-cache
+          emptyDir:
+            sizeLimit: 5Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vara-embedding-server
+  namespace: vara-compliance
+spec:
+  type: ClusterIP
+  selector:
+    app: vara-embedding-server
+  ports:
+    - name: http
+      port: 9000
+      targetPort: 9000

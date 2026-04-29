@@ -1,0 +1,9 @@
+# vara-compliance namespace.
+# vara-backend 와 분리해서 RBAC/네트워크 정책을 따로 적용할 수 있도록 별도 namespace 를 사용한다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vara-compliance
+  labels:
+    app.kubernetes.io/part-of: vara
+    app.kubernetes.io/component: compliance

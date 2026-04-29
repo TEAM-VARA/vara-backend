@@ -1,0 +1,36 @@
+# 1회성 ISMS-P 통제항목 시드 Job.
+# kubectl apply 로 한 번 돌리면 25개 통제항목이 vara-api 에 등록되고, 등록된 항목 각각에
+# /api/v1/isms-p/mappings/run 을 호출해 첫 매핑 결과까지 생성한다.
+#
+# 재실행하려면:
+#   kubectl -n vara-compliance delete job vara-seed
+#   kubectl apply -f 40-seed-job.yaml
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vara-seed
+  namespace: vara-compliance
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: REPLACE_WITH_REGISTRY/vara-seed:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: VARA_API_BASE
+              valueFrom:
+                configMapKeyRef:
+                  name: vara-compliance-config
+                  key: VARA_API_BASE
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"

@@ -1,0 +1,45 @@
+# Collector ServiceAccount + RBAC.
+# - K8s 권한: 모든 namespace 의 pods/services/ingresses 를 read
+# - AWS 권한: IRSA(EKS OIDC + IAM Role)로 rds:DescribeDBInstances 부여
+#
+# 사전 작업 (한 번만):
+#   1) EKS 클러스터에 IAM OIDC provider 연결
+#      eksctl utils associate-iam-oidc-provider --cluster <CLUSTER> --approve
+#   2) IAM Role 생성 (트러스트 정책 + 인라인 정책은 iam/ 디렉토리 참고)
+#   3) 아래 annotation 의 ROLE_ARN 을 실제 ARN 으로 교체
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vara-collector
+  namespace: vara-compliance
+  annotations:
+    # 예: arn:aws:iam::123456789012:role/vara-collector-role
+    eks.amazonaws.com/role-arn: REPLACE_WITH_IAM_ROLE_ARN
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vara-collector-reader
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vara-collector-reader
+subjects:
+  - kind: ServiceAccount
+    name: vara-collector
+    namespace: vara-compliance
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vara-collector-reader
