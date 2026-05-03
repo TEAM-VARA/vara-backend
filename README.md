@@ -1,22 +1,39 @@
-# VARA Backend (Skeleton)
+# VARA Backend
 
-Go + Gin + PostgreSQL + Redis 기반의 단순 백엔드 스켈레톤.
+Go + Gin + PostgreSQL(+pgvector) + Redis 기반 VARA SaaS 백엔드.
 
 ## 구조
 
 ```
 vara-backend/
-├── cmd/server/main.go          # 진입점
-├── internal/
-│   ├── config/config.go        # 환경변수 로딩
-│   ├── db/postgres.go          # PostgreSQL 연결
-│   ├── db/redis.go             # Redis 연결
-│   └── handler/handler.go      # HTTP 핸들러
-├── migrations/001_init.sql     # DB 스키마
-├── Dockerfile
+├── cmd/server/main.go              # 엔트리포인트 (얇게 유지)
+├── internal/                       # 외부 import 차단
+│   ├── config/                     # env, yaml 로딩
+│   ├── server/                     # HTTP 서버 + graceful shutdown + 라우팅 + mTLS
+│   ├── middleware/                 # jwt / rbac / tenant / logger / recovery
+│   ├── domain/                     # 순수 도메인 모델 (의존성 없음)
+│   │   ├── agent/ auth/ cve/ ismsp/ pod/ scoring/ tenant/ topology/ dashboard/
+│   ├── handler/                    # HTTP 핸들러 (도메인별 분리)
+│   ├── service/                    # 비즈니스 로직
+│   ├── repository/
+│   │   ├── postgres/               # RDB 저장소
+│   │   └── vector/                 # pgvector 저장소
+│   └── platform/                   # 외부 시스템 어댑터
+│       ├── cache/                  # Redis
+│       ├── trivy/ ebpf/ embedding/ k8s/ provisioner/
+├── pkg/                            # 외부 공개 가능 유틸 (jwt / crypto / errs)
+├── api/openapi.yaml                # API 명세
+├── migrations/                     # golang-migrate
+│   ├── 001_init.up.sql
+│   └── 002_pgvector.up.sql
+├── deployments/
+│   ├── docker/Dockerfile
+│   └── k8s/                        # Helm chart / manifests
+├── scripts/
+├── test/                           # E2E / 통합 테스트
+├── Makefile
 ├── docker-compose.yml
-├── go.mod
-└── .env.example
+└── go.mod
 ```
 
 ## 로컬 실행
@@ -24,24 +41,23 @@ vara-backend/
 ```bash
 cp .env.example .env
 docker-compose up --build
+# 또는
+make run
 ```
 
 기동되면:
 - 백엔드: http://localhost:8080
-- PostgreSQL: localhost:5432 (DBeaver로 접속)
+- PostgreSQL: localhost:5432
 - Redis: localhost:6379
 
 ## DBeaver 접속
 
-- Host: `localhost`
-- Port: `5432`
-- Database: `vara`
-- User: `vara`
-- Password: `changeme`
+- Host: `localhost` / Port: `5432` / Database: `vara` / User: `vara` / Password: `changeme`
 
-`migrations/001_init.sql`은 PostgreSQL 컨테이너 첫 기동 시 자동 실행됩니다.
+`migrations/001_init.up.sql`은 PostgreSQL 컨테이너 첫 기동 시 자동 실행됩니다.
+`002_pgvector.up.sql`은 pgvector 확장이 설치된 PostgreSQL에서만 동작합니다 (운영은 RDS pgvector 또는 `pgvector/pgvector` 이미지 사용).
 
-## 엔드포인트
+## 엔드포인트 (현재 동작)
 
 | Method | Path | 설명 |
 |---|---|---|
@@ -50,13 +66,13 @@ docker-compose up --build
 | POST | `/api/v1/agents/ebpf/traffic` | eBPF Agent |
 | POST | `/api/v1/agents/sbom` | SBOM 적재 |
 
-각 핸들러 본문은 TODO 상태이며, 팀에서 채워가면 됩니다.
+전체 API 명세는 [api/openapi.yaml](api/openapi.yaml) 참고.
 
 ## 운영 배포 (EC2 + RDS + ElastiCache)
 
-1. RDS PostgreSQL 생성, 같은 VPC private subnet에 배치
+1. RDS PostgreSQL(pgvector 확장 활성화) 생성, 같은 VPC private subnet에 배치
 2. ElastiCache Redis 생성 (또는 EC2 내 Docker)
-3. EC2에서 `docker build` 후 환경변수만 RDS/ElastiCache 엔드포인트로 바꿔서 실행
+3. EC2에서 `docker build -f deployments/docker/Dockerfile -t vara-backend .` 후 환경변수만 RDS/ElastiCache 엔드포인트로 바꿔서 실행
 4. 보안그룹: Agent들의 SG에서만 8080 인바운드 허용
 
 ```bash

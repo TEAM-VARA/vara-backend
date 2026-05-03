@@ -1,31 +1,33 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
 	"github.com/vara/backend/internal/config"
-	"github.com/vara/backend/internal/db"
-	"github.com/vara/backend/internal/handler"
+	"github.com/vara/backend/internal/platform/cache"
+	"github.com/vara/backend/internal/repository/postgres"
+	"github.com/vara/backend/internal/server"
 )
 
 func main() {
-	// .env 로드 (없으면 환경변수에서 직접 읽음)
 	_ = godotenv.Load()
 
 	cfg := config.Load()
 
-	// PostgreSQL 연결
-	pg, err := db.NewPostgres(cfg.Postgres)
+	pg, err := postgres.NewDB(cfg.Postgres)
 	if err != nil {
 		log.Fatalf("postgres 연결 실패: %v", err)
 	}
 	defer pg.Close()
 
-	// Redis 연결
-	rdb, err := db.NewRedis(cfg.Redis)
+	rdb, err := cache.NewRedis(cfg.Redis)
 	if err != nil {
 		log.Fatalf("redis 연결 실패: %v", err)
 	}
@@ -33,23 +35,24 @@ func main() {
 
 	log.Println("DB 연결 완료")
 
-	// 라우터 설정
-	r := gin.Default()
-	h := handler.New(pg, rdb)
+	srv := server.New(cfg, pg, rdb)
 
-	r.GET("/healthz", h.Health)
+	go func() {
+		log.Printf("VARA backend listening on :%s", cfg.ServerPort)
+		if err := srv.Start(); err != nil {
+			log.Fatalf("server 종료: %v", err)
+		}
+	}()
 
-	// Agent 엔드포인트 (TODO: 팀에서 채워가기)
-	api := r.Group("/api/v1")
-	{
-		api.POST("/agents/cluster-reader/pod-events", h.PodEvents)
-		api.POST("/agents/ebpf/traffic", h.Traffic)
-		api.POST("/agents/sbom", h.SBOM)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("graceful shutdown 시작")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("graceful shutdown 실패: %v", err)
 	}
-
-	addr := ":" + cfg.ServerPort
-	log.Printf("VARA backend listening on %s", addr)
-	if err := r.Run(addr); err != nil {
-		log.Fatal(err)
-	}
+	log.Println("종료 완료")
 }

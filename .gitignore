@@ -4,3 +4,17 @@ vara-backend
 /out/
 .idea/
 .vscode/
+
+build.log
+bin/
+*.exe
+.idea/
+.vscode/
+
+
+build.log
+bin/
+*.exe
+.idea/
+.vscode/
+
