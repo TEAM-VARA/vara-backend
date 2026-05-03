@@ -18,3 +18,10 @@ bin/
 .idea/
 .vscode/
 
+
+build.log
+bin/
+*.exe
+.idea/
+.vscode/
+
