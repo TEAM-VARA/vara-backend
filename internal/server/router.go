@@ -10,6 +10,7 @@ func newRouter(
 	health *handler.HealthHandler,
 	agent *handler.AgentHandler,
 	ismsp *handler.ISMSPHandler,
+	scoring *handler.ScoringHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -27,6 +28,10 @@ func newRouter(
 
 		// ── SBOM ──
 		api.POST("/agents/sbom", agent.SBOM)
+
+		// ── Risk Scoring ──
+		api.POST("/pods/:pod_id/risk", scoring.ComputeRisk)
+		api.GET("/pods/:pod_id/risk/details", scoring.GetRiskDetails)
 
 		// ── ISMS-P 컴플라이언스 ──
 		api.POST("/assets", ismsp.CreateAsset)

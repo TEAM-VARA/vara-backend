@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -10,6 +11,12 @@ import (
 
 	"github.com/vara/backend/internal/config"
 	"github.com/vara/backend/internal/handler"
+	"github.com/vara/backend/internal/platform/epss"
+	"github.com/vara/backend/internal/platform/exploitdb"
+	"github.com/vara/backend/internal/platform/kev"
+	"github.com/vara/backend/internal/platform/nvd"
+	"github.com/vara/backend/internal/repository/postgres"
+	"github.com/vara/backend/internal/service"
 )
 
 type Server struct {
@@ -18,11 +25,28 @@ type Server struct {
 }
 
 func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
-	healthH := handler.NewHealth(pg, rdb)
-	agentH := handler.NewAgent(pg, rdb)
-	ismspH := handler.NewISMSP(pg)
+	// ── Repository ──
+	agentRepo := postgres.NewAgentRepo(pg)
+	scoringRepo := postgres.NewScoringRepo(pg)
 
-	r := newRouter(healthH, agentH, ismspH)
+	// ── 외부 API 클라이언트 (Risk Scoring용) ──
+	nvdAPIKey := os.Getenv("NVD_API_KEY") // 없어도 동작 (rate limit만 빡빡)
+	nvdClient := nvd.NewClient(nvdAPIKey)
+	epssClient := epss.NewClient()
+	kevClient := kev.NewClient()
+	exploitDBClient := exploitdb.NewClient()
+
+	// ── Service ──
+	agentSvc := service.NewAgentService(agentRepo)
+	scoringSvc := service.NewScoringService(nvdClient, epssClient, kevClient, exploitDBClient)
+
+	// ── Handler ──
+	healthH := handler.NewHealth(pg, rdb)
+	agentH := handler.NewAgent(pg, rdb, agentSvc)
+	ismspH := handler.NewISMSP(pg)
+	scoringH := handler.NewScoring(scoringRepo, scoringSvc)
+
+	r := newRouter(healthH, agentH, ismspH, scoringH)
 
 	return &Server{
 		cfg: cfg,
