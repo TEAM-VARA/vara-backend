@@ -2,7 +2,7 @@
 # 사용법: ./scan-pod.sh <namespace> <pod_name>
 # 예: ./scan-pod.sh default old-nginx
 #
-# 변경: agents/cluster-reader/pod-events → agents/cluster-reader/pods
+# 변경: cluster-reader/pods는 Cluster Agent v2가 사용 → pod-events로 분리
 
 set -euo pipefail
 
@@ -63,7 +63,7 @@ curl -sS -X POST "$BACKEND/api/v1/agents/sbom" \
     -d "$SBOM_PAYLOAD" | jq .
 
 echo ""
-echo "📤 [3.5/4] 백엔드에 Pod 등록 (라우트: cluster-reader/pods)"
+echo "📤 [3.5/4] 백엔드에 Pod 등록 (라우트: cluster-reader/pod-events)"
 POD_PAYLOAD=$(jq -n \
     --arg uid "$POD_UID" --arg name "$POD_NAME" \
     --arg ns "$NAMESPACE" --arg node "$NODE_NAME" \
@@ -82,7 +82,7 @@ POD_PAYLOAD=$(jq -n \
         }]
     }')
 
-curl -sS -X POST "$BACKEND/api/v1/agents/cluster-reader/pods" \
+curl -sS -X POST "$BACKEND/api/v1/agents/cluster-reader/pod-events" \
     -H "Content-Type: application/json" \
     -d "$POD_PAYLOAD" | jq .
 
