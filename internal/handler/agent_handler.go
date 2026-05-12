@@ -22,9 +22,11 @@ func NewAgent(pg *pgxpool.Pool, rdb *redis.Client, svc *service.AgentService) *A
 	return &AgentHandler{pg: pg, rdb: rdb, service: svc}
 }
 
-// Pods : POST /api/v1/agents/cluster-reader/pods
+// PodEvents : POST /api/v1/agents/cluster-reader/pod-events
 //
-// Pod 생성/삭제 이벤트 batch 수신.
+// 단순 Pod 생성/삭제 이벤트 batch (scan-pod.sh 같은 도구용).
+// Cluster Reader Agent v2와 별개의 단순 채널.
+//
 // Body 예시:
 //
 //	{
@@ -41,7 +43,7 @@ func NewAgent(pg *pgxpool.Pool, rdb *redis.Client, svc *service.AgentService) *A
 //	    }
 //	  ]
 //	}
-func (h *AgentHandler) Pods(c *gin.Context) {
+func (h *AgentHandler) PodEvents(c *gin.Context) {
 	var batch agent.PodEventBatch
 	if err := c.ShouldBindJSON(&batch); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -52,18 +54,6 @@ func (h *AgentHandler) Pods(c *gin.Context) {
 	res := h.service.IngestPodEvents(ctx, batch)
 
 	c.JSON(http.StatusOK, res)
-}
-
-// Services : POST /api/v1/agents/cluster-reader/services
-// (다른 팀원이 채울 자리 - 일단 TODO)
-func (h *AgentHandler) Services(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"received": true, "todo": "service ingest 미구현"})
-}
-
-// Nodes : POST /api/v1/agents/cluster-reader/nodes
-// (다른 팀원이 채울 자리 - 일단 TODO)
-func (h *AgentHandler) Nodes(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"received": true, "todo": "node ingest 미구현"})
 }
 
 // Traffic : POST /api/v1/agents/ebpf/traffic

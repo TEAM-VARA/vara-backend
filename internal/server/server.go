@@ -28,6 +28,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	// ── Repository ──
 	agentRepo := postgres.NewAgentRepo(pg)
 	scoringRepo := postgres.NewScoringRepo(pg)
+	clusterReaderRepo := postgres.NewClusterReaderRepo(pg)
 
 	// ── 외부 API 클라이언트 (Risk Scoring용) ──
 	nvdAPIKey := os.Getenv("NVD_API_KEY") // 없어도 동작 (rate limit만 빡빡)
@@ -45,8 +46,9 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	agentH := handler.NewAgent(pg, rdb, agentSvc)
 	ismspH := handler.NewISMSP(pg)
 	scoringH := handler.NewScoring(scoringRepo, scoringSvc)
+	clusterReaderH := handler.NewClusterReader(clusterReaderRepo)
 
-	r := newRouter(healthH, agentH, ismspH, scoringH)
+	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH)
 
 	return &Server{
 		cfg: cfg,

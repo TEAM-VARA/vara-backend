@@ -11,6 +11,7 @@ func newRouter(
 	agent *handler.AgentHandler,
 	ismsp *handler.ISMSPHandler,
 	scoring *handler.ScoringHandler,
+	clusterReader *handler.ClusterReaderHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -18,10 +19,18 @@ func newRouter(
 
 	api := r.Group("/api/v1")
 	{
-		// ── Cluster Reader Agent ──
-		api.POST("/agents/cluster-reader/pods", agent.Pods)
-		api.POST("/agents/cluster-reader/services", agent.Services)
-		api.POST("/agents/cluster-reader/nodes", agent.Nodes)
+		// ── Cluster Reader Agent v2 (8개 엔드포인트) ──
+		api.POST("/agents/cluster-reader/nodes", clusterReader.Nodes)
+		api.POST("/agents/cluster-reader/pods", clusterReader.Pods)
+		api.POST("/agents/cluster-reader/services", clusterReader.Services)
+		api.POST("/agents/cluster-reader/sensitive-resources", clusterReader.Sensitive)
+		api.POST("/agents/cluster-reader/ingresses", clusterReader.Ingresses)
+		api.POST("/agents/cluster-reader/workloads", clusterReader.Workloads)
+		api.POST("/agents/cluster-reader/network-policies", clusterReader.NetworkPolicies)
+		api.POST("/agents/cluster-reader/rbac", clusterReader.RBAC)
+
+		// ── 단순 Pod 이벤트 (scan-pod.sh 같은 도구용) ──
+		api.POST("/agents/cluster-reader/pod-events", agent.PodEvents)
 
 		// ── eBPF Agent ──
 		api.POST("/agents/ebpf/traffic", agent.Traffic)
