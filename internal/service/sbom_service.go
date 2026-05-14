@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,16 +17,19 @@ import (
 // SBOMService는 SBOM 수집을 오케스트레이션합니다.
 //
 // 주요 책임:
-//   1. 자동 트리거 (cluster agent가 Pod 정보 보낼 때)
-//   2. Lazy 로딩 (risk scoring 시점에 SBOM 없으면 즉시 스캔)
-//   3. 중복 스캔 방지 (Redis 분산 락 + DB 존재 체크)
-//   4. 비동기 처리 (Goroutine + 워커 풀)
+//  1. 자동 트리거 (cluster agent가 Pod 정보 보낼 때)
+//  2. Lazy 로딩 (risk scoring 시점에 SBOM 없으면 즉시 스캔)
+//  3. 중복 스캔 방지 (Redis 분산 락 + DB 존재 체크)
+//  4. 비동기 처리 (Goroutine + 워커 풀)
+//  5. trivy cache lock 충돌 대비 재시도
 type SBOMService struct {
 	trivy *trivy.Client
 	repo  *postgres.SBOMRepo
 	rdb   *redis.Client
 
-	// 동시 스캔 수 제한 (이미지 N개를 동시에 스캔하지 않게)
+	// 동시 스캔 수 제한.
+	// trivy는 fs 캐시 lock 때문에 동시 스캔 시 충돌 위험이 있어
+	// 기본값 1(직렬)로 설정합니다.
 	sem chan struct{}
 
 	// 진행 중인 스캔 추적 (같은 프로세스 내 중복 방지)
@@ -36,7 +40,8 @@ type SBOMService struct {
 // SBOMServiceConfig는 서비스 생성 옵션입니다.
 type SBOMServiceConfig struct {
 	// MaxConcurrent는 동시 trivy 스캔의 최대 개수입니다.
-	// 0이면 기본값 3 사용.
+	// trivy fs 캐시 lock 충돌 방지를 위해 기본값 1(직렬).
+	// 0이면 기본값 1 사용.
 	MaxConcurrent int
 }
 
@@ -48,7 +53,7 @@ func NewSBOMService(
 	cfg SBOMServiceConfig,
 ) *SBOMService {
 	if cfg.MaxConcurrent <= 0 {
-		cfg.MaxConcurrent = 3
+		cfg.MaxConcurrent = 1 // 기본값 1: trivy lock 충돌 방지 (직렬)
 	}
 	return &SBOMService{
 		trivy:    trivyClient,
@@ -71,9 +76,9 @@ type ScanRequest struct {
 // 즉시 반환하며, 실제 스캔은 goroutine에서 진행됩니다.
 //
 // 중복 방지 3단계:
-//   1. inFlight map (같은 프로세스 내)
-//   2. DB ExistsByDigest (이미 저장됨)
-//   3. Redis 분산 락 (다른 인스턴스가 진행 중)
+//  1. inFlight map (같은 프로세스 내)
+//  2. DB ExistsByDigest (이미 저장됨)
+//  3. Redis 분산 락 (다른 인스턴스가 진행 중)
 func (s *SBOMService) TriggerAsync(ctx context.Context, requests []ScanRequest) {
 	for _, req := range requests {
 		if req.Image == "" || req.Digest == "" {
@@ -131,10 +136,55 @@ func (s *SBOMService) scanOne(ctx context.Context, req ScanRequest) {
 		return
 	}
 
-	// 3단계: 실제 스캔 수행
-	if err := s.performScan(ctx, req); err != nil {
-		fmt.Printf("error: sbom scan failed image=%s digest=%s err=%v\n", req.Image, req.Digest, err)
+	// 3단계: 실제 스캔 수행 (재시도 포함)
+	if err := s.performScanWithRetry(ctx, req); err != nil {
+		fmt.Printf("error: sbom scan failed after retries image=%s digest=%s err=%v\n",
+			req.Image, req.Digest, err)
 	}
+}
+
+// performScanWithRetry는 trivy cache lock 충돌 대비 재시도를 합니다.
+// 최대 3회, 백오프 2s → 5s → 10s.
+func (s *SBOMService) performScanWithRetry(ctx context.Context, req ScanRequest) error {
+	backoffs := []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second}
+
+	var lastErr error
+	for attempt, backoff := range backoffs {
+		if attempt > 0 {
+			fmt.Printf("info: retrying sbom scan (attempt %d) image=%s digest=%s after=%s\n",
+				attempt+1, req.Image, req.Digest, backoff)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
+		err := s.performScan(ctx, req)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+
+		// "cache may be in use" 류 락 에러만 재시도 대상
+		if !isCacheLockError(err) {
+			return err
+		}
+	}
+
+	return fmt.Errorf("retries exhausted: %w", lastErr)
+}
+
+// isCacheLockError는 trivy fs cache 락 충돌 에러인지 판별합니다.
+func isCacheLockError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "cache may be in use") ||
+		strings.Contains(msg, "unable to initialize fs cache") ||
+		strings.Contains(msg, "unable to initialize cache")
 }
 
 // performScan은 락 + 동시성 제한 + trivy 호출 + DB 저장을 수행합니다.
@@ -152,7 +202,7 @@ func (s *SBOMService) performScan(ctx context.Context, req ScanRequest) error {
 		_ = s.rdb.Del(context.Background(), lockKey).Err()
 	}()
 
-	// 동시성 제한
+	// 동시성 제한 (semaphore)
 	select {
 	case s.sem <- struct{}{}:
 		defer func() { <-s.sem }()

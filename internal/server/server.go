@@ -57,7 +57,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	agentSvc := service.NewAgentService(agentRepo)
 	scoringSvc := service.NewScoringService(nvdClient, epssClient, kevClient, exploitDBClient)
 	sbomSvc := service.NewSBOMService(trivyClient, sbomRepo, rdb, service.SBOMServiceConfig{
-		MaxConcurrent: 3, // 동시 trivy 스캔 최대 3개 (호스트 자원 보호)
+		MaxConcurrent: 1, // 동시 trivy 스캔 최대 3개 (호스트 자원 보호)
 	})
 
 	// ── Handler ──
