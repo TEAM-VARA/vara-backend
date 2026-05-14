@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/vara/backend/internal/domain/agent"
 	"github.com/vara/backend/internal/repository/postgres"
+	"github.com/vara/backend/internal/service"
 )
 
 // ────────────────────────────────────────────
@@ -24,13 +26,22 @@ import (
 //     "snapshot_at": "2026-05-03T11:46:45Z",
 //     "<resource>": [...]
 //   }
+//
+// 신규: Pods 엔드포인트는 수신 시 각 컨테이너의 image_digest로
+//      SBOM 스캔을 백그라운드 트리거합니다 (SBOMService 주입 필요).
 
 type ClusterReaderHandler struct {
-	repo *postgres.ClusterReaderRepo
+	repo        *postgres.ClusterReaderRepo
+	sbomService *service.SBOMService // SBOM 자동 트리거 (nil이면 트리거 안 함)
 }
 
-func NewClusterReader(repo *postgres.ClusterReaderRepo) *ClusterReaderHandler {
-	return &ClusterReaderHandler{repo: repo}
+// NewClusterReader는 cluster-reader 핸들러를 생성합니다.
+// sbomService는 SBOM 자동 트리거에 사용됩니다 (nil 허용).
+func NewClusterReader(repo *postgres.ClusterReaderRepo, sbomService *service.SBOMService) *ClusterReaderHandler {
+	return &ClusterReaderHandler{
+		repo:        repo,
+		sbomService: sbomService,
+	}
 }
 
 // Nodes : POST /api/v1/agents/cluster-reader/nodes
@@ -61,6 +72,7 @@ func (h *ClusterReaderHandler) Nodes(c *gin.Context) {
 // Pods : POST /api/v1/agents/cluster-reader/pods
 //
 // 파드 + 네임스페이스 정보 수신. 주기 30초.
+// 신규: 각 컨테이너의 image_digest로 SBOM 백그라운드 스캔 트리거.
 func (h *ClusterReaderHandler) Pods(c *gin.Context) {
 	var req agent.ClusterPodsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -75,6 +87,9 @@ func (h *ClusterReaderHandler) Pods(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// SBOM 백그라운드 트리거 (응답 차단 X)
+	h.triggerSBOMScans(req.Pods)
 
 	c.JSON(http.StatusOK, gin.H{
 		"cluster":          req.Cluster,
@@ -238,4 +253,58 @@ func (h *ClusterReaderHandler) RBAC(c *gin.Context) {
 		"cluster_role_bindings_saved": crbSaved,
 		"role_bindings_saved":         rbSaved,
 	})
+}
+
+// ────────────────────────────────────────────
+// 헬퍼: SBOM 백그라운드 트리거
+// ────────────────────────────────────────────
+
+// triggerSBOMScans는 Pod 리스트에서 image_digest를 추출하여
+// SBOM 스캔을 백그라운드로 트리거합니다.
+//
+// SBOMService 내부에서 중복 방지(DB + Redis 락)가 처리되므로
+// 같은 digest가 여러 번 와도 안전합니다.
+//
+// 주의: agent.ClusterPod의 Containers 필드 구조에 따라
+//
+//	container.Image / container.ImageDigest 필드명이 다를 수 있음.
+//	빌드 에러 시 도메인 모델 확인 필요.
+func (h *ClusterReaderHandler) triggerSBOMScans(pods []agent.ClusterPod) {
+	if h.sbomService == nil {
+		return
+	}
+
+	requests := make([]service.ScanRequest, 0)
+	seen := make(map[string]bool)
+
+	for _, pod := range pods {
+		for _, container := range pod.Containers {
+			// map[string]interface{}에서 type assertion으로 추출
+			image, _ := container["image"].(string)
+			digest, _ := container["image_digest"].(string)
+
+			// 두 필드 모두 있어야 스캔 가능
+			if image == "" || digest == "" {
+				continue
+			}
+
+			// 같은 페이로드 내 중복 제거
+			if seen[digest] {
+				continue
+			}
+			seen[digest] = true
+
+			requests = append(requests, service.ScanRequest{
+				Image:  image,
+				Digest: digest,
+			})
+		}
+	}
+
+	if len(requests) == 0 {
+		return
+	}
+
+	fmt.Printf("info: triggering background SBOM scans count=%d\n", len(requests))
+	h.sbomService.TriggerAsync(context.Background(), requests)
 }
