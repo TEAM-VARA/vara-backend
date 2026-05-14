@@ -79,14 +79,13 @@ func (c *Client) ScanImage(ctx context.Context, image, digest string) (*ScanResu
 		args = append(args, "--cache-dir", c.CacheDir)
 	}
 
-	// Java 분석 비활성화 옵션
-	//   - --pkg-types os,library : OS 패키지와 일반 라이브러리만 (Java JAR 제외)
-	//   - --disable-analyzers : Java 관련 분석기 명시적 비활성화
-	// 이렇게 하면 Java DB(866MB+) 다운로드를 트리거하지 않음.
+	// Java 분석 비활성화:
+	//   --pkg-types os,library : OS 패키지 + 일반 라이브러리만 (Java JAR 제외)
+	//   --skip-java-db-update  : Java DB 다운로드 자체 스킵 (866MB+ 절약)
 	if c.DisableJavaDB {
 		args = append(args,
 			"--pkg-types", "os,library",
-			"--disable-analyzers", "jar,pom,gradle-lockfile,sbt-lockfile",
+			"--skip-java-db-update",
 		)
 	}
 
