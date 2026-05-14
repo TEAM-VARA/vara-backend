@@ -25,14 +25,20 @@ type Client struct {
 	// CacheDir은 trivy DB 캐시 디렉토리입니다.
 	// 비워두면 trivy 기본값 사용 (~/.cache/trivy).
 	CacheDir string
+
+	// DisableJavaDB는 Java/JAR 분석을 비활성화합니다.
+	// Java DB는 866MB+로 매우 크고, Java 컴포넌트 없는 이미지엔 불필요.
+	// 디스크가 충분하고 Java 이미지를 분석해야 할 때만 false.
+	DisableJavaDB bool
 }
 
 // NewClient는 기본 설정으로 Client를 생성합니다.
 func NewClient() *Client {
 	return &Client{
-		BinaryPath:  "trivy",
-		ScanTimeout: 10 * time.Minute,
-		CacheDir:    "/var/cache/trivy",
+		BinaryPath:    "trivy",
+		ScanTimeout:   10 * time.Minute,
+		CacheDir:      "/var/cache/trivy",
+		DisableJavaDB: true, // 기본값: Java 분석 비활성화 (디스크 절약)
 	}
 }
 
@@ -68,9 +74,22 @@ func (c *Client) ScanImage(ctx context.Context, image, digest string) (*ScanResu
 		"--timeout", c.ScanTimeout.String(),
 		"--scanners", "vuln",
 	}
+
 	if c.CacheDir != "" {
 		args = append(args, "--cache-dir", c.CacheDir)
 	}
+
+	// Java 분석 비활성화 옵션
+	//   - --pkg-types os,library : OS 패키지와 일반 라이브러리만 (Java JAR 제외)
+	//   - --disable-analyzers : Java 관련 분석기 명시적 비활성화
+	// 이렇게 하면 Java DB(866MB+) 다운로드를 트리거하지 않음.
+	if c.DisableJavaDB {
+		args = append(args,
+			"--pkg-types", "os,library",
+			"--disable-analyzers", "jar,pom,gradle-lockfile,sbt-lockfile",
+		)
+	}
+
 	args = append(args, target)
 
 	start := time.Now()
