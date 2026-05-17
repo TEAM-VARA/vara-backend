@@ -31,10 +31,11 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	agentRepo := postgres.NewAgentRepo(pg)
 	scoringRepo := postgres.NewScoringRepo(pg)
 	clusterReaderRepo := postgres.NewClusterReaderRepo(pg)
-	sbomRepo := postgres.NewSBOMRepo(pg) // 신규
+	sbomRepo := postgres.NewSBOMRepo(pg)
+	exposureRepo := postgres.NewExposureRepo(pg) // 신규 (작업 C-1)
 
 	// ── 외부 API 클라이언트 (Risk Scoring용) ──
-	nvdAPIKey := os.Getenv("NVD_API_KEY") // 없어도 동작 (rate limit만 빡빡)
+	nvdAPIKey := os.Getenv("NVD_API_KEY")
 	nvdClient := nvd.NewClient(nvdAPIKey)
 	epssClient := epss.NewClient()
 	kevClient := kev.NewClient()
@@ -42,7 +43,6 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 
 	// ── Trivy 클라이언트 (SBOM 스캔용) ──
 	trivyClient := trivy.NewClient()
-	// 기동 시점 trivy 바이너리 확인 (실패 시 경고만 출력, 서버는 계속 기동)
 	{
 		checkCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := trivyClient.CheckBinary(checkCtx); err != nil {
@@ -57,17 +57,19 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	agentSvc := service.NewAgentService(agentRepo)
 	scoringSvc := service.NewScoringService(nvdClient, epssClient, kevClient, exploitDBClient)
 	sbomSvc := service.NewSBOMService(trivyClient, sbomRepo, rdb, service.SBOMServiceConfig{
-		MaxConcurrent: 1, // 동시 trivy 스캔 최대 3개 (호스트 자원 보호)
+		MaxConcurrent: 1, // trivy fs cache lock 충돌 방지
 	})
+	exposureSvc := service.NewExposureService(exposureRepo) // 신규 (작업 C-1)
 
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)
 	agentH := handler.NewAgent(pg, rdb, agentSvc)
 	ismspH := handler.NewISMSP(pg)
 	scoringH := handler.NewScoring(scoringRepo, scoringSvc)
-	clusterReaderH := handler.NewClusterReader(clusterReaderRepo, sbomSvc) // 수정: sbomSvc 추가
+	clusterReaderH := handler.NewClusterReader(clusterReaderRepo, sbomSvc)
+	exposureH := handler.NewExposureHandler(exposureSvc) // 신규 (작업 C-1)
 
-	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH)
+	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH, exposureH)
 
 	return &Server{
 		cfg: cfg,

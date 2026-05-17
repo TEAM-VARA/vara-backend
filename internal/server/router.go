@@ -12,6 +12,7 @@ func newRouter(
 	ismsp *handler.ISMSPHandler,
 	scoring *handler.ScoringHandler,
 	clusterReader *handler.ClusterReaderHandler,
+	exposure *handler.ExposureHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -41,6 +42,11 @@ func newRouter(
 		// ── Risk Scoring ──
 		api.POST("/pods/:pod_id/risk", scoring.ComputeRisk)
 		api.GET("/pods/:pod_id/risk/details", scoring.GetRiskDetails)
+
+		// ── 인터넷 노출 (작업 C-1) ──
+		api.POST("/scoring/exposure/compute", exposure.Compute)
+		api.GET("/scoring/exposure/pods/:pod_uid", exposure.GetByPod)
+		api.GET("/scoring/exposure/clusters/:cluster_name", exposure.GetByCluster)
 
 		// ── ISMS-P 컴플라이언스 ──
 		api.POST("/assets", ismsp.CreateAsset)
