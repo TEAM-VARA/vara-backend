@@ -12,18 +12,19 @@ import (
 // ExposureService는 인터넷 노출 여부를 판단하는 비즈니스 로직을 담당합니다.
 //
 // Phase 1 판단 알고리즘:
-//   1. 클러스터의 최신 snapshot 가져오기
-//   2. 모든 Pod에 대해:
-//      a. 같은 namespace의 Service 중 selector ⊆ pod.labels인 것 찾기
-//      b. 매칭된 Service.type이 LoadBalancer/NodePort면 → 노출
-//      c. 매칭된 Service가 어떤 Ingress의 backend면 → 노출
-//      d. 둘 다 아니면 → 비노출
-//   3. 결과를 exposure_scores에 저장
+//  1. 각 테이블(pods/services/ingresses)의 최신 snapshot 독립적으로 조회
+//  2. 모든 Pod에 대해:
+//     a. 같은 namespace의 Service 중 selector ⊆ pod.labels인 것 찾기
+//     b. 매칭된 Service.type이 LoadBalancer/NodePort면 → 노출
+//     c. 매칭된 Service가 어떤 Ingress의 backend면 → 노출
+//     d. 둘 다 아니면 → 비노출
+//  3. 결과를 exposure_scores에 저장
 //
-// Phase 2 이후 추가될 항목:
-//   - AWS Security Group의 0.0.0.0/0 허용 여부
-//   - NetworkPolicy로 차단되는 경우 점수 감점
-//   - eBPF network_flows의 실제 외부 연결 발견
+// 시점 정책:
+//   - 각 리소스(Pod/Service/Ingress)는 cluster-agent에서 독립된 주기로 수집됨
+//   - 각각의 최신 snapshot을 사용하는 게 K8s 의미론에 맞음
+//     (Pod와 Service의 매칭은 "현재 상태"의 비교)
+//   - 저장 시 snapshot_at은 Pod 기준 사용 (Pod가 평가 단위이므로)
 type ExposureService struct {
 	repo *postgres.ExposureRepo
 }
@@ -34,42 +35,51 @@ func NewExposureService(repo *postgres.ExposureRepo) *ExposureService {
 }
 
 // ComputeForCluster는 클러스터 전체에 대해 노출도를 계산하고 저장합니다.
-//
-// 동작:
-//   1. 최신 snapshot 찾기
-//   2. Pod / Service / Ingress 로드
-//   3. 각 Pod에 대해 판정 수행
-//   4. 결과를 DB에 일괄 저장
-//   5. 요약 응답 반환
 func (s *ExposureService) ComputeForCluster(ctx context.Context, clusterName string) (*scoring.ComputeResponse, error) {
 	if clusterName == "" {
 		return nil, fmt.Errorf("cluster_name is required")
 	}
 
-	// 1. 최신 snapshot 찾기
-	snapshotAt, err := s.repo.GetLatestSnapshotAt(ctx, clusterName)
+	// 1. 각 테이블의 최신 snapshot 독립적으로 찾기
+	podsSnapshot, err := s.repo.GetLatestPodsSnapshot(ctx, clusterName)
 	if err != nil {
-		return nil, fmt.Errorf("find latest snapshot: %w", err)
+		return nil, fmt.Errorf("find latest pods snapshot: %w", err)
 	}
 
-	// 2. 데이터 로드 (Pod, Service, Ingress)
-	pods, err := s.repo.ListPodsAtSnapshot(ctx, clusterName, snapshotAt)
+	servicesSnapshot, err := s.repo.GetLatestServicesSnapshot(ctx, clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("find latest services snapshot: %w", err)
+	}
+
+	ingressesSnapshot, err := s.repo.GetLatestIngressesSnapshot(ctx, clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("find latest ingresses snapshot: %w", err)
+	}
+
+	// 디버그 로그
+	fmt.Printf("info: exposure compute cluster=%s pods_snapshot=%s services_snapshot=%s ingresses_snapshot=%s\n",
+		clusterName, podsSnapshot, servicesSnapshot, ingressesSnapshot)
+
+	// 2. 각 snapshot 데이터 로드
+	pods, err := s.repo.ListPodsAtSnapshot(ctx, clusterName, podsSnapshot)
 	if err != nil {
 		return nil, fmt.Errorf("load pods: %w", err)
 	}
 
-	services, err := s.repo.ListServicesAtSnapshot(ctx, clusterName, snapshotAt)
+	services, err := s.repo.ListServicesAtSnapshot(ctx, clusterName, servicesSnapshot)
 	if err != nil {
 		return nil, fmt.Errorf("load services: %w", err)
 	}
 
-	ingressBackends, err := s.repo.ListIngressBackendsAtSnapshot(ctx, clusterName, snapshotAt)
+	ingressBackends, err := s.repo.ListIngressBackendsAtSnapshot(ctx, clusterName, ingressesSnapshot)
 	if err != nil {
 		return nil, fmt.Errorf("load ingresses: %w", err)
 	}
 
+	fmt.Printf("info: exposure compute loaded pods=%d services=%d ingress_backends=%d\n",
+		len(pods), len(services), len(ingressBackends))
+
 	// 3. Service ↔ Ingress 인덱스 미리 만들기 (성능)
-	// key: (namespace, service_name) → []IngressSnapshot
 	ingressIndex := buildIngressIndex(ingressBackends)
 
 	// 4. 각 Pod 판정
@@ -78,7 +88,7 @@ func (s *ExposureService) ComputeForCluster(ctx context.Context, clusterName str
 	now := time.Now()
 
 	for _, pod := range pods {
-		result := s.evaluatePod(pod, services, ingressIndex, clusterName, snapshotAt, now)
+		result := s.evaluatePod(pod, services, ingressIndex, clusterName, podsSnapshot, now)
 		if result.Exposed {
 			exposedCount++
 		}
@@ -93,7 +103,7 @@ func (s *ExposureService) ComputeForCluster(ctx context.Context, clusterName str
 	// 6. 응답 구성
 	return &scoring.ComputeResponse{
 		ClusterName: clusterName,
-		SnapshotAt:  snapshotAt,
+		SnapshotAt:  podsSnapshot,
 		Computed:    len(results),
 		Exposed:     exposedCount,
 		NotExposed:  len(results) - exposedCount,
@@ -112,16 +122,9 @@ func (s *ExposureService) ListByCluster(ctx context.Context, clusterName string)
 }
 
 // ─────────────────────────────────────────
-// 내부 로직 (판정 알고리즘)
+// 내부 로직
 // ─────────────────────────────────────────
 
-// evaluatePod는 단일 Pod에 대해 노출 여부를 판정합니다.
-//
-// 평가 순서:
-//   1. 모든 Service에 대해 selector 매칭 시도 (같은 namespace)
-//   2. 매칭된 Service들 중 LoadBalancer/NodePort 있는지 → 외부 노출
-//   3. 매칭된 Service가 Ingress backend인지 → Ingress 노출
-//   4. 결과 종합
 func (s *ExposureService) evaluatePod(
 	pod postgres.PodSnapshot,
 	services []postgres.ServiceSnapshot,
@@ -144,7 +147,6 @@ func (s *ExposureService) evaluatePod(
 
 	exposed := false
 
-	// 1. Service selector 매칭 (같은 namespace 내에서만)
 	for _, svc := range services {
 		if svc.Namespace != pod.Namespace {
 			continue
@@ -153,7 +155,6 @@ func (s *ExposureService) evaluatePod(
 			continue
 		}
 
-		// 매칭됨
 		externallyExposed := scoring.IsExternallyExposedServiceType(svc.Type)
 		result.MatchedServices = append(result.MatchedServices, scoring.MatchedService{
 			Name:              svc.Name,
@@ -162,12 +163,10 @@ func (s *ExposureService) evaluatePod(
 			ExternallyExposed: externallyExposed,
 		})
 
-		// LoadBalancer/NodePort 만나면 외부 노출
 		if externallyExposed {
 			exposed = true
 		}
 
-		// 2. 이 Service가 Ingress backend로 사용되는지 확인
 		key := ingressKey(svc.Namespace, svc.Name)
 		if ingresses, ok := ingressIndex[key]; ok {
 			for _, ig := range ingresses {
@@ -177,12 +176,11 @@ func (s *ExposureService) evaluatePod(
 					ViaServiceName: svc.Name,
 					Host:           ig.Host,
 				})
-				exposed = true // Ingress 노출도 외부 노출로 간주
+				exposed = true
 			}
 		}
 	}
 
-	// 3. 점수 산정
 	result.Exposed = exposed
 	if exposed {
 		result.Score = scoring.ExposureScoreExposed
@@ -193,8 +191,6 @@ func (s *ExposureService) evaluatePod(
 	return result
 }
 
-// buildIngressIndex는 Ingress backend를 (namespace, service_name) 키로 색인합니다.
-// 같은 Service가 여러 Ingress에서 참조될 수 있으므로 슬라이스 값.
 func buildIngressIndex(backends []postgres.IngressSnapshot) map[string][]postgres.IngressSnapshot {
 	idx := make(map[string][]postgres.IngressSnapshot)
 	for _, b := range backends {

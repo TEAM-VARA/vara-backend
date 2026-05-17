@@ -16,13 +16,16 @@ import (
 // ExposureRepo는 인터넷 노출 계산에 필요한 데이터를 조회하고,
 // 계산 결과를 exposure_scores 테이블에 저장합니다.
 //
-// 조회 데이터:
-//   - 최신 snapshot의 cluster_pods
-//   - 최신 snapshot의 cluster_services
-//   - 최신 snapshot의 cluster_ingresses
+// 데이터 소스:
+//   - cluster_pods (snapshot 기반 시계열)
+//   - cluster_services (snapshot 기반 시계열)
+//   - cluster_ingresses (snapshot 기반 시계열)
 //
-// 저장 데이터:
-//   - exposure_scores (Pod별 판정 결과)
+// 각 테이블의 snapshot_at은 독립적으로 갱신됩니다.
+// (Pod는 30초마다, Service는 1분마다, Ingress는 1분마다 수집)
+// 따라서 "최신 snapshot"은 테이블별로 다를 수 있습니다.
+//
+// 본 Repo는 각 테이블의 최신 snapshot을 독립적으로 조회합니다.
 type ExposureRepo struct {
 	pool *pgxpool.Pool
 }
@@ -52,44 +55,77 @@ type ServiceSnapshot struct {
 	Selector  map[string]string
 }
 
-// IngressSnapshot은 cluster_ingresses 한 행에서 추출한
-// (host, backend service) 매핑 한 건입니다.
-//
-// 하나의 Ingress가 여러 host/path/backend를 가질 수 있으므로,
-// 본 구조체는 펼쳐진 형태입니다.
+// IngressSnapshot은 cluster_ingresses의 (host, backend service) 매핑 한 건입니다.
 type IngressSnapshot struct {
 	Name        string
 	Namespace   string
 	Host        string
-	ServiceName string // backend service name
+	ServiceName string
 }
 
 // ─────────────────────────────────────────
-// 조회 메서드
+// 각 테이블의 최신 snapshot_at 조회 (독립적)
 // ─────────────────────────────────────────
 
-// GetLatestSnapshotAt은 cluster_pods의 최신 snapshot_at을 반환합니다.
-// 인터넷 노출 계산 시점에 어느 스냅샷을 기준으로 할지 결정합니다.
-func (r *ExposureRepo) GetLatestSnapshotAt(ctx context.Context, clusterName string) (time.Time, error) {
-	var snapshotAt time.Time
+// GetLatestPodsSnapshot은 cluster_pods의 최신 snapshot_at을 반환합니다.
+// 없으면 에러 반환 (Pod 데이터는 반드시 있어야 함).
+func (r *ExposureRepo) GetLatestPodsSnapshot(ctx context.Context, clusterName string) (time.Time, error) {
+	var t *time.Time
 	err := r.pool.QueryRow(ctx,
-		`SELECT MAX(snapshot_at)
-		 FROM cluster_pods
-		 WHERE cluster_name = $1`,
+		`SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1`,
 		clusterName,
-	).Scan(&snapshotAt)
+	).Scan(&t)
 
-	if errors.Is(err, pgx.ErrNoRows) {
-		return time.Time{}, fmt.Errorf("no snapshots found for cluster %s", clusterName)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, fmt.Errorf("get latest pods snapshot: %w", err)
 	}
-	if err != nil {
-		return time.Time{}, fmt.Errorf("get latest snapshot: %w", err)
+	if t == nil || t.IsZero() {
+		return time.Time{}, fmt.Errorf("no pods snapshot found for cluster %s", clusterName)
 	}
-	if snapshotAt.IsZero() {
-		return time.Time{}, fmt.Errorf("no snapshots found for cluster %s", clusterName)
-	}
-	return snapshotAt, nil
+	return *t, nil
 }
+
+// GetLatestServicesSnapshot은 cluster_services의 최신 snapshot_at을 반환합니다.
+// Service가 하나도 없는 클러스터는 드물어요 (kubernetes Service는 기본 존재).
+// 없으면 zero time 반환 (에러 아님).
+func (r *ExposureRepo) GetLatestServicesSnapshot(ctx context.Context, clusterName string) (time.Time, error) {
+	var t *time.Time
+	err := r.pool.QueryRow(ctx,
+		`SELECT MAX(snapshot_at) FROM cluster_services WHERE cluster_name = $1`,
+		clusterName,
+	).Scan(&t)
+
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, fmt.Errorf("get latest services snapshot: %w", err)
+	}
+	if t == nil {
+		return time.Time{}, nil
+	}
+	return *t, nil
+}
+
+// GetLatestIngressesSnapshot은 cluster_ingresses의 최신 snapshot_at을 반환합니다.
+// Ingress가 없는 클러스터도 흔합니다.
+// 없으면 zero time 반환 (에러 아님).
+func (r *ExposureRepo) GetLatestIngressesSnapshot(ctx context.Context, clusterName string) (time.Time, error) {
+	var t *time.Time
+	err := r.pool.QueryRow(ctx,
+		`SELECT MAX(snapshot_at) FROM cluster_ingresses WHERE cluster_name = $1`,
+		clusterName,
+	).Scan(&t)
+
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, fmt.Errorf("get latest ingresses snapshot: %w", err)
+	}
+	if t == nil {
+		return time.Time{}, nil
+	}
+	return *t, nil
+}
+
+// ─────────────────────────────────────────
+// 데이터 조회
+// ─────────────────────────────────────────
 
 // ListPodsAtSnapshot은 특정 snapshot의 모든 Pod을 반환합니다.
 func (r *ExposureRepo) ListPodsAtSnapshot(ctx context.Context, clusterName string, snapshotAt time.Time) ([]PodSnapshot, error) {
@@ -111,7 +147,6 @@ func (r *ExposureRepo) ListPodsAtSnapshot(ctx context.Context, clusterName strin
 		if err := rows.Scan(&p.PodUID, &p.Name, &p.Namespace, &labelsRaw); err != nil {
 			return nil, fmt.Errorf("scan pod: %w", err)
 		}
-		// labels JSONB → map[string]string
 		if len(labelsRaw) > 0 {
 			_ = json.Unmarshal(labelsRaw, &p.Labels)
 		}
@@ -124,7 +159,11 @@ func (r *ExposureRepo) ListPodsAtSnapshot(ctx context.Context, clusterName strin
 }
 
 // ListServicesAtSnapshot은 특정 snapshot의 모든 Service를 반환합니다.
+// snapshot이 zero time이면 빈 리스트 반환.
 func (r *ExposureRepo) ListServicesAtSnapshot(ctx context.Context, clusterName string, snapshotAt time.Time) ([]ServiceSnapshot, error) {
+	if snapshotAt.IsZero() {
+		return []ServiceSnapshot{}, nil
+	}
 	rows, err := r.pool.Query(ctx,
 		`SELECT name, namespace, COALESCE(type, ''), COALESCE(selector, '{}'::jsonb)
 		 FROM cluster_services
@@ -154,25 +193,12 @@ func (r *ExposureRepo) ListServicesAtSnapshot(ctx context.Context, clusterName s
 	return out, rows.Err()
 }
 
-// ListIngressBackendsAtSnapshot은 특정 snapshot의 Ingress에서
-// (Service 매핑) 정보를 펼쳐서 반환합니다.
-//
-// 하나의 Ingress가 N개 host * M개 path를 가질 수 있으므로
-// 각 path별 backend service를 한 row로 펼칩니다.
-//
-// cluster_ingresses.rules JSONB 구조:
-//
-//	[
-//	  {
-//	    "host": "example.com",
-//	    "paths": [
-//	      {"path": "/", "service_name": "nginx-svc", "service_port": 80}
-//	    ]
-//	  }
-//	]
+// ListIngressBackendsAtSnapshot은 특정 snapshot의 Ingress backend 매핑을
+// 펼쳐서 반환합니다. snapshot이 zero time이면 빈 리스트 반환.
 func (r *ExposureRepo) ListIngressBackendsAtSnapshot(ctx context.Context, clusterName string, snapshotAt time.Time) ([]IngressSnapshot, error) {
-	// jsonb_path_query로 host + service_name 펼치기
-	// 일부 Ingress는 host가 없을 수 있음 (default backend) → COALESCE
+	if snapshotAt.IsZero() {
+		return []IngressSnapshot{}, nil
+	}
 	query := `
 		SELECT
 			ing.name,
@@ -186,7 +212,6 @@ func (r *ExposureRepo) ListIngressBackendsAtSnapshot(ctx context.Context, cluste
 		  AND ing.snapshot_at = $2
 		  AND COALESCE(path->>'service_name', '') <> ''
 	`
-
 	rows, err := r.pool.Query(ctx, query, clusterName, snapshotAt)
 	if err != nil {
 		return nil, fmt.Errorf("query ingresses: %w", err)
@@ -205,51 +230,10 @@ func (r *ExposureRepo) ListIngressBackendsAtSnapshot(ctx context.Context, cluste
 }
 
 // ─────────────────────────────────────────
-// 저장 메서드
+// 저장
 // ─────────────────────────────────────────
 
-// UpsertExposureResult는 단일 Pod의 계산 결과를 저장합니다.
-// 같은 (cluster_name, pod_uid, snapshot_at)이면 갱신합니다.
-func (r *ExposureRepo) UpsertExposureResult(ctx context.Context, result scoring.ExposureResult) error {
-	matchedServicesJSON, _ := json.Marshal(result.MatchedServices)
-	if matchedServicesJSON == nil {
-		matchedServicesJSON = []byte("[]")
-	}
-	matchedIngressesJSON, _ := json.Marshal(result.MatchedIngresses)
-	if matchedIngressesJSON == nil {
-		matchedIngressesJSON = []byte("[]")
-	}
-
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO exposure_scores (
-			cluster_name, pod_uid, pod_name, pod_namespace,
-			exposed, score,
-			matched_services, matched_ingresses,
-			snapshot_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9
-		)
-		ON CONFLICT (cluster_name, pod_uid, snapshot_at) DO UPDATE SET
-			pod_name          = EXCLUDED.pod_name,
-			pod_namespace     = EXCLUDED.pod_namespace,
-			exposed           = EXCLUDED.exposed,
-			score             = EXCLUDED.score,
-			matched_services  = EXCLUDED.matched_services,
-			matched_ingresses = EXCLUDED.matched_ingresses,
-			computed_at       = NOW()`,
-		result.ClusterName, result.PodUID, result.PodName, result.PodNamespace,
-		result.Exposed, result.Score,
-		matchedServicesJSON, matchedIngressesJSON,
-		result.SnapshotAt,
-	)
-	if err != nil {
-		return fmt.Errorf("upsert exposure result: %w", err)
-	}
-	return nil
-}
-
 // UpsertExposureBatch는 여러 결과를 배치로 저장합니다.
-// 트랜잭션으로 묶어서 일관성 보장.
 func (r *ExposureRepo) UpsertExposureBatch(ctx context.Context, results []scoring.ExposureResult) error {
 	if len(results) == 0 {
 		return nil
@@ -308,7 +292,6 @@ func (r *ExposureRepo) UpsertExposureBatch(ctx context.Context, results []scorin
 }
 
 // GetByPodUID는 단일 Pod의 최근 결과를 조회합니다.
-// 같은 Pod에 여러 snapshot 결과가 있으면 가장 최근 것 반환.
 func (r *ExposureRepo) GetByPodUID(ctx context.Context, clusterName, podUID string) (*scoring.ExposureResult, error) {
 	var result scoring.ExposureResult
 	var matchedServicesRaw, matchedIngressesRaw []byte
@@ -348,18 +331,17 @@ func (r *ExposureRepo) GetByPodUID(ctx context.Context, clusterName, podUID stri
 
 // ListByCluster는 클러스터의 최신 snapshot 결과를 모두 반환합니다.
 func (r *ExposureRepo) ListByCluster(ctx context.Context, clusterName string) ([]scoring.ExposureResult, error) {
-	// 가장 최근 snapshot_at 찾기
-	var latestSnapshot time.Time
+	var latestSnapshot *time.Time
 	err := r.pool.QueryRow(ctx,
 		`SELECT MAX(snapshot_at) FROM exposure_scores WHERE cluster_name = $1`,
 		clusterName,
 	).Scan(&latestSnapshot)
 
-	if errors.Is(err, pgx.ErrNoRows) || latestSnapshot.IsZero() {
-		return []scoring.ExposureResult{}, nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("get latest snapshot: %w", err)
+	}
+	if latestSnapshot == nil {
+		return []scoring.ExposureResult{}, nil
 	}
 
 	rows, err := r.pool.Query(ctx,
@@ -370,7 +352,7 @@ func (r *ExposureRepo) ListByCluster(ctx context.Context, clusterName string) ([
 		 FROM exposure_scores
 		 WHERE cluster_name = $1 AND snapshot_at = $2
 		 ORDER BY exposed DESC, pod_namespace, pod_name`,
-		clusterName, latestSnapshot,
+		clusterName, *latestSnapshot,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list by cluster: %w", err)
