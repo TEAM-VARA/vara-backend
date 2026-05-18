@@ -15,6 +15,7 @@ func newRouter(
 	exposure *handler.ExposureHandler,
 	globalScoring *handler.GlobalScoringHandler,
 	attackPath *handler.AttackPathHandler,
+	localScoring *handler.LocalScoringHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -59,6 +60,11 @@ func newRouter(
 		api.POST("/scoring/attack-path/compute", attackPath.Compute)
 		api.GET("/scoring/attack-path/pods/:pod_uid", attackPath.GetByPod)
 		api.GET("/scoring/attack-path/clusters/:cluster_name", attackPath.GetByCluster)
+
+		// ── Local Score (작업 B-2) ──
+		api.POST("/scoring/local/compute", localScoring.Compute)
+		api.GET("/scoring/local/pods/:pod_uid", localScoring.GetByPod)
+		api.GET("/scoring/local/clusters/:cluster_name", localScoring.GetByCluster)
 
 		// ── ISMS-P 컴플라이언스 ──
 		api.POST("/assets", ismsp.CreateAsset)
