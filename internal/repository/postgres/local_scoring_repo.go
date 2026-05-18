@@ -89,7 +89,7 @@ func (r *LocalScoringRepo) LoadSourceScores(ctx context.Context, clusterName str
 
 			-- exposure
 			es.exposed,
-			score,
+			es.score,
 			es.snapshot_at AS exposure_snapshot_at,
 
 			-- attack_path
@@ -106,7 +106,7 @@ func (r *LocalScoringRepo) LoadSourceScores(ctx context.Context, clusterName str
 		FROM cluster_pods p
 
 		LEFT JOIN LATERAL (
-			SELECT exposed, snapshot_at
+			SELECT exposed, score, snapshot_at
 			FROM exposure_scores
 			WHERE cluster_name = $1 AND pod_uid = p.pod_uid
 			ORDER BY snapshot_at DESC LIMIT 1
