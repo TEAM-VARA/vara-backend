@@ -17,6 +17,7 @@ func newRouter(
 	attackPath *handler.AttackPathHandler,
 	localScoring *handler.LocalScoringHandler,
 	imageGlobalCache *handler.ImageGlobalCacheHandler,
+	finalScoring *handler.FinalScoringHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -34,13 +35,8 @@ func newRouter(
 		api.POST("/agents/cluster-reader/network-policies", clusterReader.NetworkPolicies)
 		api.POST("/agents/cluster-reader/rbac", clusterReader.RBAC)
 
-		// ── 단순 Pod 이벤트 ──
 		api.POST("/agents/cluster-reader/pod-events", agent.PodEvents)
-
-		// ── eBPF Agent ──
 		api.POST("/agents/ebpf/traffic", agent.Traffic)
-
-		// ── SBOM ──
 		api.POST("/agents/sbom", agent.SBOM)
 
 		// ── 기존 Risk Scoring (유지) ──
@@ -55,10 +51,9 @@ func newRouter(
 		// ── Global CVE Score (작업 B-1) ──
 		api.POST("/scoring/global/cves/:cve_id", globalScoring.ComputeCVE)
 		api.GET("/scoring/global/cves/:cve_id", globalScoring.GetCVE)
-		api.POST("/scoring/global/images", globalScoring.ComputeImage) // 기존, body 기반
+		api.POST("/scoring/global/images", globalScoring.ComputeImage)
 
 		// ── Image Global Cache (작업 B-3a) ──
-		// path-style + 영속화 + GET 조회
 		api.POST("/scoring/global/images/:digest", imageGlobalCache.ComputeByDigest)
 		api.GET("/scoring/global/images/:digest", imageGlobalCache.GetByDigest)
 
@@ -71,6 +66,11 @@ func newRouter(
 		api.POST("/scoring/local/compute", localScoring.Compute)
 		api.GET("/scoring/local/pods/:pod_uid", localScoring.GetByPod)
 		api.GET("/scoring/local/clusters/:cluster_name", localScoring.GetByCluster)
+
+		// ── Final Score (작업 B-3) ──
+		api.POST("/scoring/final/compute", finalScoring.Compute)
+		api.GET("/scoring/final/pods/:pod_uid", finalScoring.GetByPod)
+		api.GET("/scoring/final/clusters/:cluster_name", finalScoring.GetByCluster)
 
 		// ── ISMS-P 컴플라이언스 ──
 		api.POST("/assets", ismsp.CreateAsset)
