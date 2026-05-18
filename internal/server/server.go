@@ -33,9 +33,10 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	clusterReaderRepo := postgres.NewClusterReaderRepo(pg)
 	sbomRepo := postgres.NewSBOMRepo(pg)
 	exposureRepo := postgres.NewExposureRepo(pg)
-	globalScoringRepo := postgres.NewGlobalScoringRepo(pg) // 신규 (작업 B-1)
+	globalScoringRepo := postgres.NewGlobalScoringRepo(pg)
+	attackPathRepo := postgres.NewAttackPathRepo(pg) // 신규 (작업 B-2c)
 
-	// ── 외부 API 클라이언트 (Risk Scoring용) ──
+	// ── 외부 API 클라이언트 ──
 	nvdAPIKey := os.Getenv("NVD_API_KEY")
 	if nvdAPIKey == "" {
 		fmt.Printf("warn: NVD_API_KEY is empty, rate limit 5req/30s applies\n")
@@ -47,12 +48,12 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	kevClient := kev.NewClient()
 	exploitDBClient := exploitdb.NewClient()
 
-	// ── Trivy 클라이언트 (SBOM 스캔용) ──
+	// ── Trivy ──
 	trivyClient := trivy.NewClient()
 	{
 		checkCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if err := trivyClient.CheckBinary(checkCtx); err != nil {
-			fmt.Printf("warn: trivy binary check failed, SBOM scanning unavailable: %v\n", err)
+			fmt.Printf("warn: trivy binary check failed: %v\n", err)
 		} else {
 			fmt.Printf("info: trivy binary check OK\n")
 		}
@@ -63,12 +64,13 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	agentSvc := service.NewAgentService(agentRepo)
 	scoringSvc := service.NewScoringService(nvdClient, epssClient, kevClient, exploitDBClient)
 	sbomSvc := service.NewSBOMService(trivyClient, sbomRepo, rdb, service.SBOMServiceConfig{
-		MaxConcurrent: 1, // trivy fs cache lock 충돌 방지
+		MaxConcurrent: 1,
 	})
 	exposureSvc := service.NewExposureService(exposureRepo)
-	globalScoringSvc := service.NewGlobalScoringService( // 신규 (작업 B-1)
+	globalScoringSvc := service.NewGlobalScoringService(
 		nvdClient, epssClient, kevClient, exploitDBClient, globalScoringRepo,
 	)
+	attackPathSvc := service.NewAttackPathService(attackPathRepo) // 신규 (작업 B-2c)
 
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)
@@ -77,9 +79,11 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	scoringH := handler.NewScoring(scoringRepo, scoringSvc)
 	clusterReaderH := handler.NewClusterReader(clusterReaderRepo, sbomSvc)
 	exposureH := handler.NewExposureHandler(exposureSvc)
-	globalScoringH := handler.NewGlobalScoringHandler(globalScoringSvc) // 신규 (작업 B-1)
+	globalScoringH := handler.NewGlobalScoringHandler(globalScoringSvc)
+	attackPathH := handler.NewAttackPathHandler(attackPathSvc) // 신규 (작업 B-2c)
 
-	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH, exposureH, globalScoringH)
+	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
+		exposureH, globalScoringH, attackPathH)
 
 	return &Server{
 		cfg: cfg,

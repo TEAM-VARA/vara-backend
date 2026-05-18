@@ -14,6 +14,7 @@ func newRouter(
 	clusterReader *handler.ClusterReaderHandler,
 	exposure *handler.ExposureHandler,
 	globalScoring *handler.GlobalScoringHandler,
+	attackPath *handler.AttackPathHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -31,7 +32,7 @@ func newRouter(
 		api.POST("/agents/cluster-reader/network-policies", clusterReader.NetworkPolicies)
 		api.POST("/agents/cluster-reader/rbac", clusterReader.RBAC)
 
-		// ── 단순 Pod 이벤트 (scan-pod.sh 같은 도구용) ──
+		// ── 단순 Pod 이벤트 ──
 		api.POST("/agents/cluster-reader/pod-events", agent.PodEvents)
 
 		// ── eBPF Agent ──
@@ -53,6 +54,11 @@ func newRouter(
 		api.POST("/scoring/global/cves/:cve_id", globalScoring.ComputeCVE)
 		api.GET("/scoring/global/cves/:cve_id", globalScoring.GetCVE)
 		api.POST("/scoring/global/images", globalScoring.ComputeImage)
+
+		// ── Attack Path Scope (작업 B-2c) ──
+		api.POST("/scoring/attack-path/compute", attackPath.Compute)
+		api.GET("/scoring/attack-path/pods/:pod_uid", attackPath.GetByPod)
+		api.GET("/scoring/attack-path/clusters/:cluster_name", attackPath.GetByCluster)
 
 		// ── ISMS-P 컴플라이언스 ──
 		api.POST("/assets", ismsp.CreateAsset)
