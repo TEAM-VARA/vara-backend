@@ -13,6 +13,7 @@ func newRouter(
 	scoring *handler.ScoringHandler,
 	clusterReader *handler.ClusterReaderHandler,
 	exposure *handler.ExposureHandler,
+	globalScoring *handler.GlobalScoringHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -39,7 +40,7 @@ func newRouter(
 		// ── SBOM ──
 		api.POST("/agents/sbom", agent.SBOM)
 
-		// ── Risk Scoring ──
+		// ── 기존 Risk Scoring (유지) ──
 		api.POST("/pods/:pod_id/risk", scoring.ComputeRisk)
 		api.GET("/pods/:pod_id/risk/details", scoring.GetRiskDetails)
 
@@ -47,6 +48,11 @@ func newRouter(
 		api.POST("/scoring/exposure/compute", exposure.Compute)
 		api.GET("/scoring/exposure/pods/:pod_uid", exposure.GetByPod)
 		api.GET("/scoring/exposure/clusters/:cluster_name", exposure.GetByCluster)
+
+		// ── Global CVE Score (작업 B-1) ──
+		api.POST("/scoring/global/cves/:cve_id", globalScoring.ComputeCVE)
+		api.GET("/scoring/global/cves/:cve_id", globalScoring.GetCVE)
+		api.POST("/scoring/global/images", globalScoring.ComputeImage)
 
 		// ── ISMS-P 컴플라이언스 ──
 		api.POST("/assets", ismsp.CreateAsset)

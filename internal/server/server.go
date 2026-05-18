@@ -32,10 +32,16 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	scoringRepo := postgres.NewScoringRepo(pg)
 	clusterReaderRepo := postgres.NewClusterReaderRepo(pg)
 	sbomRepo := postgres.NewSBOMRepo(pg)
-	exposureRepo := postgres.NewExposureRepo(pg) // 신규 (작업 C-1)
+	exposureRepo := postgres.NewExposureRepo(pg)
+	globalScoringRepo := postgres.NewGlobalScoringRepo(pg) // 신규 (작업 B-1)
 
 	// ── 외부 API 클라이언트 (Risk Scoring용) ──
 	nvdAPIKey := os.Getenv("NVD_API_KEY")
+	if nvdAPIKey == "" {
+		fmt.Printf("warn: NVD_API_KEY is empty, rate limit 5req/30s applies\n")
+	} else {
+		fmt.Printf("info: NVD_API_KEY loaded (rate limit 50req/30s)\n")
+	}
 	nvdClient := nvd.NewClient(nvdAPIKey)
 	epssClient := epss.NewClient()
 	kevClient := kev.NewClient()
@@ -59,7 +65,10 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	sbomSvc := service.NewSBOMService(trivyClient, sbomRepo, rdb, service.SBOMServiceConfig{
 		MaxConcurrent: 1, // trivy fs cache lock 충돌 방지
 	})
-	exposureSvc := service.NewExposureService(exposureRepo) // 신규 (작업 C-1)
+	exposureSvc := service.NewExposureService(exposureRepo)
+	globalScoringSvc := service.NewGlobalScoringService( // 신규 (작업 B-1)
+		nvdClient, epssClient, kevClient, exploitDBClient, globalScoringRepo,
+	)
 
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)
@@ -67,9 +76,10 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	ismspH := handler.NewISMSP(pg)
 	scoringH := handler.NewScoring(scoringRepo, scoringSvc)
 	clusterReaderH := handler.NewClusterReader(clusterReaderRepo, sbomSvc)
-	exposureH := handler.NewExposureHandler(exposureSvc) // 신규 (작업 C-1)
+	exposureH := handler.NewExposureHandler(exposureSvc)
+	globalScoringH := handler.NewGlobalScoringHandler(globalScoringSvc) // 신규 (작업 B-1)
 
-	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH, exposureH)
+	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH, exposureH, globalScoringH)
 
 	return &Server{
 		cfg: cfg,
