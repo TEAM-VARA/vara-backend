@@ -60,9 +60,9 @@ type PodSourceScores struct {
 // LoadSourceScores는 클러스터의 모든 Pod에 대해 exposure + attack_path 점수를 조회합니다.
 //
 // 전략:
-//   1. cluster_pods의 최신 snapshot에서 Pod 목록 로드 (기준)
-//   2. exposure_scores의 각 Pod 최신 점수 조회 (LEFT JOIN)
-//   3. attack_path_scores의 각 Pod 최신 점수 조회 (LEFT JOIN)
+//  1. cluster_pods의 최신 snapshot에서 Pod 목록 로드 (기준)
+//  2. exposure_scores의 각 Pod 최신 점수 조회 (LEFT JOIN)
+//  3. attack_path_scores의 각 Pod 최신 점수 조회 (LEFT JOIN)
 //
 // Pod이 두 점수 중 하나라도 없으면 그 부분은 0으로 처리하고 missing 카운터 증가.
 func (r *LocalScoringRepo) LoadSourceScores(ctx context.Context, clusterName string) ([]PodSourceScores, error) {
@@ -89,7 +89,7 @@ func (r *LocalScoringRepo) LoadSourceScores(ctx context.Context, clusterName str
 
 			-- exposure
 			es.exposed,
-			es.exposure_score,
+			score,
 			es.snapshot_at AS exposure_snapshot_at,
 
 			-- attack_path
@@ -106,7 +106,7 @@ func (r *LocalScoringRepo) LoadSourceScores(ctx context.Context, clusterName str
 		FROM cluster_pods p
 
 		LEFT JOIN LATERAL (
-			SELECT exposed, exposure_score, snapshot_at
+			SELECT exposed, snapshot_at
 			FROM exposure_scores
 			WHERE cluster_name = $1 AND pod_uid = p.pod_uid
 			ORDER BY snapshot_at DESC LIMIT 1
