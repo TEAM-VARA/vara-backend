@@ -35,7 +35,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	exposureRepo := postgres.NewExposureRepo(pg)
 	globalScoringRepo := postgres.NewGlobalScoringRepo(pg)
 	attackPathRepo := postgres.NewAttackPathRepo(pg)
-	localScoringRepo := postgres.NewLocalScoringRepo(pg) // 신규 (작업 B-2)
+	localScoringRepo := postgres.NewLocalScoringRepo(pg)
+	imageGlobalRepo := postgres.NewImageGlobalRepo(pg) // 신규 (작업 B-3a)
 
 	// ── 외부 API 클라이언트 ──
 	nvdAPIKey := os.Getenv("NVD_API_KEY")
@@ -72,7 +73,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		nvdClient, epssClient, kevClient, exploitDBClient, globalScoringRepo,
 	)
 	attackPathSvc := service.NewAttackPathService(attackPathRepo)
-	localScoringSvc := service.NewLocalScoringService(localScoringRepo) // 신규 (작업 B-2)
+	localScoringSvc := service.NewLocalScoringService(localScoringRepo)
+	imageGlobalCacheSvc := service.NewImageGlobalCacheService(imageGlobalRepo, globalScoringSvc) // 신규
 
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)
@@ -83,10 +85,11 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	exposureH := handler.NewExposureHandler(exposureSvc)
 	globalScoringH := handler.NewGlobalScoringHandler(globalScoringSvc)
 	attackPathH := handler.NewAttackPathHandler(attackPathSvc)
-	localScoringH := handler.NewLocalScoringHandler(localScoringSvc) // 신규 (작업 B-2)
+	localScoringH := handler.NewLocalScoringHandler(localScoringSvc)
+	imageGlobalCacheH := handler.NewImageGlobalCacheHandler(imageGlobalCacheSvc) // 신규
 
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
-		exposureH, globalScoringH, attackPathH, localScoringH)
+		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH)
 
 	return &Server{
 		cfg: cfg,

@@ -16,6 +16,7 @@ func newRouter(
 	globalScoring *handler.GlobalScoringHandler,
 	attackPath *handler.AttackPathHandler,
 	localScoring *handler.LocalScoringHandler,
+	imageGlobalCache *handler.ImageGlobalCacheHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -54,7 +55,12 @@ func newRouter(
 		// ── Global CVE Score (작업 B-1) ──
 		api.POST("/scoring/global/cves/:cve_id", globalScoring.ComputeCVE)
 		api.GET("/scoring/global/cves/:cve_id", globalScoring.GetCVE)
-		api.POST("/scoring/global/images", globalScoring.ComputeImage)
+		api.POST("/scoring/global/images", globalScoring.ComputeImage) // 기존, body 기반
+
+		// ── Image Global Cache (작업 B-3a) ──
+		// path-style + 영속화 + GET 조회
+		api.POST("/scoring/global/images/:digest", imageGlobalCache.ComputeByDigest)
+		api.GET("/scoring/global/images/:digest", imageGlobalCache.GetByDigest)
 
 		// ── Attack Path Scope (작업 B-2c) ──
 		api.POST("/scoring/attack-path/compute", attackPath.Compute)
