@@ -20,6 +20,7 @@ func newRouter(
 	finalScoring *handler.FinalScoringHandler,
 	toxic *handler.ToxicHandler,
 	sbomPackage *handler.SBOMPackageHandler,
+	packageVuln *handler.PackageVulnHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -81,11 +82,16 @@ func newRouter(
 		api.GET("/scoring/toxic/rules", toxic.ListRules)
 
 		// ── SBOM Packages (작업 B-5) ──
-		// 주의: search 라우트는 :digest 라우트보다 먼저 등록해야 함
-		// (gin은 path 충돌 시 등록 순서 영향)
+		// 정적 경로를 동적 경로보다 먼저 등록
+		api.GET("/sboms/packages/vulnerabilities/search", packageVuln.SearchByVulnID)
+		api.GET("/sboms/packages/vulnerabilities/by-purl", packageVuln.ListByPURL)
 		api.GET("/sboms/packages/search", sbomPackage.Search)
 		api.POST("/sboms/packages/backfill", sbomPackage.Backfill)
 		api.POST("/sboms/packages/extract/:digest", sbomPackage.Extract)
+
+		// 동적 경로 (이미지 단위)
+		api.POST("/sboms/packages/:digest/vulnerabilities/scan", packageVuln.Scan)
+		api.GET("/sboms/packages/:digest/vulnerabilities", packageVuln.ListByImage)
 		api.GET("/sboms/packages/:digest", sbomPackage.List)
 
 		// ── ISMS-P ──

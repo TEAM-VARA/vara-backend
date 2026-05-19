@@ -17,6 +17,7 @@ import (
 	"github.com/vara/backend/internal/platform/exploitdb"
 	"github.com/vara/backend/internal/platform/kev"
 	"github.com/vara/backend/internal/platform/nvd"
+	"github.com/vara/backend/internal/platform/osv"
 	"github.com/vara/backend/internal/repository/postgres"
 	"github.com/vara/backend/internal/service"
 )
@@ -39,7 +40,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	imageGlobalRepo := postgres.NewImageGlobalRepo(pg)
 	finalScoringRepo := postgres.NewFinalScoringRepo(pg)
 	toxicRepo := postgres.NewToxicRepo(pg)
-	sbomPackageRepo := postgres.NewSBOMPackageRepo(pg) // 신규 (작업 B-5)
+	sbomPackageRepo := postgres.NewSBOMPackageRepo(pg)
+	packageVulnRepo := postgres.NewPackageVulnerabilityRepo(pg) // 신규 (작업 B-6)
 
 	// ── 외부 API 클라이언트 ──
 	nvdAPIKey := os.Getenv("NVD_API_KEY")
@@ -52,6 +54,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	epssClient := epss.NewClient()
 	kevClient := kev.NewClient()
 	exploitDBClient := exploitdb.NewClient()
+	osvClient := osv.NewClient() // 신규 (작업 B-6)
 
 	// ── Trivy ──
 	trivyClient := trivy.NewClient()
@@ -80,7 +83,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	imageGlobalCacheSvc := service.NewImageGlobalCacheService(imageGlobalRepo, globalScoringSvc)
 	toxicSvc := service.NewToxicService(toxicRepo)
 	finalScoringSvc := service.NewFinalScoringService(finalScoringRepo, toxicSvc)
-	sbomPackageSvc := service.NewSBOMPackageService(pg, sbomPackageRepo) // 신규 (B-5)
+	sbomPackageSvc := service.NewSBOMPackageService(pg, sbomPackageRepo)
+	packageVulnSvc := service.NewPackageVulnService(osvClient, packageVulnRepo, sbomPackageRepo) // 신규 (B-6)
 
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)
@@ -95,11 +99,12 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	imageGlobalCacheH := handler.NewImageGlobalCacheHandler(imageGlobalCacheSvc)
 	finalScoringH := handler.NewFinalScoringHandler(finalScoringSvc)
 	toxicH := handler.NewToxicHandler(toxicSvc)
-	sbomPackageH := handler.NewSBOMPackageHandler(sbomPackageSvc) // 신규 (B-5)
+	sbomPackageH := handler.NewSBOMPackageHandler(sbomPackageSvc)
+	packageVulnH := handler.NewPackageVulnHandler(packageVulnSvc) // 신규 (B-6)
 
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
-		finalScoringH, toxicH, sbomPackageH)
+		finalScoringH, toxicH, sbomPackageH, packageVulnH)
 
 	return &Server{
 		cfg: cfg,
