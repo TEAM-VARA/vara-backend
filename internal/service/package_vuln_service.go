@@ -12,15 +12,6 @@ import (
 
 // PackageVulnService는 sbom_packages의 PURL을 osv.dev로 조회하여
 // package_vulnerabilities에 저장합니다.
-//
-// 동작:
-//   1. 이미지의 모든 PURL을 sbom_packages에서 가져옴
-//   2. 각 PURL에 대해:
-//      - 캐시 hit이면 skip
-//      - 캐시 miss면 osv.dev 호출
-//      - 결과 정규화 → package_vulnerabilities에 저장
-//      - package_osv_queries에 기록 (0건이어도)
-//   3. 통계 반환
 type PackageVulnService struct {
 	osvClient *osv.Client
 	repo      *postgres.PackageVulnerabilityRepo
@@ -39,31 +30,22 @@ func NewPackageVulnService(
 	}
 }
 
-// ─────────────────────────────────────────
-// Scan 결과 DTO
-// ─────────────────────────────────────────
-
 type ScanImageResult struct {
-	ImageDigest      string                          `json:"image_digest"`
-	TotalPackages    int                             `json:"total_packages"`
-	QueriedPackages  int                             `json:"queried_packages"`
-	CachedPackages   int                             `json:"cached_packages"`
-	TotalVulns       int                             `json:"total_vulns"`
-	NewVulns         int                             `json:"new_vulns"`
-	SeverityCounts   map[string]int                  `json:"severity_counts"`
-	Failed           int                             `json:"failed"`
-	DurationSeconds  float64                         `json:"duration_seconds"`
-	FailedPURLs      []string                        `json:"failed_purls,omitempty"`
+	ImageDigest     string         `json:"image_digest"`
+	TotalPackages   int            `json:"total_packages"`
+	QueriedPackages int            `json:"queried_packages"`
+	CachedPackages  int            `json:"cached_packages"`
+	TotalVulns      int            `json:"total_vulns"`
+	NewVulns        int            `json:"new_vulns"`
+	SeverityCounts  map[string]int `json:"severity_counts"`
+	Failed          int            `json:"failed"`
+	DurationSeconds float64        `json:"duration_seconds"`
+	FailedPURLs     []string       `json:"failed_purls,omitempty"`
 }
 
-// ─────────────────────────────────────────
-// 이미지 스캔 (메인 엔트리)
-// ─────────────────────────────────────────
-
-// ScanImage는 한 이미지의 모든 패키지에 대해 osv.dev를 조회하여
-// 취약점을 저장합니다.
+// ScanImage scans all packages of an image against osv.dev.
 //
-//	force: true면 캐시 무시하고 모두 재조회
+//	force: bypass cache and re-query everything
 func (s *PackageVulnService) ScanImage(ctx context.Context, imageDigest string, force bool) (*ScanImageResult, error) {
 	if imageDigest == "" {
 		return nil, fmt.Errorf("image_digest is required")
@@ -71,7 +53,6 @@ func (s *PackageVulnService) ScanImage(ctx context.Context, imageDigest string, 
 
 	start := time.Now()
 
-	// 1. 이미지의 모든 패키지 조회
 	packages, err := s.pkgRepo.ListByImageDigest(ctx, imageDigest)
 	if err != nil {
 		return nil, fmt.Errorf("list packages: %w", err)
@@ -91,9 +72,7 @@ func (s *PackageVulnService) ScanImage(ctx context.Context, imageDigest string, 
 	fmt.Printf("info: osv scan starting digest=%s packages=%d force=%v\n",
 		imageDigest, len(packages), force)
 
-	// 2. 각 패키지 처리
 	for i, pkg := range packages {
-		// 캐시 체크
 		if !force {
 			cached, err := s.repo.IsCached(ctx, pkg.PURL)
 			if err != nil {
@@ -104,7 +83,6 @@ func (s *PackageVulnService) ScanImage(ctx context.Context, imageDigest string, 
 			}
 		}
 
-		// osv.dev 호출
 		vulns, err := s.osvClient.QueryByPURL(ctx, pkg.PURL)
 		if err != nil {
 			fmt.Printf("warn: osv query failed for %s: %v\n", pkg.PURL, err)
@@ -117,14 +95,12 @@ func (s *PackageVulnService) ScanImage(ctx context.Context, imageDigest string, 
 
 		result.QueriedPackages++
 
-		// 진행 상황 로그 (50개마다)
 		if (i+1)%50 == 0 {
 			fmt.Printf("info: osv progress %d/%d (queried=%d cached=%d vulns=%d)\n",
 				i+1, len(packages),
 				result.QueriedPackages, result.CachedPackages, result.TotalVulns)
 		}
 
-		// 결과 정규화
 		now := time.Now()
 		expires := now.Add(sbom.PackageVulnTTL)
 
@@ -133,13 +109,20 @@ func (s *PackageVulnService) ScanImage(ctx context.Context, imageDigest string, 
 			score, vector := osv.ExtractCVSSScore(v)
 			label := osv.ClassifySeverity(score)
 
+			// nil 방어: osv.dev가 aliases 필드를 누락하면 nil로 옴.
+			// DB의 aliases TEXT[] NOT NULL 제약을 만족시키기 위해 빈 slice로 변환.
+			aliases := v.Aliases
+			if aliases == nil {
+				aliases = []string{}
+			}
+
 			normalizedVulns = append(normalizedVulns, sbom.PackageVulnerability{
 				PURL:           pkg.PURL,
 				Name:           pkg.Name,
 				Version:        pkg.Version,
 				Ecosystem:      pkg.Ecosystem,
 				VulnID:         v.ID,
-				Aliases:        v.Aliases,
+				Aliases:        aliases,
 				Summary:        v.Summary,
 				SeverityScore:  score,
 				SeverityVector: vector,
@@ -151,7 +134,6 @@ func (s *PackageVulnService) ScanImage(ctx context.Context, imageDigest string, 
 			result.SeverityCounts[label]++
 		}
 
-		// 저장
 		if len(normalizedVulns) > 0 {
 			if err := s.repo.UpsertBatch(ctx, normalizedVulns); err != nil {
 				fmt.Printf("warn: upsert vulns failed for %s: %v\n", pkg.PURL, err)
@@ -162,7 +144,6 @@ func (s *PackageVulnService) ScanImage(ctx context.Context, imageDigest string, 
 			result.NewVulns += len(normalizedVulns)
 		}
 
-		// 쿼리 기록 (0건이어도 기록)
 		if err := s.repo.RecordQuery(ctx, pkg.PURL, len(vulns)); err != nil {
 			fmt.Printf("warn: record query failed for %s: %v\n", pkg.PURL, err)
 		}
@@ -179,10 +160,6 @@ func (s *PackageVulnService) ScanImage(ctx context.Context, imageDigest string, 
 
 	return result, nil
 }
-
-// ─────────────────────────────────────────
-// 조회 wrapper
-// ─────────────────────────────────────────
 
 func (s *PackageVulnService) ListByImageDigest(ctx context.Context, imageDigest string) ([]sbom.PackageVulnerability, error) {
 	return s.repo.ListByImageDigest(ctx, imageDigest)
