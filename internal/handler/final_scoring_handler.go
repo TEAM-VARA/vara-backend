@@ -15,10 +15,6 @@ import (
 // 엔드포인트:
 //   POST /api/v1/scoring/final/compute
 //     Body: { "cluster_name": "..." }
-//     → 클러스터 전체 Pod의 Final Score 계산 + 저장
-//     사전 조건:
-//       - 작업 B-2 (local_scores) 완료
-//       - 작업 B-3a (image_global_scores) 캐시 채워둠
 //
 //   GET /api/v1/scoring/final/pods/:pod_uid?cluster=<name>
 //   GET /api/v1/scoring/final/clusters/:cluster_name
@@ -26,7 +22,6 @@ type FinalScoringHandler struct {
 	service *service.FinalScoringService
 }
 
-// NewFinalScoringHandler는 FinalScoringHandler를 생성합니다.
 func NewFinalScoringHandler(svc *service.FinalScoringService) *FinalScoringHandler {
 	return &FinalScoringHandler{service: svc}
 }
@@ -86,6 +81,11 @@ func (h *FinalScoringHandler) GetByPod(c *gin.Context) {
 }
 
 // GetByCluster : GET /api/v1/scoring/final/clusters/:cluster_name
+//
+// 응답:
+//   - total: 전체 Pod 수
+//   - emergency_count / warning_count / caution_count / safe_count
+//   - results: final_score 내림차순 정렬된 모든 Pod 결과
 func (h *FinalScoringHandler) GetByCluster(c *gin.Context) {
 	clusterName := c.Param("cluster_name")
 	if clusterName == "" {
@@ -101,27 +101,27 @@ func (h *FinalScoringHandler) GetByCluster(c *gin.Context) {
 		return
 	}
 
-	critical, high, medium, low := 0, 0, 0, 0
+	emergencyCount, warningCount, cautionCount, safeCount := 0, 0, 0, 0
 	for _, r := range results {
 		switch {
-		case r.FinalScore >= 90:
-			critical++
-		case r.FinalScore >= 70:
-			high++
-		case r.FinalScore >= 40:
-			medium++
-		case r.FinalScore > 0:
-			low++
+		case r.FinalScore >= 80:
+			emergencyCount++
+		case r.FinalScore >= 50:
+			warningCount++
+		case r.FinalScore >= 20:
+			cautionCount++
+		default:
+			safeCount++
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"cluster_name":  clusterName,
-		"total":         len(results),
-		"critical_risk": critical,
-		"high_risk":     high,
-		"medium_risk":   medium,
-		"low_risk":      low,
-		"results":       results,
+		"cluster_name":    clusterName,
+		"total":           len(results),
+		"emergency_count": emergencyCount,
+		"warning_count":   warningCount,
+		"caution_count":   cautionCount,
+		"safe_count":      safeCount,
+		"results":         results,
 	})
 }
