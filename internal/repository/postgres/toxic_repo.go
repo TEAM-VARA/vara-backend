@@ -16,11 +16,16 @@ import (
 // ToxicRepo는 Toxic Combination 평가에 필요한 신호를 수집하고
 // 결과를 toxic_results 테이블에 저장합니다.
 //
-// 데이터 소스:
-//   - exposure_scores (externally_exposed)
-//   - attack_path_scores (cluster_admin, secret_access, no_network_policy)
-//   - cluster_pods.containers (privileged, host_network, no_resource_limits)
-//   - image_global_scores (has_critical_cve, has_high_cve, has_kev/poc)
+// 데이터 소스 (실제 스키마 반영):
+//   - exposure_scores.exposed → externally_exposed
+//   - attack_path_scores.rbac_score / network_score / mount_score
+//   - attack_path_scores.rbac_details / mount_details (JSONB)
+//   - cluster_pods.containers (privileged, no_resource_limits)
+//   - image_global_scores.{active, critical, high}_count
+//
+// 주의: cluster_pods에 host_network 컬럼 없음 → 신호 false 고정.
+//
+//	추후 컨테이너 JSONB나 Pod 메타에서 추출 가능.
 type ToxicRepo struct {
 	pool *pgxpool.Pool
 }
@@ -43,12 +48,6 @@ type PodToxicSignals struct {
 // ─────────────────────────────────────────
 
 // LoadSignalsForCluster는 클러스터의 모든 Pod에 대해 토픽 신호를 수집합니다.
-//
-// 단일 쿼리에서 다중 LATERAL JOIN으로 처리:
-//   - exposure_scores 최신 (Pod별 최신)
-//   - attack_path_scores 최신
-//   - cluster_pods.containers JSONB 분석
-//   - image_global_scores 통해 CVE 메트릭
 func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName string) ([]PodToxicSignals, error) {
 	// 1. cluster_pods 최신 snapshot
 	var podsSnapshot *time.Time
@@ -63,13 +62,13 @@ func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName strin
 		return nil, fmt.Errorf("no pods found for cluster %s", clusterName)
 	}
 
-	// 2. Pod별 신호를 모두 가져오는 쿼리.
+	// 2. Pod별 신호 모두 가져오기
 	//
-	//	   exposure / attack_path / cve 메트릭은 LATERAL JOIN으로
-	//	   각 Pod별 최신 한 행만 가져옴.
+	// 주의: cluster_pods에 host_network 컬럼 없음 → 제거
+	//       attack_path_scores는 score + details JSONB로 구성됨
 	query := `
 		WITH latest_pods AS (
-			SELECT pod_uid, name, namespace, snapshot_at, host_network, containers
+			SELECT pod_uid, name, namespace, snapshot_at, containers
 			FROM cluster_pods
 			WHERE cluster_name = $1 AND snapshot_at = $2
 		),
@@ -86,11 +85,13 @@ func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName strin
 			GROUP BY p.pod_uid
 		)
 		SELECT 
-			p.pod_uid, p.name, p.namespace, p.snapshot_at, p.host_network, p.containers,
+			p.pod_uid, p.name, p.namespace, p.snapshot_at, p.containers,
 			COALESCE(es.exposed, false) AS exposed,
-			COALESCE(aps.role_severity, '') AS role_severity,
-			COALESCE(aps.scope, '') AS scope,
+			COALESCE(aps.rbac_score, 0) AS rbac_score,
 			COALESCE(aps.network_score, 0) AS network_score,
+			COALESCE(aps.mount_score, 0) AS mount_score,
+			COALESCE(aps.rbac_details, '{}'::jsonb) AS rbac_details,
+			COALESCE(aps.mount_details, '{}'::jsonb) AS mount_details,
 			COALESCE(im.has_kev, false) AS has_kev,
 			COALESCE(im.has_critical, false) AS has_critical,
 			COALESCE(im.has_high, false) AS has_high
@@ -101,7 +102,8 @@ func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName strin
 			ORDER BY snapshot_at DESC LIMIT 1
 		) es ON TRUE
 		LEFT JOIN LATERAL (
-			SELECT role_severity, scope, network_score FROM attack_path_scores
+			SELECT rbac_score, network_score, mount_score, rbac_details, mount_details
+			FROM attack_path_scores
 			WHERE cluster_name = $1 AND pod_uid = p.pod_uid
 			ORDER BY snapshot_at DESC LIMIT 1
 		) aps ON TRUE
@@ -118,19 +120,20 @@ func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName strin
 	var out []PodToxicSignals
 	for rows.Next() {
 		var (
-			podUID, podName, podNamespace string
-			snapAt                        time.Time
-			hostNetwork                   bool
-			containersJSON                []byte
-			exposed                       bool
-			roleSeverity, scope           string
-			networkScore                  int
-			hasKEV, hasCritical, hasHigh  bool
+			podUID, podName, podNamespace       string
+			snapAt                              time.Time
+			containersJSON                      []byte
+			exposed                             bool
+			rbacScore, networkScore, mountScore int
+			rbacDetailsJSON, mountDetailsJSON   []byte
+			hasKEV, hasCritical, hasHigh        bool
 		)
 
 		err := rows.Scan(
-			&podUID, &podName, &podNamespace, &snapAt, &hostNetwork, &containersJSON,
-			&exposed, &roleSeverity, &scope, &networkScore,
+			&podUID, &podName, &podNamespace, &snapAt, &containersJSON,
+			&exposed,
+			&rbacScore, &networkScore, &mountScore,
+			&rbacDetailsJSON, &mountDetailsJSON,
 			&hasKEV, &hasCritical, &hasHigh,
 		)
 		if err != nil {
@@ -138,21 +141,25 @@ func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName strin
 		}
 
 		// 컨테이너 JSONB 분석
-		privileged, noLimits := analyzeContainers(containersJSON)
+		privileged, noLimits, hostNet := analyzeContainers(containersJSON)
+
+		// rbac/mount details JSONB 분석
+		clusterAdmin := isClusterAdminFromDetails(rbacScore, rbacDetailsJSON)
+		secretAccess := hasSecretAccessFromDetails(rbacScore, mountScore, rbacDetailsJSON, mountDetailsJSON)
 
 		// 신호 구성
 		sig := scoring.ToxicSignals{
 			ExternallyExposed: exposed,
-			ClusterAdmin:      isClusterAdmin(roleSeverity),
-			SecretAccess:      hasSecretAccess(scope),
-			NoNetworkPolicy:   networkScore >= 30, // 작업 B-2c 기준: 격리 없음
+			ClusterAdmin:      clusterAdmin,
+			SecretAccess:      secretAccess,
+			NoNetworkPolicy:   networkScore >= 30, // 작업 B-2c: 격리 없음
 			Privileged:        privileged,
-			HostNetwork:       hostNetwork,
+			HostNetwork:       hostNet,
 			NoResourceLimits:  noLimits,
 			HasKEVCVE:         hasKEV,
 			HasCriticalCVE:    hasCritical,
 			HasHighCVE:        hasHigh,
-			HasActiveOrPOC:    hasKEV, // POC만은 ExploitDB 데이터 필요 — 작업 B-1의 SSVC=poc 카운트 없으면 KEV로 대체
+			HasActiveOrPOC:    hasKEV,
 		}
 
 		out = append(out, PodToxicSignals{
@@ -171,33 +178,37 @@ func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName strin
 // 컨테이너 JSONB 분석
 // ─────────────────────────────────────────
 
-// containerJSON 표현 (예상):
-//	[
-//	  {
-//	    "image": "nginx:1.14.0",
-//	    "security_context": {"privileged": true, "run_as_user": 0},
-//	    "resources": {"limits": {"cpu": "500m"}, "requests": {...}}
-//	  }
-//	]
+// containerLite는 cluster_pods.containers의 한 원소 일부입니다.
+//
+// 예시 컨테이너 JSONB (가정):
+//
+//	{
+//	  "image": "nginx:1.14.0",
+//	  "security_context": {"privileged": true, "run_as_user": 0},
+//	  "resources": {"limits": {"cpu": "500m"}, "requests": {...}},
+//	  "host_network": true                          // 또는 다른 위치
+//	}
+//
+// 실제 형식이 다르면 신호가 false로 나올 수 있음.
+// hostNetwork는 보통 Pod-level이지만 데이터에 없으면 false 폴백.
 type containerLite struct {
 	Image           string         `json:"image"`
 	SecurityContext map[string]any `json:"security_context,omitempty"`
 	Resources       map[string]any `json:"resources,omitempty"`
+	HostNetwork     bool           `json:"host_network,omitempty"`
 }
 
-// analyzeContainers는 containers JSONB를 분석하여:
-//   - 하나라도 privileged: true 면 privileged=true
-//   - 하나라도 resources.limits가 비어있으면 noLimits=true
-func analyzeContainers(raw []byte) (privileged, noLimits bool) {
+// analyzeContainers는 containers JSONB를 분석하여 신호를 추출합니다.
+func analyzeContainers(raw []byte) (privileged, noLimits, hostNet bool) {
 	if len(raw) == 0 {
-		return false, true
+		return false, true, false
 	}
 	var containers []containerLite
 	if err := json.Unmarshal(raw, &containers); err != nil {
-		return false, false
+		return false, false, false
 	}
 	if len(containers) == 0 {
-		return false, true
+		return false, true, false
 	}
 
 	for _, c := range containers {
@@ -210,39 +221,88 @@ func analyzeContainers(raw []byte) (privileged, noLimits bool) {
 		// limits 누락
 		if c.Resources == nil {
 			noLimits = true
-			continue
+		} else {
+			limits, ok := c.Resources["limits"].(map[string]any)
+			if !ok || len(limits) == 0 {
+				noLimits = true
+			}
 		}
-		limits, ok := c.Resources["limits"].(map[string]any)
-		if !ok || len(limits) == 0 {
-			noLimits = true
+		// host network (컨테이너에 있을 수도, 없을 수도)
+		if c.HostNetwork {
+			hostNet = true
 		}
 	}
 	return
 }
 
 // ─────────────────────────────────────────
-// attack_path_scores 신호 매핑
+// attack_path_scores 신호 추출 (details JSONB 활용)
 // ─────────────────────────────────────────
+
+// isClusterAdminFromDetails는 RBAC score + details에서 cluster-admin 여부를 판단합니다.
 //
-// 작업 B-2c에서 정한 role_severity / scope 값을 토픽 신호로 매핑.
-
-func isClusterAdmin(roleSeverity string) bool {
-	// 작업 B-2c에서 cluster-admin은 role_severity = "cluster-admin"
-	// 또는 점수 70+ 또는 scope = "wildcard"
-	return roleSeverity == "cluster-admin" || roleSeverity == "wildcard"
-}
-
-func hasSecretAccess(scope string) bool {
-	// 작업 B-2c에서 scope에 "secret" 포함 시 secret 접근
-	if scope == "" {
-		return false
+// 작업 B-2c에서 rbac_score = 70은 cluster-admin/wildcard 권한 점수.
+//   - rbac_score >= 70 → cluster-admin 거의 확실
+//   - rbac_details JSONB에 'cluster-admin' 또는 'wildcard' 문자열 포함 시 확정
+func isClusterAdminFromDetails(rbacScore int, rbacDetails []byte) bool {
+	// 점수 기반 1차 판단 (작업 B-2c에서 65~70이 cluster-admin/wildcard)
+	if rbacScore >= 65 {
+		return true
 	}
-	for _, s := range []string{"secret", "secret-access", "secrets", "secrets-access"} {
-		if scope == s {
-			return true
+	// JSONB 텍스트 검색 (details에 명시적 표시가 있을 수도)
+	if len(rbacDetails) > 0 {
+		text := string(rbacDetails)
+		for _, keyword := range []string{"cluster-admin", "cluster_admin", "wildcard", "ClusterAdmin"} {
+			if jsonContainsKeyword(text, keyword) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// hasSecretAccessFromDetails는 RBAC + Mount details에서 secret 접근 가능 여부를 판단합니다.
+//
+// 작업 B-2c에서:
+//   - rbac_score 60+ = secret-access 등 민감 권한
+//   - mount_score > 0 = secret/configmap 마운트 등
+func hasSecretAccessFromDetails(rbacScore, mountScore int, rbacDetails, mountDetails []byte) bool {
+	// 점수 기반 1차 판단
+	if rbacScore >= 60 || mountScore >= 20 {
+		// 보조 확인: 텍스트에 secret 키워드 있는지
+		combined := string(rbacDetails) + string(mountDetails)
+		if combined == "" {
+			return rbacScore >= 60 || mountScore >= 30
+		}
+		for _, keyword := range []string{"secret", "Secret"} {
+			if jsonContainsKeyword(combined, keyword) {
+				return true
+			}
+		}
+		// 키워드 없어도 점수 매우 높으면 인정
+		return rbacScore >= 65 || mountScore >= 40
+	}
+	return false
+}
+
+// jsonContainsKeyword는 JSONB 텍스트에 키워드가 들어 있는지 확인합니다.
+// (정밀 파싱 대신 substring 검사 — JSON key/value 양쪽 다 잡힘)
+func jsonContainsKeyword(text, keyword string) bool {
+	return len(text) >= len(keyword) && indexOf(text, keyword) >= 0
+}
+
+func indexOf(s, sub string) int {
+	n := len(s)
+	m := len(sub)
+	if m == 0 {
+		return 0
+	}
+	for i := 0; i+m <= n; i++ {
+		if s[i:i+m] == sub {
+			return i
+		}
+	}
+	return -1
 }
 
 // ─────────────────────────────────────────
@@ -297,7 +357,6 @@ func (r *ToxicRepo) UpsertBatch(ctx context.Context, clusterName string, results
 // 조회
 // ─────────────────────────────────────────
 
-// GetByPodUID는 단일 Pod의 최근 결과를 반환합니다.
 func (r *ToxicRepo) GetByPodUID(ctx context.Context, clusterName, podUID string) (*scoring.ToxicResult, error) {
 	var res scoring.ToxicResult
 	var matchedJSON, signalsJSON []byte
@@ -326,7 +385,6 @@ func (r *ToxicRepo) GetByPodUID(ctx context.Context, clusterName, podUID string)
 	return &res, nil
 }
 
-// ListByCluster는 클러스터의 최신 결과를 모두 반환합니다.
 func (r *ToxicRepo) ListByCluster(ctx context.Context, clusterName string) ([]scoring.ToxicResult, error) {
 	var latest *time.Time
 	err := r.pool.QueryRow(ctx,
@@ -371,8 +429,6 @@ func (r *ToxicRepo) ListByCluster(ctx context.Context, clusterName string) ([]sc
 	return out, rows.Err()
 }
 
-// GetMultiplier는 단일 Pod의 multiplier만 반환합니다. (FinalScoringService용)
-// 결과가 없으면 1.0 반환.
 func (r *ToxicRepo) GetMultiplier(ctx context.Context, clusterName, podUID string) (float64, error) {
 	var mult float64
 	err := r.pool.QueryRow(ctx,
@@ -392,10 +448,6 @@ func (r *ToxicRepo) GetMultiplier(ctx context.Context, clusterName, podUID strin
 	return mult, nil
 }
 
-// LoadMultipliersForCluster는 클러스터의 모든 Pod에 대한 multiplier를 일괄 조회합니다.
-// FinalScoringService에서 한 번에 모든 Pod의 multiplier를 가져갈 때 사용.
-//
-// 반환: map[pod_uid] -> multiplier (없는 Pod은 키 없음, 호출자가 1.0으로 처리)
 func (r *ToxicRepo) LoadMultipliersForCluster(ctx context.Context, clusterName string) (map[string]float64, error) {
 	var latest *time.Time
 	err := r.pool.QueryRow(ctx,
