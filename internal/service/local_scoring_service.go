@@ -13,14 +13,15 @@ import (
 //
 // 알고리즘:
 //   1. cluster_pods 최신 snapshot 기준으로 Pod 목록 로드
-//   2. 각 Pod의 exposure_scores + attack_path_scores 최신 점수 LEFT JOIN
-//   3. 두 점수를 가산 공식으로 통합
-//   4. local_scores에 저장
+//   2. 각 Pod에 exposure_scores + attack_path_scores 최신 점수 LEFT JOIN
+//   3. 두 점수를 가중 공식으로 통합
+//   4. 4단계 분류 (emergency/warning/caution/safe, 80/50/20)
+//   5. local_scores에 저장
 //
 // 누락 처리:
 //   - exposure 점수 없음 → exposure_contribution = 0
 //   - attack_path 점수 없음 → attack_path_contribution = 0
-//   - 둘 다 없음 → local_score = 0 (의미 없는 결과지만 row는 생성)
+//   - 둘 다 없음 → local_score = 0 (하지만 결과 row는 생성)
 type LocalScoringService struct {
 	repo *postgres.LocalScoringRepo
 }
@@ -47,11 +48,11 @@ func (s *LocalScoringService) ComputeForCluster(ctx context.Context, clusterName
 	// 2. 각 Pod에 대해 Local Score 계산
 	results := make([]scoring.LocalScoreResult, 0, len(sources))
 	now := time.Now()
-	high, medium, low := 0, 0, 0
+
+	// 4단계 카운트
+	emergencyCount, warningCount, cautionCount, safeCount := 0, 0, 0, 0
 	missingExposure, missingAttackPath := 0, 0
 
-	// snapshot_at 기준: 두 점수의 snapshot 중 더 최근 시점 사용
-	// 둘 다 없으면 now
 	for _, src := range sources {
 		exposureRaw := 0
 		exposed := false
@@ -77,6 +78,7 @@ func (s *LocalScoringService) ComputeForCluster(ctx context.Context, clusterName
 		// 점수 계산
 		localScore, expContrib, apContrib := scoring.ComputeLocalScore(exposureRaw, apRaw)
 		level := scoring.ClassifyLocalLevel(localScore)
+		label := scoring.LocalLevelLabel(level)
 
 		// snapshot_at: 두 원본 중 가장 늦은 시점, 없으면 now
 		snapAt := now
@@ -98,6 +100,7 @@ func (s *LocalScoringService) ComputeForCluster(ctx context.Context, clusterName
 			PodNamespace:           src.PodNamespace,
 			LocalScore:             localScore,
 			LocalLevel:             level,
+			LocalLabel:             label,
 			ExposureContribution:   expContrib,
 			AttackPathContribution: apContrib,
 			ExposureScoreRaw:       exposureRaw,
@@ -108,14 +111,16 @@ func (s *LocalScoringService) ComputeForCluster(ctx context.Context, clusterName
 			ComputedAt:             now,
 		}
 
-		// 등급 카운트
+		// 4단계 카운트
 		switch {
-		case localScore >= 70:
-			high++
-		case localScore >= 40:
-			medium++
-		case localScore > 0:
-			low++
+		case localScore >= 80:
+			emergencyCount++
+		case localScore >= 50:
+			warningCount++
+		case localScore >= 20:
+			cautionCount++
+		default:
+			safeCount++
 		}
 
 		results = append(results, result)
@@ -134,7 +139,7 @@ func (s *LocalScoringService) ComputeForCluster(ctx context.Context, clusterName
 		fmt.Printf("warn: %d pods missing attack_path score (run POST /scoring/attack-path/compute first)\n", missingAttackPath)
 	}
 
-	// snapshot_at: 가장 최근 결과의 것 사용 (없으면 now)
+	// snapshot_at: 가장 늦은 결과의 값 사용 (없으면 now)
 	resultSnapshot := now
 	if len(results) > 0 {
 		resultSnapshot = results[0].SnapshotAt
@@ -149,21 +154,37 @@ func (s *LocalScoringService) ComputeForCluster(ctx context.Context, clusterName
 		ClusterName:       clusterName,
 		SnapshotAt:        resultSnapshot,
 		Computed:          len(results),
-		HighRisk:          high,
-		MediumRisk:        medium,
-		LowRisk:           low,
+		EmergencyCount:    emergencyCount,
+		WarningCount:      warningCount,
+		CautionCount:      cautionCount,
+		SafeCount:         safeCount,
 		Details:           results,
 		MissingExposure:   missingExposure,
 		MissingAttackPath: missingAttackPath,
 	}, nil
 }
 
-// GetByPodUID는 단일 Pod의 결과를 조회합니다.
+// GetByPodUID는 단일 Pod의 결과를 조회하고 라벨을 보강합니다.
+//
+// DB에 저장된 옛 데이터(High/Medium/Low/None)는 라벨이 빈 문자열이 될 수 있으나,
+// POST /scoring/local/compute 1회 호출로 모두 새 등급으로 덮어씌워집니다.
 func (s *LocalScoringService) GetByPodUID(ctx context.Context, clusterName, podUID string) (*scoring.LocalScoreResult, error) {
-	return s.repo.GetByPodUID(ctx, clusterName, podUID)
+	res, err := s.repo.GetByPodUID(ctx, clusterName, podUID)
+	if err != nil || res == nil {
+		return res, err
+	}
+	res.LocalLabel = scoring.LocalLevelLabel(res.LocalLevel)
+	return res, nil
 }
 
-// ListByCluster는 클러스터 결과를 모두 반환합니다.
+// ListByCluster는 클러스터 결과를 모두 반환하고 라벨을 보강합니다.
 func (s *LocalScoringService) ListByCluster(ctx context.Context, clusterName string) ([]scoring.LocalScoreResult, error) {
-	return s.repo.ListByCluster(ctx, clusterName)
+	results, err := s.repo.ListByCluster(ctx, clusterName)
+	if err != nil {
+		return nil, err
+	}
+	for i := range results {
+		results[i].LocalLabel = scoring.LocalLevelLabel(results[i].LocalLevel)
+	}
+	return results, nil
 }

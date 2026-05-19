@@ -86,6 +86,12 @@ func (h *LocalScoringHandler) GetByPod(c *gin.Context) {
 }
 
 // GetByCluster : GET /api/v1/scoring/local/clusters/:cluster_name
+//
+// 응답:
+//   - total: 전체 Pod 수
+//   - emergency_count / warning_count / caution_count / safe_count
+//   - exposed_count: exposed=true 인 Pod 수 (부가 정보)
+//   - results: local_score 내림차순 정렬된 모든 Pod 결과
 func (h *LocalScoringHandler) GetByCluster(c *gin.Context) {
 	clusterName := c.Param("cluster_name")
 	if clusterName == "" {
@@ -101,16 +107,18 @@ func (h *LocalScoringHandler) GetByCluster(c *gin.Context) {
 		return
 	}
 
-	high, medium, low := 0, 0, 0
+	emergencyCount, warningCount, cautionCount, safeCount := 0, 0, 0, 0
 	exposedCount := 0
 	for _, r := range results {
 		switch {
-		case r.LocalScore >= 70:
-			high++
-		case r.LocalScore >= 40:
-			medium++
-		case r.LocalScore > 0:
-			low++
+		case r.LocalScore >= 80:
+			emergencyCount++
+		case r.LocalScore >= 50:
+			warningCount++
+		case r.LocalScore >= 20:
+			cautionCount++
+		default:
+			safeCount++
 		}
 		if r.Exposed {
 			exposedCount++
@@ -118,12 +126,13 @@ func (h *LocalScoringHandler) GetByCluster(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"cluster_name":  clusterName,
-		"total":         len(results),
-		"high_risk":     high,
-		"medium_risk":   medium,
-		"low_risk":      low,
-		"exposed_count": exposedCount,
-		"results":       results,
+		"cluster_name":    clusterName,
+		"total":           len(results),
+		"emergency_count": emergencyCount,
+		"warning_count":   warningCount,
+		"caution_count":   cautionCount,
+		"safe_count":      safeCount,
+		"exposed_count":   exposedCount,
+		"results":         results,
 	})
 }

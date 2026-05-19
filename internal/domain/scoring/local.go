@@ -15,9 +15,9 @@ import "time"
 //   여기서 attack_path_contribution = (attack_path_total / 100) × 80
 //
 // 의미:
-//   exposure는 "공격 가능 여부"
-//   attack_path는 "공격 성공 후 영향 범위"
-//   둘이 결합 → 실질적 침해 위험도
+//   exposure는 "공격 가능성 여부"
+//   attack_path는 "공격 성공 시 영향 범위"
+//   둘이 결합 시 실질적 위험도.
 
 // ─────────────────────────────────────────
 // 가중치
@@ -30,15 +30,33 @@ const (
 )
 
 // ─────────────────────────────────────────
-// Local Risk Level
+// Local Risk Level (4단계, 영문 식별자 + 한글 라벨)
 // ─────────────────────────────────────────
+//
+// 임계값 (Final과 동일):
+//   emergency : score >= 80
+//   warning   : score >= 50
+//   caution   : score >= 20
+//   safe      : score <  20
 
 const (
-	LocalLevelHigh   = "High"   // >= 70
-	LocalLevelMedium = "Medium" // >= 40
-	LocalLevelLow    = "Low"    // > 0
-	LocalLevelNone   = "None"   // == 0
+	LocalLevelEmergency = "emergency" // 긴급
+	LocalLevelWarning   = "warning"   // 경고
+	LocalLevelCaution   = "caution"   // 주의
+	LocalLevelSafe      = "safe"      // 안전
 )
+
+var localLevelLabels = map[string]string{
+	LocalLevelEmergency: "긴급",
+	LocalLevelWarning:   "경고",
+	LocalLevelCaution:   "주의",
+	LocalLevelSafe:      "안전",
+}
+
+// LocalLevelLabel returns the Korean display label for a local risk level.
+func LocalLevelLabel(level string) string {
+	return localLevelLabels[level]
+}
 
 // ─────────────────────────────────────────
 // 데이터 타입
@@ -54,15 +72,16 @@ type LocalScoreResult struct {
 
 	// 종합 점수
 	LocalScore float64 `json:"local_score"` // 0~100
-	LocalLevel string  `json:"local_level"` // "High" | "Medium" | "Low" | "None"
+	LocalLevel string  `json:"local_level"` // emergency/warning/caution/safe
+	LocalLabel string  `json:"local_label"` // 긴급/경고/주의/안전
 
 	// 항목별 기여도
 	ExposureContribution   float64 `json:"exposure_contribution"`    // 0~20
 	AttackPathContribution float64 `json:"attack_path_contribution"` // 0~80
 
 	// 원본 점수
-	ExposureScoreRaw    int `json:"exposure_score_raw"`     // 0 또는 20
-	AttackPathScoreRaw  int `json:"attack_path_score_raw"`  // 0~100
+	ExposureScoreRaw   int `json:"exposure_score_raw"`    // 0 또는 20
+	AttackPathScoreRaw int `json:"attack_path_score_raw"` // 0~100
 
 	// 핵심 신호
 	Exposed         bool   `json:"exposed"`
@@ -83,14 +102,21 @@ type LocalComputeRequest struct {
 }
 
 // LocalComputeResponse는 일괄 계산 결과 요약입니다.
+//
+// 카운트 필드 (4단계):
+//   emergency_count : >= 80
+//   warning_count   : >= 50
+//   caution_count   : >= 20
+//   safe_count      : <  20
 type LocalComputeResponse struct {
-	ClusterName string             `json:"cluster_name"`
-	SnapshotAt  time.Time          `json:"snapshot_at"`
-	Computed    int                `json:"computed"`
-	HighRisk    int                `json:"high_risk"`   // >= 70
-	MediumRisk  int                `json:"medium_risk"` // 40~69
-	LowRisk     int                `json:"low_risk"`    // 0 < score < 40
-	Details     []LocalScoreResult `json:"details"`
+	ClusterName    string             `json:"cluster_name"`
+	SnapshotAt     time.Time          `json:"snapshot_at"`
+	Computed       int                `json:"computed"`
+	EmergencyCount int                `json:"emergency_count"`
+	WarningCount   int                `json:"warning_count"`
+	CautionCount   int                `json:"caution_count"`
+	SafeCount      int                `json:"safe_count"`
+	Details        []LocalScoreResult `json:"details"`
 
 	// 누락 데이터 경고
 	MissingExposure   int `json:"missing_exposure,omitempty"`    // exposure 점수 없는 Pod 수
@@ -111,7 +137,6 @@ type LocalComputeResponse struct {
 //	exposureContribution: 0~20
 //	attackPathContribution: 0~80
 func ComputeLocalScore(exposureRaw, attackPathRaw int) (localScore, exposureContribution, attackPathContribution float64) {
-	// exposure는 원본 값을 그대로 사용 (이미 0~20 범위)
 	exposureContribution = float64(exposureRaw)
 	if exposureContribution > LocalMaxExposure {
 		exposureContribution = LocalMaxExposure
@@ -120,7 +145,6 @@ func ComputeLocalScore(exposureRaw, attackPathRaw int) (localScore, exposureCont
 		exposureContribution = 0
 	}
 
-	// attack_path는 0~100 → 0~80으로 스케일
 	apRaw := float64(attackPathRaw)
 	if apRaw > 100 {
 		apRaw = 100
@@ -135,7 +159,6 @@ func ComputeLocalScore(exposureRaw, attackPathRaw int) (localScore, exposureCont
 		localScore = LocalMaxTotal
 	}
 
-	// 소수점 2자리 반올림
 	localScore = round2(localScore)
 	exposureContribution = round2(exposureContribution)
 	attackPathContribution = round2(attackPathContribution)
@@ -143,17 +166,22 @@ func ComputeLocalScore(exposureRaw, attackPathRaw int) (localScore, exposureCont
 	return
 }
 
-// ClassifyLocalLevel은 Local Score를 등급으로 분류합니다.
+// ClassifyLocalLevel은 Local Score를 영문 등급 식별자로 분류합니다.
+//
+//	score >= 80 → "emergency" (긴급)
+//	score >= 50 → "warning"   (경고)
+//	score >= 20 → "caution"   (주의)
+//	score <  20 → "safe"      (안전)
 func ClassifyLocalLevel(score float64) string {
 	switch {
-	case score >= 70:
-		return LocalLevelHigh
-	case score >= 40:
-		return LocalLevelMedium
-	case score > 0:
-		return LocalLevelLow
+	case score >= 80:
+		return LocalLevelEmergency
+	case score >= 50:
+		return LocalLevelWarning
+	case score >= 20:
+		return LocalLevelCaution
 	default:
-		return LocalLevelNone
+		return LocalLevelSafe
 	}
 }
 
