@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,16 +17,11 @@ import (
 // ToxicRepo는 Toxic Combination 평가에 필요한 신호를 수집하고
 // 결과를 toxic_results 테이블에 저장합니다.
 //
-// 데이터 소스 (실제 스키마 반영):
-//   - exposure_scores.exposed → externally_exposed
-//   - attack_path_scores.rbac_score / network_score / mount_score
-//   - attack_path_scores.rbac_details / mount_details (JSONB)
-//   - cluster_pods.containers (privileged, no_resource_limits)
-//   - image_global_scores.{active, critical, high}_count
+// 신호 임계값 (vara-test-cluster 데이터 기준 조정 v2):
 //
-// 주의: cluster_pods에 host_network 컬럼 없음 → 신호 false 고정.
-//
-//	추후 컨테이너 JSONB나 Pod 메타에서 추출 가능.
+//	cluster_admin   : rbac_score >= 60 (작업 B-2c wildcard/admin 수준)
+//	secret_access   : rbac_score >= 50 AND details에 'secret' 또는 'wildcard'
+//	no_network_policy: network_score >= 30 (단독 매칭 약화 목적, 조합에서만 효과)
 type ToxicRepo struct {
 	pool *pgxpool.Pool
 }
@@ -34,7 +30,6 @@ func NewToxicRepo(pool *pgxpool.Pool) *ToxicRepo {
 	return &ToxicRepo{pool: pool}
 }
 
-// PodToxicSignals는 신호 + 메타데이터를 묶은 입력 단위입니다.
 type PodToxicSignals struct {
 	PodUID       string
 	PodName      string
@@ -43,13 +38,7 @@ type PodToxicSignals struct {
 	Signals      scoring.ToxicSignals
 }
 
-// ─────────────────────────────────────────
-// 신호 일괄 수집
-// ─────────────────────────────────────────
-
-// LoadSignalsForCluster는 클러스터의 모든 Pod에 대해 토픽 신호를 수집합니다.
 func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName string) ([]PodToxicSignals, error) {
-	// 1. cluster_pods 최신 snapshot
 	var podsSnapshot *time.Time
 	err := r.pool.QueryRow(ctx,
 		`SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1`,
@@ -62,10 +51,6 @@ func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName strin
 		return nil, fmt.Errorf("no pods found for cluster %s", clusterName)
 	}
 
-	// 2. Pod별 신호 모두 가져오기
-	//
-	// 주의: cluster_pods에 host_network 컬럼 없음 → 제거
-	//       attack_path_scores는 score + details JSONB로 구성됨
 	query := `
 		WITH latest_pods AS (
 			SELECT pod_uid, name, namespace, snapshot_at, containers
@@ -90,8 +75,8 @@ func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName strin
 			COALESCE(aps.rbac_score, 0) AS rbac_score,
 			COALESCE(aps.network_score, 0) AS network_score,
 			COALESCE(aps.mount_score, 0) AS mount_score,
-			COALESCE(aps.rbac_details, '{}'::jsonb) AS rbac_details,
-			COALESCE(aps.mount_details, '{}'::jsonb) AS mount_details,
+			COALESCE(aps.rbac_details::text, '{}') AS rbac_details_text,
+			COALESCE(aps.mount_details::text, '{}') AS mount_details_text,
 			COALESCE(im.has_kev, false) AS has_kev,
 			COALESCE(im.has_critical, false) AS has_critical,
 			COALESCE(im.has_high, false) AS has_high
@@ -125,7 +110,7 @@ func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName strin
 			containersJSON                      []byte
 			exposed                             bool
 			rbacScore, networkScore, mountScore int
-			rbacDetailsJSON, mountDetailsJSON   []byte
+			rbacDetailsText, mountDetailsText   string
 			hasKEV, hasCritical, hasHigh        bool
 		)
 
@@ -133,26 +118,31 @@ func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName strin
 			&podUID, &podName, &podNamespace, &snapAt, &containersJSON,
 			&exposed,
 			&rbacScore, &networkScore, &mountScore,
-			&rbacDetailsJSON, &mountDetailsJSON,
+			&rbacDetailsText, &mountDetailsText,
 			&hasKEV, &hasCritical, &hasHigh,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan signals: %w", err)
 		}
 
-		// 컨테이너 JSONB 분석
 		privileged, noLimits, hostNet := analyzeContainers(containersJSON)
 
-		// rbac/mount details JSONB 분석
-		clusterAdmin := isClusterAdminFromDetails(rbacScore, rbacDetailsJSON)
-		secretAccess := hasSecretAccessFromDetails(rbacScore, mountScore, rbacDetailsJSON, mountDetailsJSON)
+		// 신호 판단 v2 (점수 기반, JSONB는 보조)
+		clusterAdmin := rbacScore >= 60
 
-		// 신호 구성
+		secretAccess := false
+		if rbacScore >= 50 || mountScore >= 30 {
+			lowText := strings.ToLower(rbacDetailsText + " " + mountDetailsText)
+			if strings.Contains(lowText, "secret") || strings.Contains(lowText, "wildcard") {
+				secretAccess = true
+			}
+		}
+
 		sig := scoring.ToxicSignals{
 			ExternallyExposed: exposed,
 			ClusterAdmin:      clusterAdmin,
 			SecretAccess:      secretAccess,
-			NoNetworkPolicy:   networkScore >= 30, // 작업 B-2c: 격리 없음
+			NoNetworkPolicy:   networkScore >= 30,
 			Privileged:        privileged,
 			HostNetwork:       hostNet,
 			NoResourceLimits:  noLimits,
@@ -178,19 +168,6 @@ func (r *ToxicRepo) LoadSignalsForCluster(ctx context.Context, clusterName strin
 // 컨테이너 JSONB 분석
 // ─────────────────────────────────────────
 
-// containerLite는 cluster_pods.containers의 한 원소 일부입니다.
-//
-// 예시 컨테이너 JSONB (가정):
-//
-//	{
-//	  "image": "nginx:1.14.0",
-//	  "security_context": {"privileged": true, "run_as_user": 0},
-//	  "resources": {"limits": {"cpu": "500m"}, "requests": {...}},
-//	  "host_network": true                          // 또는 다른 위치
-//	}
-//
-// 실제 형식이 다르면 신호가 false로 나올 수 있음.
-// hostNetwork는 보통 Pod-level이지만 데이터에 없으면 false 폴백.
 type containerLite struct {
 	Image           string         `json:"image"`
 	SecurityContext map[string]any `json:"security_context,omitempty"`
@@ -198,7 +175,6 @@ type containerLite struct {
 	HostNetwork     bool           `json:"host_network,omitempty"`
 }
 
-// analyzeContainers는 containers JSONB를 분석하여 신호를 추출합니다.
 func analyzeContainers(raw []byte) (privileged, noLimits, hostNet bool) {
 	if len(raw) == 0 {
 		return false, true, false
@@ -212,13 +188,11 @@ func analyzeContainers(raw []byte) (privileged, noLimits, hostNet bool) {
 	}
 
 	for _, c := range containers {
-		// privileged
 		if c.SecurityContext != nil {
 			if v, ok := c.SecurityContext["privileged"].(bool); ok && v {
 				privileged = true
 			}
 		}
-		// limits 누락
 		if c.Resources == nil {
 			noLimits = true
 		} else {
@@ -227,7 +201,6 @@ func analyzeContainers(raw []byte) (privileged, noLimits, hostNet bool) {
 				noLimits = true
 			}
 		}
-		// host network (컨테이너에 있을 수도, 없을 수도)
 		if c.HostNetwork {
 			hostNet = true
 		}
@@ -236,80 +209,9 @@ func analyzeContainers(raw []byte) (privileged, noLimits, hostNet bool) {
 }
 
 // ─────────────────────────────────────────
-// attack_path_scores 신호 추출 (details JSONB 활용)
-// ─────────────────────────────────────────
-
-// isClusterAdminFromDetails는 RBAC score + details에서 cluster-admin 여부를 판단합니다.
-//
-// 작업 B-2c에서 rbac_score = 70은 cluster-admin/wildcard 권한 점수.
-//   - rbac_score >= 70 → cluster-admin 거의 확실
-//   - rbac_details JSONB에 'cluster-admin' 또는 'wildcard' 문자열 포함 시 확정
-func isClusterAdminFromDetails(rbacScore int, rbacDetails []byte) bool {
-	// 점수 기반 1차 판단 (작업 B-2c에서 65~70이 cluster-admin/wildcard)
-	if rbacScore >= 65 {
-		return true
-	}
-	// JSONB 텍스트 검색 (details에 명시적 표시가 있을 수도)
-	if len(rbacDetails) > 0 {
-		text := string(rbacDetails)
-		for _, keyword := range []string{"cluster-admin", "cluster_admin", "wildcard", "ClusterAdmin"} {
-			if jsonContainsKeyword(text, keyword) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// hasSecretAccessFromDetails는 RBAC + Mount details에서 secret 접근 가능 여부를 판단합니다.
-//
-// 작업 B-2c에서:
-//   - rbac_score 60+ = secret-access 등 민감 권한
-//   - mount_score > 0 = secret/configmap 마운트 등
-func hasSecretAccessFromDetails(rbacScore, mountScore int, rbacDetails, mountDetails []byte) bool {
-	// 점수 기반 1차 판단
-	if rbacScore >= 60 || mountScore >= 20 {
-		// 보조 확인: 텍스트에 secret 키워드 있는지
-		combined := string(rbacDetails) + string(mountDetails)
-		if combined == "" {
-			return rbacScore >= 60 || mountScore >= 30
-		}
-		for _, keyword := range []string{"secret", "Secret"} {
-			if jsonContainsKeyword(combined, keyword) {
-				return true
-			}
-		}
-		// 키워드 없어도 점수 매우 높으면 인정
-		return rbacScore >= 65 || mountScore >= 40
-	}
-	return false
-}
-
-// jsonContainsKeyword는 JSONB 텍스트에 키워드가 들어 있는지 확인합니다.
-// (정밀 파싱 대신 substring 검사 — JSON key/value 양쪽 다 잡힘)
-func jsonContainsKeyword(text, keyword string) bool {
-	return len(text) >= len(keyword) && indexOf(text, keyword) >= 0
-}
-
-func indexOf(s, sub string) int {
-	n := len(s)
-	m := len(sub)
-	if m == 0 {
-		return 0
-	}
-	for i := 0; i+m <= n; i++ {
-		if s[i:i+m] == sub {
-			return i
-		}
-	}
-	return -1
-}
-
-// ─────────────────────────────────────────
 // 저장
 // ─────────────────────────────────────────
 
-// UpsertBatch는 toxic_results에 배치 저장합니다.
 func (r *ToxicRepo) UpsertBatch(ctx context.Context, clusterName string, results []scoring.ToxicResult) error {
 	if len(results) == 0 {
 		return nil
@@ -432,8 +334,7 @@ func (r *ToxicRepo) ListByCluster(ctx context.Context, clusterName string) ([]sc
 func (r *ToxicRepo) GetMultiplier(ctx context.Context, clusterName, podUID string) (float64, error) {
 	var mult float64
 	err := r.pool.QueryRow(ctx,
-		`SELECT multiplier
-		 FROM toxic_results
+		`SELECT multiplier FROM toxic_results
 		 WHERE cluster_name = $1 AND pod_uid = $2
 		 ORDER BY snapshot_at DESC LIMIT 1`,
 		clusterName, podUID,
