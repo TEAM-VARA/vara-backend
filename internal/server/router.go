@@ -19,6 +19,7 @@ func newRouter(
 	imageGlobalCache *handler.ImageGlobalCacheHandler,
 	finalScoring *handler.FinalScoringHandler,
 	toxic *handler.ToxicHandler,
+	sbomPackage *handler.SBOMPackageHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -26,7 +27,7 @@ func newRouter(
 
 	api := r.Group("/api/v1")
 	{
-		// ── Cluster Reader Agent v2 (8개 엔드포인트) ──
+		// ── Cluster Reader Agent v2 ──
 		api.POST("/agents/cluster-reader/nodes", clusterReader.Nodes)
 		api.POST("/agents/cluster-reader/pods", clusterReader.Pods)
 		api.POST("/agents/cluster-reader/services", clusterReader.Services)
@@ -58,7 +59,7 @@ func newRouter(
 		api.POST("/scoring/global/images/:digest", imageGlobalCache.ComputeByDigest)
 		api.GET("/scoring/global/images/:digest", imageGlobalCache.GetByDigest)
 
-		// ── Attack Path Scope (작업 B-2c) ──
+		// ── Attack Path (작업 B-2c) ──
 		api.POST("/scoring/attack-path/compute", attackPath.Compute)
 		api.GET("/scoring/attack-path/pods/:pod_uid", attackPath.GetByPod)
 		api.GET("/scoring/attack-path/clusters/:cluster_name", attackPath.GetByCluster)
@@ -79,7 +80,15 @@ func newRouter(
 		api.GET("/scoring/toxic/clusters/:cluster_name", toxic.GetByCluster)
 		api.GET("/scoring/toxic/rules", toxic.ListRules)
 
-		// ── ISMS-P 컴플라이언스 ──
+		// ── SBOM Packages (작업 B-5) ──
+		// 주의: search 라우트는 :digest 라우트보다 먼저 등록해야 함
+		// (gin은 path 충돌 시 등록 순서 영향)
+		api.GET("/sboms/packages/search", sbomPackage.Search)
+		api.POST("/sboms/packages/backfill", sbomPackage.Backfill)
+		api.POST("/sboms/packages/extract/:digest", sbomPackage.Extract)
+		api.GET("/sboms/packages/:digest", sbomPackage.List)
+
+		// ── ISMS-P ──
 		api.POST("/assets", ismsp.CreateAsset)
 		api.GET("/assets", ismsp.ListAssets)
 		api.GET("/assets/:asset_id", ismsp.GetAsset)
