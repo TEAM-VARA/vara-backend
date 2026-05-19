@@ -37,7 +37,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	attackPathRepo := postgres.NewAttackPathRepo(pg)
 	localScoringRepo := postgres.NewLocalScoringRepo(pg)
 	imageGlobalRepo := postgres.NewImageGlobalRepo(pg)
-	finalScoringRepo := postgres.NewFinalScoringRepo(pg) // 신규 (작업 B-3)
+	finalScoringRepo := postgres.NewFinalScoringRepo(pg)
+	toxicRepo := postgres.NewToxicRepo(pg) // 신규 (작업 B-4)
 
 	// ── 외부 API 클라이언트 ──
 	nvdAPIKey := os.Getenv("NVD_API_KEY")
@@ -76,7 +77,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	attackPathSvc := service.NewAttackPathService(attackPathRepo)
 	localScoringSvc := service.NewLocalScoringService(localScoringRepo)
 	imageGlobalCacheSvc := service.NewImageGlobalCacheService(imageGlobalRepo, globalScoringSvc)
-	finalScoringSvc := service.NewFinalScoringService(finalScoringRepo) // 신규 (작업 B-3)
+	toxicSvc := service.NewToxicService(toxicRepo)                                  // 신규 (B-4)
+	finalScoringSvc := service.NewFinalScoringService(finalScoringRepo, toxicSvc)   // toxic 주입
 
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)
@@ -89,11 +91,12 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	attackPathH := handler.NewAttackPathHandler(attackPathSvc)
 	localScoringH := handler.NewLocalScoringHandler(localScoringSvc)
 	imageGlobalCacheH := handler.NewImageGlobalCacheHandler(imageGlobalCacheSvc)
-	finalScoringH := handler.NewFinalScoringHandler(finalScoringSvc) // 신규 (작업 B-3)
+	finalScoringH := handler.NewFinalScoringHandler(finalScoringSvc)
+	toxicH := handler.NewToxicHandler(toxicSvc) // 신규 (B-4)
 
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
-		finalScoringH)
+		finalScoringH, toxicH)
 
 	return &Server{
 		cfg: cfg,

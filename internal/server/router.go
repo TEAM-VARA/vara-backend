@@ -18,6 +18,7 @@ func newRouter(
 	localScoring *handler.LocalScoringHandler,
 	imageGlobalCache *handler.ImageGlobalCacheHandler,
 	finalScoring *handler.FinalScoringHandler,
+	toxic *handler.ToxicHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -39,7 +40,7 @@ func newRouter(
 		api.POST("/agents/ebpf/traffic", agent.Traffic)
 		api.POST("/agents/sbom", agent.SBOM)
 
-		// ── 기존 Risk Scoring (유지) ──
+		// ── 기존 Risk Scoring ──
 		api.POST("/pods/:pod_id/risk", scoring.ComputeRisk)
 		api.GET("/pods/:pod_id/risk/details", scoring.GetRiskDetails)
 
@@ -71,6 +72,12 @@ func newRouter(
 		api.POST("/scoring/final/compute", finalScoring.Compute)
 		api.GET("/scoring/final/pods/:pod_uid", finalScoring.GetByPod)
 		api.GET("/scoring/final/clusters/:cluster_name", finalScoring.GetByCluster)
+
+		// ── Toxic Combination (작업 B-4) ──
+		api.POST("/scoring/toxic/compute", toxic.Compute)
+		api.GET("/scoring/toxic/pods/:pod_uid", toxic.GetByPod)
+		api.GET("/scoring/toxic/clusters/:cluster_name", toxic.GetByCluster)
+		api.GET("/scoring/toxic/rules", toxic.ListRules)
 
 		// ── ISMS-P 컴플라이언스 ──
 		api.POST("/assets", ismsp.CreateAsset)

@@ -13,19 +13,25 @@ import (
 //
 // 알고리즘:
 //   1. FinalScoringRepo.LoadInputsForCluster로 모든 입력 한 번에 조회
-//   2. 각 Pod에 대해:
+//   2. ToxicService.LoadMultipliersForCluster로 multiplier 맵 로드 (없으면 1.0)
+//   3. 각 Pod에 대해:
 //      a. 가장 위험한 컨테이너 이미지 채택 (max_score 최대)
 //      b. Local Score 가져오기
-//      c. Toxic Multiplier 적용 (현재 1.0 고정)
+//      c. Toxic Multiplier 적용 (없으면 1.0)
 //      d. Final = (0.6 × Global + 0.4 × Local) × Toxic
-//   3. final_scores에 저장
+//   4. final_scores에 저장
 type FinalScoringService struct {
-	repo *postgres.FinalScoringRepo
+	repo         *postgres.FinalScoringRepo
+	toxicService *ToxicService // 작업 B-4. nil이면 multiplier=1.0 고정.
 }
 
 // NewFinalScoringService는 FinalScoringService를 생성합니다.
-func NewFinalScoringService(repo *postgres.FinalScoringRepo) *FinalScoringService {
-	return &FinalScoringService{repo: repo}
+// toxicSvc는 nil이어도 됩니다 (작업 B-4 비활성화 시 multiplier=1.0).
+func NewFinalScoringService(repo *postgres.FinalScoringRepo, toxicSvc *ToxicService) *FinalScoringService {
+	return &FinalScoringService{
+		repo:         repo,
+		toxicService: toxicSvc,
+	}
 }
 
 // ComputeForCluster는 클러스터의 모든 Pod에 대해 Final Score를 계산합니다.
@@ -39,7 +45,19 @@ func (s *FinalScoringService) ComputeForCluster(ctx context.Context, clusterName
 		return nil, fmt.Errorf("load inputs: %w", err)
 	}
 
-	fmt.Printf("info: final computing for %d pods (cluster=%s)\n", len(inputs), clusterName)
+	// Toxic multiplier 일괄 로드 (작업 B-4)
+	multipliers := map[string]float64{}
+	if s.toxicService != nil {
+		m, err := s.toxicService.LoadMultipliersForCluster(ctx, clusterName)
+		if err != nil {
+			fmt.Printf("warn: load toxic multipliers failed: %v (using 1.0)\n", err)
+		} else {
+			multipliers = m
+		}
+	}
+
+	fmt.Printf("info: final computing for %d pods (cluster=%s, toxic_loaded=%d)\n",
+		len(inputs), clusterName, len(multipliers))
 
 	results := make([]scoring.FinalScoreResult, 0, len(inputs))
 	now := time.Now()
@@ -47,7 +65,13 @@ func (s *FinalScoringService) ComputeForCluster(ctx context.Context, clusterName
 	missingGI, missingL, missingSBOM := 0, 0, 0
 
 	for _, input := range inputs {
-		result := s.computePod(input, clusterName, now)
+		// toxic multiplier (없으면 1.0)
+		toxic, ok := multipliers[input.PodUID]
+		if !ok || toxic <= 0 {
+			toxic = scoring.FinalDefaultToxicMultiplier
+		}
+
+		result := s.computePod(input, clusterName, now, toxic)
 
 		switch {
 		case result.FinalScore >= 90:
@@ -78,16 +102,15 @@ func (s *FinalScoringService) ComputeForCluster(ctx context.Context, clusterName
 	}
 
 	if missingGI > 0 {
-		fmt.Printf("warn: %d pods missing image_global_score (run POST /scoring/global/images/:digest first)\n", missingGI)
+		fmt.Printf("warn: %d pods missing image_global_score\n", missingGI)
 	}
 	if missingL > 0 {
-		fmt.Printf("warn: %d pods missing local_score (run POST /scoring/local/compute first)\n", missingL)
+		fmt.Printf("warn: %d pods missing local_score\n", missingL)
 	}
 	if missingSBOM > 0 {
-		fmt.Printf("warn: %d pods have containers without SBOM (Trivy didn't scan)\n", missingSBOM)
+		fmt.Printf("warn: %d pods have containers without SBOM\n", missingSBOM)
 	}
 
-	// 결과 snapshot_at
 	snapAt := now
 	if len(results) > 0 {
 		snapAt = results[0].SnapshotAt
@@ -109,13 +132,15 @@ func (s *FinalScoringService) ComputeForCluster(ctx context.Context, clusterName
 }
 
 // computePod는 단일 Pod의 Final Score를 계산합니다.
-func (s *FinalScoringService) computePod(input postgres.PodFinalInput, clusterName string, now time.Time) scoring.FinalScoreResult {
+//
+//	toxic: 이 Pod의 Toxic Multiplier (없으면 1.0)
+func (s *FinalScoringService) computePod(input postgres.PodFinalInput, clusterName string, now time.Time, toxic float64) scoring.FinalScoreResult {
 	result := scoring.FinalScoreResult{
 		ClusterName:     clusterName,
 		PodUID:          input.PodUID,
 		PodName:         input.PodName,
 		PodNamespace:    input.PodNamespace,
-		ToxicMultiplier: scoring.FinalDefaultToxicMultiplier,
+		ToxicMultiplier: toxic,
 		SnapshotAt:      input.PodSnapshotAt,
 		ComputedAt:      now,
 	}
@@ -145,7 +170,6 @@ func (s *FinalScoringService) computePod(input postgres.PodFinalInput, clusterNa
 		}
 	}
 
-	// 누락 표시
 	if !hasAnyContainer || !hasAnySBOM {
 		result.MissingSBOM = true
 	}
@@ -161,11 +185,11 @@ func (s *FinalScoringService) computePod(input postgres.PodFinalInput, clusterNa
 		result.MissingLocal = true
 	}
 
-	// 3. Final 계산
+	// 3. Final 계산 (Toxic 적용)
 	finalScore, globalContrib, localContrib := scoring.ComputeFinalScore(
 		maxGlobalScore,
 		localScore,
-		scoring.FinalDefaultToxicMultiplier,
+		toxic,
 	)
 
 	result.FinalScore = finalScore
@@ -178,7 +202,6 @@ func (s *FinalScoringService) computePod(input postgres.PodFinalInput, clusterNa
 	result.UsedImageTag = usedTag
 	result.UsedTopCVE = usedTopCVE
 
-	// snapshot_at: pod, local 중 더 최근
 	if input.HasLocal && input.LocalSnapshotAt.After(result.SnapshotAt) {
 		result.SnapshotAt = input.LocalSnapshotAt
 	}
