@@ -45,6 +45,7 @@ type PodForAttackPath struct {
 	Name           string
 	Namespace      string
 	ServiceAccount string
+	PodIP          string
 	Labels         map[string]string
 	Containers     []ContainerInfo // 컨테이너의 securityContext
 	HostNetwork    bool
@@ -149,8 +150,9 @@ func (r *AttackPathRepo) getLatestSnapshot(ctx context.Context, tableName, clust
 // cluster_pods 테이블 자체에 hostNetwork 컬럼이 없으면 containers JSONB에서 추출 시도.
 func (r *AttackPathRepo) ListPodsForAttackPath(ctx context.Context, clusterName string, snapshotAt time.Time) ([]PodForAttackPath, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT 
-			pod_uid, name, namespace, 
+		`SELECT
+			pod_uid, name, namespace,
+			COALESCE(pod_ip, '') AS pod_ip,
 			COALESCE(service_account, '') AS service_account,
 			COALESCE(labels, '{}'::jsonb) AS labels,
 			COALESCE(containers, '[]'::jsonb) AS containers,
@@ -168,8 +170,7 @@ func (r *AttackPathRepo) ListPodsForAttackPath(ctx context.Context, clusterName 
 	for rows.Next() {
 		var p PodForAttackPath
 		var labelsRaw, containersRaw, volumesRaw []byte
-
-		if err := rows.Scan(&p.PodUID, &p.Name, &p.Namespace, &p.ServiceAccount,
+		if err := rows.Scan(&p.PodUID, &p.Name, &p.Namespace, &p.PodIP, &p.ServiceAccount,
 			&labelsRaw, &containersRaw, &volumesRaw); err != nil {
 			return nil, fmt.Errorf("scan pod: %w", err)
 		}
@@ -189,7 +190,7 @@ func (r *AttackPathRepo) ListPodsForAttackPath(ctx context.Context, clusterName 
 		p.Volumes = parseVolumes(volumesRaw)
 
 		// hostNetwork/hostPID/hostIPC는 cluster_pods의 별도 컬럼이 없으면 false 처리
-		// (cluster-reader agent가 raw spec 안에 포함시키지 않은 경우 대비)
+		// 우회: service 레이어에서 cluster_nodes.internal_ip와 PodIP 비교로 추론
 		// 추후 cluster-reader가 host_network 컬럼을 따로 노출하면 여기서 채움
 
 		out = append(out, p)
@@ -200,7 +201,8 @@ func (r *AttackPathRepo) ListPodsForAttackPath(ctx context.Context, clusterName 
 // parseContainers는 cluster_pods.containers JSONB를 ContainerInfo 슬라이스로 변환.
 //
 // 예상 구조:
-//   [{"name": "nginx", "image": "...", "securityContext": {"privileged": false}, ...}]
+//
+//	[{"name": "nginx", "image": "...", "securityContext": {"privileged": false}, ...}]
 //
 // 참고: cluster-reader agent 구현에 따라 securityContext 필드 형태가 다를 수 있음.
 // 가능한 변형 모두 대응.
@@ -238,7 +240,8 @@ func parseContainers(raw []byte) []ContainerInfo {
 // parseVolumes는 cluster_pods.volumes JSONB에서 마운트 타입을 식별합니다.
 //
 // 예상 구조:
-//   [{"name": "data", "hostPath": {...}}, {"name": "secret-vol", "secret": {...}}, ...]
+//
+//	[{"name": "data", "hostPath": {...}}, {"name": "secret-vol", "secret": {...}}, ...]
 func parseVolumes(raw []byte) []VolumeInfo {
 	if len(raw) == 0 {
 		return nil
@@ -283,9 +286,10 @@ func parseVolumes(raw []byte) []VolumeInfo {
 // ClusterRoleBinding을 찾고, 연결된 ClusterRole의 rules를 함께 반환합니다.
 //
 // 매핑 로직:
-//   ClusterRoleBinding.subjects[].kind == "ServiceAccount"
-//   AND ClusterRoleBinding.subjects[].name == saName
-//   AND ClusterRoleBinding.subjects[].namespace == saNamespace
+//
+//	ClusterRoleBinding.subjects[].kind == "ServiceAccount"
+//	AND ClusterRoleBinding.subjects[].name == saName
+//	AND ClusterRoleBinding.subjects[].namespace == saNamespace
 //
 // 결과: 매핑된 ClusterRoleBinding과 그 ClusterRole의 rules
 func (r *AttackPathRepo) ListClusterRoleBindingsForSA(
@@ -530,8 +534,9 @@ func toStringSlice(arr []interface{}) []string {
 // ListNetworkPoliciesForPod는 Pod에 매핑되는 NetworkPolicy를 찾습니다.
 //
 // 매핑 로직:
-//   NetworkPolicy.namespace == Pod.namespace
-//   AND NetworkPolicy.podSelector.matchLabels ⊆ Pod.labels
+//
+//	NetworkPolicy.namespace == Pod.namespace
+//	AND NetworkPolicy.podSelector.matchLabels ⊆ Pod.labels
 //
 // 빈 selector ({})는 namespace 전체 Pod에 적용 (K8s 의미).
 func (r *AttackPathRepo) ListNetworkPoliciesForPod(
@@ -631,21 +636,30 @@ func (r *AttackPathRepo) UpsertBatch(ctx context.Context, results []scoring.Atta
 			cluster_name, pod_uid, pod_name, pod_namespace,
 			total_score, rbac_score, network_score, mount_score,
 			rbac_details, network_details, mount_details,
-			snapshot_at
+			snapshot_at,
+			runtime_network_score, runtime_network_details,
+			uses_host_network,
+			overgrant_ratio, overgranted_permissions
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+			$13, $14, $15, $16, $17
 		)
 		ON CONFLICT (cluster_name, pod_uid, snapshot_at) DO UPDATE SET
-			pod_name        = EXCLUDED.pod_name,
-			pod_namespace   = EXCLUDED.pod_namespace,
-			total_score     = EXCLUDED.total_score,
-			rbac_score      = EXCLUDED.rbac_score,
-			network_score   = EXCLUDED.network_score,
-			mount_score     = EXCLUDED.mount_score,
-			rbac_details    = EXCLUDED.rbac_details,
-			network_details = EXCLUDED.network_details,
-			mount_details   = EXCLUDED.mount_details,
-			computed_at     = NOW()
+			pod_name                = EXCLUDED.pod_name,
+			pod_namespace           = EXCLUDED.pod_namespace,
+			total_score             = EXCLUDED.total_score,
+			rbac_score              = EXCLUDED.rbac_score,
+			network_score           = EXCLUDED.network_score,
+			mount_score             = EXCLUDED.mount_score,
+			rbac_details            = EXCLUDED.rbac_details,
+			network_details         = EXCLUDED.network_details,
+			mount_details           = EXCLUDED.mount_details,
+			runtime_network_score   = EXCLUDED.runtime_network_score,
+			runtime_network_details = EXCLUDED.runtime_network_details,
+			uses_host_network       = EXCLUDED.uses_host_network,
+			overgrant_ratio         = EXCLUDED.overgrant_ratio,
+			overgranted_permissions = EXCLUDED.overgranted_permissions,
+			computed_at             = NOW()
 	`
 
 	for _, res := range results {
@@ -653,11 +667,23 @@ func (r *AttackPathRepo) UpsertBatch(ctx context.Context, results []scoring.Atta
 		netJSON, _ := json.Marshal(res.NetworkDetails)
 		mountJSON, _ := json.Marshal(res.MountDetails)
 
+		// nullable JSONB — nil이면 NULL로 들어감
+		var runtimeNetDetailsJSON, overgrantedJSON []byte
+		if res.RuntimeNetworkDetails != nil {
+			runtimeNetDetailsJSON, _ = json.Marshal(res.RuntimeNetworkDetails)
+		}
+		if res.OvergrantedPermissions != nil {
+			overgrantedJSON, _ = json.Marshal(res.OvergrantedPermissions)
+		}
+
 		_, err := tx.Exec(ctx, q,
 			res.ClusterName, res.PodUID, res.PodName, res.PodNamespace,
 			res.TotalScore, res.RBACScore, res.NetworkScore, res.MountScore,
 			rbacJSON, netJSON, mountJSON,
 			res.SnapshotAt,
+			res.RuntimeNetworkScore, runtimeNetDetailsJSON,
+			res.UsesHostNetwork,
+			res.OvergrantRatio, overgrantedJSON,
 		)
 		if err != nil {
 			return fmt.Errorf("upsert pod %s: %w", res.PodUID, err)

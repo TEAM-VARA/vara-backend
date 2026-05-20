@@ -12,20 +12,32 @@ import (
 // AttackPathService는 공격 경로 범위(Attack Path Scope)를 평가합니다.
 //
 // Phase 1 알고리즘:
-//   1. 각 cluster_* 테이블의 최신 snapshot 독립적으로 조회
-//   2. 모든 Pod에 대해 3개 항목 평가
-//      a. RBAC:    Pod의 SA → RoleBinding/ClusterRoleBinding → Role/ClusterRole.rules
-//      b. Network: 같은 namespace의 NetworkPolicy 중 podSelector 매칭
-//      c. Mount:   Pod의 hostNetwork/hostPath/privileged/secret/configmap 카운트
-//   3. 항목별 점수 합산 (0~100)
-//   4. 결과 영속화
+//  1. 각 cluster_* 테이블의 최신 snapshot 독립적으로 조회
+//  2. 모든 Pod에 대해 3개 항목 평가
+//     a. RBAC:    Pod의 SA → RoleBinding/ClusterRoleBinding → Role/ClusterRole.rules
+//     b. Network: 같은 namespace의 NetworkPolicy 중 podSelector 매칭
+//     c. Mount:   Pod의 hostNetwork/hostPath/privileged/secret/configmap 카운트
+//  3. 항목별 점수 합산 (0~100)
+//  4. 결과 영속화
 type AttackPathService struct {
-	repo *postgres.AttackPathRepo
+	repo             *postgres.AttackPathRepo
+	ebpfRepo         *postgres.EbpfRepo
+	clusterNodesRepo *postgres.ClusterNodesRepo
+	config           scoring.RuntimeAnalysisConfig
 }
 
 // NewAttackPathService는 AttackPathService를 생성합니다.
-func NewAttackPathService(repo *postgres.AttackPathRepo) *AttackPathService {
-	return &AttackPathService{repo: repo}
+func NewAttackPathService(
+	repo *postgres.AttackPathRepo,
+	ebpfRepo *postgres.EbpfRepo,
+	clusterNodesRepo *postgres.ClusterNodesRepo,
+) *AttackPathService {
+	return &AttackPathService{
+		repo:             repo,
+		ebpfRepo:         ebpfRepo,
+		clusterNodesRepo: clusterNodesRepo,
+		config:           scoring.DefaultRuntimeConfig(),
+	}
 }
 
 // ComputeForCluster는 클러스터의 모든 Pod에 대해 공격 경로 범위를 계산합니다.
@@ -79,7 +91,10 @@ func (s *AttackPathService) ComputeForCluster(ctx context.Context, clusterName s
 		results = append(results, result)
 	}
 
-	// 4. 저장
+	// runtime 분석 (host_network 추론 + 통신 그래프 + RBAC 과다부여)
+	// RBAC rules는 Step 3-C에서 채움 — 일단 nil 전달
+	s.enrichAttackPathWithRuntime(ctx, clusterName, pods, nil, nil, results)
+
 	if err := s.repo.UpsertBatch(ctx, results); err != nil {
 		return nil, fmt.Errorf("save results: %w", err)
 	}

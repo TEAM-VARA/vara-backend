@@ -77,23 +77,27 @@ type AttackPathResult struct {
 	PodUID       string `json:"pod_uid"`
 	PodName      string `json:"pod_name"`
 	PodNamespace string `json:"pod_namespace"`
-
 	// 종합 점수
 	TotalScore int `json:"total_score"` // 0~100
-
 	// 항목별 점수
 	RBACScore    int `json:"rbac_score"`    // 0~40
 	NetworkScore int `json:"network_score"` // 0~30
 	MountScore   int `json:"mount_score"`   // 0~30
-
 	// 판정 근거
 	RBACDetails    RBACDetails    `json:"rbac_details"`
 	NetworkDetails NetworkDetails `json:"network_details"`
 	MountDetails   MountDetails   `json:"mount_details"`
-
 	// 시점
 	SnapshotAt time.Time `json:"snapshot_at"`
 	ComputedAt time.Time `json:"computed_at"`
+
+	// ─── Runtime 분석 (eBPF 기반, nullable) ───
+	// 데이터 없으면 nil — service에서 채워짐
+	RuntimeNetworkScore    *int                   `json:"runtime_network_score,omitempty"`
+	RuntimeNetworkDetails  *RuntimeNetworkDetails `json:"runtime_network_details,omitempty"`
+	UsesHostNetwork        *bool                  `json:"uses_host_network,omitempty"`
+	OvergrantRatio         *float64               `json:"overgrant_ratio,omitempty"`
+	OvergrantedPermissions *OvergrantPermissions  `json:"overgranted_permissions,omitempty"`
 }
 
 // RBACDetails는 RBAC 평가의 근거입니다.
@@ -111,10 +115,10 @@ type RBACDetails struct {
 	MatchedRoles []string `json:"matched_roles,omitempty"`
 
 	// 위험 신호 (디버깅용)
-	HasWildcard       bool `json:"has_wildcard"`
-	HasSecretsAccess  bool `json:"has_secrets_access"`
-	HasPodExec        bool `json:"has_pod_exec"`
-	IsClusterAdmin    bool `json:"is_cluster_admin"`
+	HasWildcard      bool `json:"has_wildcard"`
+	HasSecretsAccess bool `json:"has_secrets_access"`
+	HasPodExec       bool `json:"has_pod_exec"`
+	IsClusterAdmin   bool `json:"is_cluster_admin"`
 }
 
 // NetworkDetails는 NetworkPolicy 격리 평가의 근거입니다.
@@ -157,13 +161,13 @@ type AttackPathComputeRequest struct {
 
 // AttackPathComputeResponse는 일괄 계산 결과 요약입니다.
 type AttackPathComputeResponse struct {
-	ClusterName  string             `json:"cluster_name"`
-	SnapshotAt   time.Time          `json:"snapshot_at"`
-	Computed     int                `json:"computed"`
-	HighRisk     int                `json:"high_risk"`     // score >= 70
-	MediumRisk   int                `json:"medium_risk"`   // 40 <= score < 70
-	LowRisk      int                `json:"low_risk"`      // score < 40
-	Details      []AttackPathResult `json:"details"`
+	ClusterName string             `json:"cluster_name"`
+	SnapshotAt  time.Time          `json:"snapshot_at"`
+	Computed    int                `json:"computed"`
+	HighRisk    int                `json:"high_risk"`   // score >= 70
+	MediumRisk  int                `json:"medium_risk"` // 40 <= score < 70
+	LowRisk     int                `json:"low_risk"`    // score < 40
+	Details     []AttackPathResult `json:"details"`
 }
 
 // ─────────────────────────────────────────

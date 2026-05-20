@@ -44,6 +44,7 @@ type PodSnapshot struct {
 	PodUID    string
 	Name      string
 	Namespace string
+	PodIP     string
 	Labels    map[string]string
 }
 
@@ -130,7 +131,9 @@ func (r *ExposureRepo) GetLatestIngressesSnapshot(ctx context.Context, clusterNa
 // ListPodsAtSnapshot은 특정 snapshot의 모든 Pod을 반환합니다.
 func (r *ExposureRepo) ListPodsAtSnapshot(ctx context.Context, clusterName string, snapshotAt time.Time) ([]PodSnapshot, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT pod_uid, name, namespace, COALESCE(labels, '{}'::jsonb)
+		`SELECT pod_uid, name, namespace,
+		        COALESCE(pod_ip, '') AS pod_ip,
+		        COALESCE(labels, '{}'::jsonb)
 		 FROM cluster_pods
 		 WHERE cluster_name = $1 AND snapshot_at = $2`,
 		clusterName, snapshotAt,
@@ -144,7 +147,7 @@ func (r *ExposureRepo) ListPodsAtSnapshot(ctx context.Context, clusterName strin
 	for rows.Next() {
 		var p PodSnapshot
 		var labelsRaw []byte
-		if err := rows.Scan(&p.PodUID, &p.Name, &p.Namespace, &labelsRaw); err != nil {
+		if err := rows.Scan(&p.PodUID, &p.Name, &p.Namespace, &p.PodIP, &labelsRaw); err != nil {
 			return nil, fmt.Errorf("scan pod: %w", err)
 		}
 		if len(labelsRaw) > 0 {
@@ -250,18 +253,22 @@ func (r *ExposureRepo) UpsertExposureBatch(ctx context.Context, results []scorin
 			cluster_name, pod_uid, pod_name, pod_namespace,
 			exposed, score,
 			matched_services, matched_ingresses,
-			snapshot_at
+			snapshot_at,
+			runtime_actually_accessed, runtime_external_traffic_count, runtime_details
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 		)
 		ON CONFLICT (cluster_name, pod_uid, snapshot_at) DO UPDATE SET
-			pod_name          = EXCLUDED.pod_name,
-			pod_namespace     = EXCLUDED.pod_namespace,
-			exposed           = EXCLUDED.exposed,
-			score             = EXCLUDED.score,
-			matched_services  = EXCLUDED.matched_services,
-			matched_ingresses = EXCLUDED.matched_ingresses,
-			computed_at       = NOW()
+			pod_name                       = EXCLUDED.pod_name,
+			pod_namespace                  = EXCLUDED.pod_namespace,
+			exposed                        = EXCLUDED.exposed,
+			score                          = EXCLUDED.score,
+			matched_services               = EXCLUDED.matched_services,
+			matched_ingresses              = EXCLUDED.matched_ingresses,
+			runtime_actually_accessed      = EXCLUDED.runtime_actually_accessed,
+			runtime_external_traffic_count = EXCLUDED.runtime_external_traffic_count,
+			runtime_details                = EXCLUDED.runtime_details,
+			computed_at                    = NOW()
 	`
 
 	for _, result := range results {
@@ -274,11 +281,18 @@ func (r *ExposureRepo) UpsertExposureBatch(ctx context.Context, results []scorin
 			matchedIngressesJSON = []byte("[]")
 		}
 
+		// nullable JSONB — nil이면 NULL
+		var runtimeDetailsJSON []byte
+		if result.RuntimeDetails != nil {
+			runtimeDetailsJSON, _ = json.Marshal(result.RuntimeDetails)
+		}
+
 		_, err := tx.Exec(ctx, q,
 			result.ClusterName, result.PodUID, result.PodName, result.PodNamespace,
 			result.Exposed, result.Score,
 			matchedServicesJSON, matchedIngressesJSON,
 			result.SnapshotAt,
+			result.RuntimeActuallyAccessed, result.RuntimeExternalTrafficCount, runtimeDetailsJSON,
 		)
 		if err != nil {
 			return fmt.Errorf("upsert pod %s: %w", result.PodUID, err)

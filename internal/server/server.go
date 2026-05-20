@@ -43,6 +43,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	sbomPackageRepo := postgres.NewSBOMPackageRepo(pg)
 	packageVulnRepo := postgres.NewPackageVulnerabilityRepo(pg) // 신규 (작업 B-6)
 	ebpfRepo := postgres.NewEbpfRepo(pg)                        // 신규 (dev_v2 통합)
+	clusterNodesRepo := postgres.NewClusterNodesRepo(pg)        // 신규 (runtime 분석)                     // 신규 (dev_v2 통합)
 
 	// ── 외부 API 클라이언트 ──
 	nvdAPIKey := os.Getenv("NVD_API_KEY")
@@ -75,11 +76,11 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	sbomSvc := service.NewSBOMService(trivyClient, sbomRepo, rdb, service.SBOMServiceConfig{
 		MaxConcurrent: 1,
 	})
-	exposureSvc := service.NewExposureService(exposureRepo)
+	exposureSvc := service.NewExposureService(exposureRepo, ebpfRepo, clusterNodesRepo)
 	globalScoringSvc := service.NewGlobalScoringService(
 		nvdClient, epssClient, kevClient, exploitDBClient, globalScoringRepo,
 	)
-	attackPathSvc := service.NewAttackPathService(attackPathRepo)
+	attackPathSvc := service.NewAttackPathService(attackPathRepo, ebpfRepo, clusterNodesRepo)
 	localScoringSvc := service.NewLocalScoringService(localScoringRepo)
 	imageGlobalCacheSvc := service.NewImageGlobalCacheService(imageGlobalRepo, globalScoringSvc)
 	toxicSvc := service.NewToxicService(toxicRepo)

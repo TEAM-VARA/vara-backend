@@ -31,23 +31,21 @@ type ServiceSelector map[string]string
 
 // ExposureResult는 단일 Pod의 인터넷 노출 판정 결과입니다.
 type ExposureResult struct {
-	// 식별
-	ClusterName  string `json:"cluster_name"`
-	PodUID       string `json:"pod_uid"`
-	PodName      string `json:"pod_name"`
-	PodNamespace string `json:"pod_namespace"`
+	ClusterName      string           `json:"cluster_name"`
+	PodUID           string           `json:"pod_uid"`
+	PodName          string           `json:"pod_name"`
+	PodNamespace     string           `json:"pod_namespace"`
+	Exposed          bool             `json:"exposed"`
+	Score            int              `json:"score"`
+	MatchedServices  []MatchedService `json:"matched_services"`
+	MatchedIngresses []MatchedIngress `json:"matched_ingresses"`
+	SnapshotAt       time.Time        `json:"snapshot_at"`
+	ComputedAt       time.Time        `json:"computed_at"`
 
-	// 판정
-	Exposed bool `json:"exposed"`
-	Score   int  `json:"score"`
-
-	// 매칭 근거
-	MatchedServices  []MatchedService  `json:"matched_services"`
-	MatchedIngresses []MatchedIngress  `json:"matched_ingresses"`
-
-	// 시점
-	SnapshotAt time.Time `json:"snapshot_at"`
-	ComputedAt time.Time `json:"computed_at"`
+	// ─── Runtime 분석 (eBPF 기반, nullable) ───
+	RuntimeActuallyAccessed     *bool                   `json:"runtime_actually_accessed,omitempty"`
+	RuntimeExternalTrafficCount *int                    `json:"runtime_external_traffic_count,omitempty"`
+	RuntimeDetails              *RuntimeExposureDetails `json:"runtime_details,omitempty"`
 }
 
 // MatchedService는 Pod에 매핑된 Service 정보입니다.
@@ -81,10 +79,10 @@ type ComputeRequest struct {
 type ComputeResponse struct {
 	ClusterName string           `json:"cluster_name"`
 	SnapshotAt  time.Time        `json:"snapshot_at"`
-	Computed    int              `json:"computed"`     // 계산된 Pod 수
-	Exposed     int              `json:"exposed"`      // 노출된 Pod 수
-	NotExposed  int              `json:"not_exposed"`  // 노출 안 된 Pod 수
-	Details     []ExposureResult `json:"details"`      // 각 Pod별 결과
+	Computed    int              `json:"computed"`    // 계산된 Pod 수
+	Exposed     int              `json:"exposed"`     // 노출된 Pod 수
+	NotExposed  int              `json:"not_exposed"` // 노출 안 된 Pod 수
+	Details     []ExposureResult `json:"details"`     // 각 Pod별 결과
 }
 
 // SelectorMatches는 Pod의 라벨이 Service selector를 만족하는지 판단합니다.

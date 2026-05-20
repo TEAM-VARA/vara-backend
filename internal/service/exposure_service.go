@@ -26,12 +26,24 @@ import (
 //     (Pod와 Service의 매칭은 "현재 상태"의 비교)
 //   - 저장 시 snapshot_at은 Pod 기준 사용 (Pod가 평가 단위이므로)
 type ExposureService struct {
-	repo *postgres.ExposureRepo
+	repo             *postgres.ExposureRepo
+	ebpfRepo         *postgres.EbpfRepo
+	clusterNodesRepo *postgres.ClusterNodesRepo
+	config           scoring.RuntimeAnalysisConfig
 }
 
 // NewExposureService는 ExposureService를 생성합니다.
-func NewExposureService(repo *postgres.ExposureRepo) *ExposureService {
-	return &ExposureService{repo: repo}
+func NewExposureService(
+	repo *postgres.ExposureRepo,
+	ebpfRepo *postgres.EbpfRepo,
+	clusterNodesRepo *postgres.ClusterNodesRepo,
+) *ExposureService {
+	return &ExposureService{
+		repo:             repo,
+		ebpfRepo:         ebpfRepo,
+		clusterNodesRepo: clusterNodesRepo,
+		config:           scoring.DefaultRuntimeConfig(),
+	}
 }
 
 // ComputeForCluster는 클러스터 전체에 대해 노출도를 계산하고 저장합니다.
@@ -95,7 +107,9 @@ func (s *ExposureService) ComputeForCluster(ctx context.Context, clusterName str
 		results = append(results, result)
 	}
 
-	// 5. DB 저장
+	// runtime 분석 (eBPF 기반 외부 트래픽 검증)
+	s.enrichExposureWithRuntime(ctx, clusterName, pods, results)
+
 	if err := s.repo.UpsertExposureBatch(ctx, results); err != nil {
 		return nil, fmt.Errorf("save results: %w", err)
 	}
