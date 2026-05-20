@@ -91,9 +91,14 @@ func (s *AttackPathService) ComputeForCluster(ctx context.Context, clusterName s
 		results = append(results, result)
 	}
 
-	// runtime 분석 (host_network 추론 + 통신 그래프 + RBAC 과다부여)
-	// RBAC rules는 Step 3-C에서 채움 — 일단 nil 전달
-	s.enrichAttackPathWithRuntime(ctx, clusterName, pods, nil, nil, results)
+	// runtime 분석: 먼저 RBAC rules 일괄 수집
+	rbacRulesByPod, rbacBindingCountByPod := s.collectAllRBACRules(
+		ctx, pods, clusterName,
+		crbSnapshot, rbSnapshot, crSnapshot, rSnapshot,
+	)
+
+	// runtime 분석 (host_network + 통신 그래프 + RBAC 과다부여)
+	s.enrichAttackPathWithRuntime(ctx, clusterName, pods, rbacRulesByPod, rbacBindingCountByPod, results)
 
 	if err := s.repo.UpsertBatch(ctx, results); err != nil {
 		return nil, fmt.Errorf("save results: %w", err)
