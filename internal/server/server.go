@@ -42,6 +42,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	toxicRepo := postgres.NewToxicRepo(pg)
 	sbomPackageRepo := postgres.NewSBOMPackageRepo(pg)
 	packageVulnRepo := postgres.NewPackageVulnerabilityRepo(pg) // 신규 (작업 B-6)
+	ebpfRepo := postgres.NewEbpfRepo(pg)                        // 신규 (dev_v2 통합)
 
 	// ── 외부 API 클라이언트 ──
 	nvdAPIKey := os.Getenv("NVD_API_KEY")
@@ -101,10 +102,11 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	toxicH := handler.NewToxicHandler(toxicSvc)
 	sbomPackageH := handler.NewSBOMPackageHandler(sbomPackageSvc)
 	packageVulnH := handler.NewPackageVulnHandler(packageVulnSvc) // 신규 (B-6)
+	ebpfH := handler.NewEbpf(ebpfRepo)                            // 신규 (dev_v2 통합)
 
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
-		finalScoringH, toxicH, sbomPackageH, packageVulnH)
+		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH)
 
 	return &Server{
 		cfg: cfg,

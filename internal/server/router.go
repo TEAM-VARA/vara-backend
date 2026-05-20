@@ -21,6 +21,7 @@ func newRouter(
 	toxic *handler.ToxicHandler,
 	sbomPackage *handler.SBOMPackageHandler,
 	packageVuln *handler.PackageVulnHandler,
+	ebpf *handler.EbpfHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -41,6 +42,11 @@ func newRouter(
 		api.POST("/agents/cluster-reader/pod-events", agent.PodEvents)
 		api.POST("/agents/ebpf/traffic", agent.Traffic)
 		api.POST("/agents/sbom", agent.SBOM)
+
+		// ── eBPF Agent (Tetragon, dev_v2 통합) ──
+		api.POST("/agents/ebpf/network-flows", ebpf.NetworkFlows)
+		api.POST("/agents/ebpf/dns-queries", ebpf.DNSQueries)
+		api.POST("/agents/ebpf/process-events", ebpf.ProcessEvents)
 
 		// ── 기존 Risk Scoring ──
 		api.POST("/pods/:pod_id/risk", scoring.ComputeRisk)
