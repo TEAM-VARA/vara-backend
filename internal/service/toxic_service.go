@@ -12,10 +12,10 @@ import (
 // ToxicService는 Toxic Combination 룰을 평가합니다.
 //
 // 동작:
-//   1. 클러스터의 모든 Pod에 대해 신호 수집 (ToxicRepo.LoadSignalsForCluster)
-//   2. 각 Pod의 신호에 대해 모든 룰을 평가 (EvaluateToxic)
-//   3. 결과를 toxic_results에 저장
-//   4. Final Score 재계산 시 multiplier 적용 (FinalScoringService에서)
+//  1. 클러스터의 모든 Pod에 대해 신호 수집 (ToxicRepo.LoadSignalsForCluster)
+//  2. 각 Pod의 신호에 대해 모든 룰을 평가 (EvaluateToxic)
+//  3. 결과를 toxic_results에 저장
+//  4. Final Score 재계산 시 multiplier 적용 (FinalScoringService에서)
 type ToxicService struct {
 	repo *postgres.ToxicRepo
 }
@@ -90,6 +90,49 @@ func (s *ToxicService) ComputeForCluster(ctx context.Context, clusterName string
 		MediumHits:   mediumHits,
 		Details:      results,
 	}, nil
+}
+
+// ComputeForPod는 단일 Pod의 toxic combination을 계산합니다.
+// 대시보드에서 Pod 클릭 시 호출되는 빠른 재계산 API.
+func (s *ToxicService) ComputeForPod(ctx context.Context, clusterName, podUID string) (*scoring.ToxicResult, error) {
+	if clusterName == "" {
+		return nil, fmt.Errorf("cluster_name is required")
+	}
+	if podUID == "" {
+		return nil, fmt.Errorf("pod_uid is required")
+	}
+
+	input, err := s.repo.LoadSignalsByPodUID(ctx, clusterName, podUID)
+	if err != nil {
+		return nil, fmt.Errorf("load signals: %w", err)
+	}
+	if input == nil {
+		return nil, fmt.Errorf("pod not found: cluster=%s pod_uid=%s", clusterName, podUID)
+	}
+
+	multiplier, matched := scoring.EvaluateToxic(input.Signals)
+	now := time.Now()
+
+	result := scoring.ToxicResult{
+		ClusterName:  clusterName,
+		PodUID:       input.PodUID,
+		PodName:      input.PodName,
+		PodNamespace: input.PodNamespace,
+		Multiplier:   multiplier,
+		MatchedRules: matched,
+		Signals:      input.Signals,
+		SnapshotAt:   input.SnapshotAt,
+		ComputedAt:   now,
+	}
+
+	fmt.Printf("info: toxic compute pod cluster=%s pod_uid=%s name=%s multiplier=%.2f matched=%d\n",
+		clusterName, podUID, input.PodName, multiplier, len(matched))
+
+	if err := s.repo.UpsertBatch(ctx, clusterName, []scoring.ToxicResult{result}); err != nil {
+		return nil, fmt.Errorf("save toxic result: %w", err)
+	}
+
+	return &result, nil
 }
 
 // GetByPodUID는 단일 Pod의 결과를 반환합니다.

@@ -93,6 +93,7 @@ func newRouter(
 		// ── Toxic Combination (작업 B-4) ──
 		api.POST("/scoring/toxic/compute", toxic.Compute)
 		api.GET("/scoring/toxic/pods/:pod_uid", toxic.GetByPod)
+		api.POST("/scoring/toxic/pods/:pod_uid", toxic.ComputeForPod)
 		api.GET("/scoring/toxic/clusters/:cluster_name", toxic.GetByCluster)
 		api.GET("/scoring/toxic/rules", toxic.ListRules)
 
