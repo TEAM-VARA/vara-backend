@@ -23,6 +23,7 @@ func newRouter(
 	packageVuln *handler.PackageVulnHandler,
 	ebpf *handler.EbpfHandler,
 	edge *handler.EdgeHandler,
+	podRefresh *handler.PodRefreshHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -90,6 +91,9 @@ func newRouter(
 		api.GET("/scoring/final/pods/:pod_uid", finalScoring.GetByPod)
 		api.POST("/scoring/final/pods/:pod_uid", finalScoring.ComputeForPod)
 		api.GET("/scoring/final/clusters/:cluster_name", finalScoring.GetByCluster)
+
+		// ── Pod Refresh: 단일 Pod의 5개 컴포넌트 통합 ──
+		api.POST("/scoring/pods/:pod_uid/refresh", podRefresh.Refresh)
 
 		// ── Toxic Combination (작업 B-4) ──
 		api.POST("/scoring/toxic/compute", toxic.Compute)
