@@ -125,6 +125,74 @@ func (s *ExposureService) ComputeForCluster(ctx context.Context, clusterName str
 	}, nil
 }
 
+// ComputeForPod는 단일 Pod의 exposure를 계산합니다.
+// 대시보드에서 Pod 클릭 시 호출되는 빠른 재계산 API.
+func (s *ExposureService) ComputeForPod(ctx context.Context, clusterName, podUID string) (*scoring.ExposureResult, error) {
+	if clusterName == "" {
+		return nil, fmt.Errorf("cluster_name is required")
+	}
+	if podUID == "" {
+		return nil, fmt.Errorf("pod_uid is required")
+	}
+
+	// 1. 각 테이블의 최신 snapshot 찾기 (cluster compute와 동일)
+	podsSnapshot, err := s.repo.GetLatestPodsSnapshot(ctx, clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("find latest pods snapshot: %w", err)
+	}
+
+	servicesSnapshot, err := s.repo.GetLatestServicesSnapshot(ctx, clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("find latest services snapshot: %w", err)
+	}
+
+	ingressesSnapshot, err := s.repo.GetLatestIngressesSnapshot(ctx, clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("find latest ingresses snapshot: %w", err)
+	}
+
+	// 2. 단일 Pod 로드 + services/ingresses 전체 로드
+	//    (services/ingresses는 selector 매칭을 위해 전체 필요)
+	pod, err := s.repo.GetPodSnapshotByUID(ctx, clusterName, podsSnapshot, podUID)
+	if err != nil {
+		return nil, fmt.Errorf("load pod: %w", err)
+	}
+	if pod == nil {
+		return nil, fmt.Errorf("pod not found: cluster=%s pod_uid=%s", clusterName, podUID)
+	}
+
+	services, err := s.repo.ListServicesAtSnapshot(ctx, clusterName, servicesSnapshot)
+	if err != nil {
+		return nil, fmt.Errorf("load services: %w", err)
+	}
+
+	ingressBackends, err := s.repo.ListIngressBackendsAtSnapshot(ctx, clusterName, ingressesSnapshot)
+	if err != nil {
+		return nil, fmt.Errorf("load ingresses: %w", err)
+	}
+
+	fmt.Printf("info: exposure compute pod cluster=%s pod_uid=%s name=%s services=%d ingress_backends=%d\n",
+		clusterName, podUID, pod.Name, len(services), len(ingressBackends))
+
+	// 3. Service ↔ Ingress 인덱스 만들기
+	ingressIndex := buildIngressIndex(ingressBackends)
+
+	// 4. 단일 Pod 평가 (기존 evaluatePod 재활용)
+	now := time.Now()
+	result := s.evaluatePod(*pod, services, ingressIndex, clusterName, podsSnapshot, now)
+	results := []scoring.ExposureResult{result}
+
+	// 5. runtime 분석 (eBPF 기반) — 슬라이스 받으므로 단일 Pod도 그대로 호출
+	s.enrichExposureWithRuntime(ctx, clusterName, []postgres.PodSnapshot{*pod}, results)
+
+	// 6. 저장
+	if err := s.repo.UpsertExposureBatch(ctx, results); err != nil {
+		return nil, fmt.Errorf("save result: %w", err)
+	}
+
+	return &results[0], nil
+}
+
 // GetByPodUID는 단일 Pod의 최근 결과를 조회합니다.
 func (s *ExposureService) GetByPodUID(ctx context.Context, clusterName, podUID string) (*scoring.ExposureResult, error) {
 	return s.repo.GetByPodUID(ctx, clusterName, podUID)

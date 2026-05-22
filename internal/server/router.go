@@ -61,6 +61,7 @@ func newRouter(
 		// ── 인터넷 노출 (작업 C-1) ──
 		api.POST("/scoring/exposure/compute", exposure.Compute)
 		api.GET("/scoring/exposure/pods/:pod_uid", exposure.GetByPod)
+		api.POST("/scoring/exposure/pods/:pod_uid", exposure.ComputeForPod)
 		api.GET("/scoring/exposure/clusters/:cluster_name", exposure.GetByCluster)
 
 		// ── Global CVE Score (작업 B-1) ──
