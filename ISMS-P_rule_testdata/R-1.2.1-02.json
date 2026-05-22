@@ -1,0 +1,58 @@
+{
+  "rule_id": "R-1.2.1-02",
+  "rule_name": "범위 내 자산 전수 식별",
+  "item_number": "1.2.1",
+  "item_name": "정보자산 식별",
+  "detail_criterion": "관리체계 범위 내 모든 정보자산이 누락 없이 식별되어 자산 목록에 등록되어 있는지 확인한다.",
+  "data_source": "AWS Config aggregator + kubectl 통합 인벤토리 vs 정의서",
+  "compliant": {
+    "description": "실 자산 인벤토리와 자산 정의서 일치 (diff 0)",
+    "data": {
+      "definition_doc_assets": [
+        "prod-eks-seoul",
+        "rds-prod-mysql",
+        "cache-prod-redis",
+        "s3-customer-data",
+        "kms-cmk-pii"
+      ],
+      "actual_inventory": [
+        "prod-eks-seoul",
+        "rds-prod-mysql",
+        "cache-prod-redis",
+        "s3-customer-data",
+        "kms-cmk-pii"
+      ],
+      "missing_in_definition": [],
+      "missing_in_inventory": []
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "실제로는 5개 자산이 있는데 정의서에는 3개만 등록 (누락 2건)",
+    "data": {
+      "definition_doc_assets": [
+        "prod-eks-seoul",
+        "rds-prod-mysql",
+        "s3-customer-data"
+      ],
+      "actual_inventory": [
+        "prod-eks-seoul",
+        "rds-prod-mysql",
+        "cache-prod-redis",
+        "s3-customer-data",
+        "kms-cmk-pii",
+        "s3-undocumented-bucket"
+      ],
+      "missing_in_definition": [
+        "cache-prod-redis",
+        "kms-cmk-pii",
+        "s3-undocumented-bucket"
+      ],
+      "missing_in_inventory": []
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[정보자산 관리 절차서 §3.1]\n관리체계 범위 내 모든 정보자산은 자산 인벤토리에 등록되어야 한다.\n자동 식별 수단:\n  - AWS Config aggregator: 전 region·계정의 모든 AWS 리소스 수집\n  - K8s: `kubectl get all,configmap,secret,pv,pvc -A -o json`\n  - 통합 인벤토리는 자산 정의서(GitOps 관리)와 매일 자동 diff 비교\n누락된 자산 발견 시 24시간 내 정의서 등록 또는 자산 폐기 처리.",
+  "evidence_doc_sample": "[증적: 자산 인벤토리 일치성 점검 보고서, 2025-06-15]\n실측 자산: 247건 / 정의서 등록: 247건 / 차이: 0건\n점검 도구: AWS Config aggregator + 자체 reconcile 스크립트\n점검자: 정보보호팀 (자동) / 결재: 자산 관리자 박OO",
+  "judgement_logic": "pass if set(actual_inventory) == set(definition_doc_assets)\nfail otherwise; report missing_in_definition and missing_in_inventory.\n\nshell:\n  diff <(jq -r '.[]' definition.json | sort) <(aws configservice select... | jq -r '.[]' | sort)\n  → must be empty"
+}

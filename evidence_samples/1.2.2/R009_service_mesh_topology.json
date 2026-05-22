@@ -1,0 +1,116 @@
+{
+  "문서명": "Service Mesh 토폴로지",
+  "문서번호": "VARA-SMTP-2026-001",
+  "추출_원본": "R009_service_mesh_topology.pdf",
+  "추출_방법": "text_extraction",
+  "작성일": "2026-04-01",
+  "최종_수정일": "2026-05-15",
+  "검토자": "최인프라 (인프라운영팀장)",
+  "승인자": "박경영 (CISO)",
+  "Service_Mesh_환경": {
+    "플랫폼": "AWS EKS + Istio Service Mesh v1.20",
+    "자동_시각화_도구": "Kiali Dashboard v1.80 + Jaeger Tracing v1.54",
+    "검증_주기": "실시간 모니터링 + 주간 정기 리포트 (매주 월요일)"
+  },
+  "서비스_노드": [
+    {
+      "노드_ID": "svc-gateway",
+      "서비스명": "vara-api-gateway",
+      "네임스페이스": "vara-prod",
+      "replicas": 3,
+      "sidecar": "istio-proxy v1.20.2",
+      "상태": "Healthy"
+    },
+    {
+      "노드_ID": "svc-auth",
+      "서비스명": "vara-auth-service",
+      "네임스페이스": "vara-prod",
+      "replicas": 2,
+      "sidecar": "istio-proxy v1.20.2",
+      "상태": "Healthy"
+    },
+    {
+      "노드_ID": "svc-sbom",
+      "서비스명": "vara-sbom-service",
+      "네임스페이스": "vara-prod",
+      "replicas": 2,
+      "sidecar": "istio-proxy v1.20.2",
+      "상태": "Healthy"
+    },
+    {
+      "노드_ID": "svc-grc",
+      "서비스명": "vara-grc-service",
+      "네임스페이스": "vara-prod",
+      "replicas": 2,
+      "sidecar": "istio-proxy v1.20.2",
+      "상태": "Healthy"
+    },
+    {
+      "노드_ID": "svc-notification",
+      "서비스명": "vara-notification-service",
+      "네임스페이스": "vara-prod",
+      "replicas": 2,
+      "sidecar": "istio-proxy v1.20.2",
+      "상태": "Healthy"
+    }
+  ],
+  "호출_관계": [
+    {
+      "소스": "svc-gateway",
+      "대상": "svc-auth",
+      "프로토콜": "gRPC",
+      "mTLS": true,
+      "설명": "API 요청 시 인증/인가 검증"
+    },
+    {
+      "소스": "svc-gateway",
+      "대상": "svc-sbom",
+      "프로토콜": "gRPC",
+      "mTLS": true,
+      "설명": "SBOM 분석 요청 라우팅"
+    },
+    {
+      "소스": "svc-gateway",
+      "대상": "svc-grc",
+      "프로토콜": "gRPC",
+      "mTLS": true,
+      "설명": "GRC 점검 요청 라우팅"
+    },
+    {
+      "소스": "svc-sbom",
+      "대상": "svc-notification",
+      "프로토콜": "gRPC",
+      "mTLS": true,
+      "설명": "취약점 발견 시 알림 요청"
+    },
+    {
+      "소스": "svc-grc",
+      "대상": "svc-notification",
+      "프로토콜": "gRPC",
+      "mTLS": true,
+      "설명": "점검 결과 알림 요청"
+    }
+  ],
+  "트래픽": {
+    "측정_기간": "2026-05-08 ~ 2026-05-15 (최근 7일)",
+    "총_요청수": 1248530,
+    "서비스별_트래픽": [
+      {"서비스": "svc-gateway", "요청수": 512340, "성공률": "99.97%", "평균_응답시간_ms": 12},
+      {"서비스": "svc-auth", "요청수": 498200, "성공률": "99.99%", "평균_응답시간_ms": 8},
+      {"서비스": "svc-sbom", "요청수": 125600, "성공률": "99.95%", "평균_응답시간_ms": 145},
+      {"서비스": "svc-grc", "요청수": 89400, "성공률": "99.98%", "평균_응답시간_ms": 230},
+      {"서비스": "svc-notification", "요청수": 22990, "성공률": "99.96%", "평균_응답시간_ms": 35}
+    ]
+  },
+  "자동_검증_결과": {
+    "검증_일시": "2026-05-15T09:00:00+09:00",
+    "검증_도구": "Kiali + 자체 토폴로지 비교 스크립트",
+    "검증_항목": [
+      {"항목": "문서화된 서비스 노드와 실제 배포 노드 일치 여부", "결과": "일치", "상세": "5개 서비스 노드 모두 일치"},
+      {"항목": "문서화된 호출 관계와 실제 트래픽 흐름 일치 여부", "결과": "일치", "상세": "5개 호출 관계 모두 확인"},
+      {"항목": "미문서화된 호출 관계 존재 여부", "결과": "해당 없음", "상세": "미문서화 트래픽 0건"},
+      {"항목": "mTLS 적용 상태", "결과": "정상", "상세": "전체 서비스 간 mTLS 활성화 확인"}
+    ],
+    "종합_판정": "적합 - 문서화된 흐름도와 실제 Service Mesh 토폴로지 일치"
+  }
+}

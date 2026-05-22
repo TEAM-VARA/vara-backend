@@ -9,9 +9,9 @@ import (
 func newRouter(
 	health *handler.HealthHandler,
 	agent *handler.AgentHandler,
-	ismsp *handler.ISMSPHandler,
 	scoring *handler.ScoringHandler,
 	clusterReader *handler.ClusterReaderHandler,
+	grc *handler.GRCHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -42,29 +42,23 @@ func newRouter(
 		api.POST("/pods/:pod_id/risk", scoring.ComputeRisk)
 		api.GET("/pods/:pod_id/risk/details", scoring.GetRiskDetails)
 
-		// ── ISMS-P 컴플라이언스 ──
-		api.POST("/assets", ismsp.CreateAsset)
-		api.GET("/assets", ismsp.ListAssets)
-		api.GET("/assets/:asset_id", ismsp.GetAsset)
+		// ── GRC Compliance Check (v2) ──
+		api.POST("/compliance/checks", grc.CreateCheck)
+		api.GET("/compliance/checks", grc.ListChecks)
+		api.GET("/compliance/checks/:check_id", grc.GetCheck)
+		api.GET("/compliance/checks/:check_id/evidence", grc.ListEvidence)
+		api.GET("/rulesets", grc.ListRulesets)
+		api.GET("/rulesets/:item_id", grc.GetRuleset)
 
-		api.POST("/vulnerabilities", ismsp.CreateVulnerabilities)
-		api.GET("/assets/:asset_id/vulnerabilities", ismsp.ListAssetVulnerabilities)
+		// ── Cloud Environments ──
+		api.POST("/compliance/cloud-environments", grc.CreateCloudEnvironments)
+		api.GET("/compliance/cloud-environments", grc.ListCloudEnvironments)
 
-		api.POST("/exposures", ismsp.CreateExposure)
-		api.GET("/exposures", ismsp.ListExposures)
-
-		api.POST("/isms-p/controls", ismsp.CreateISMSControl)
-		api.GET("/isms-p/controls", ismsp.ListISMSControls)
-		api.GET("/isms-p/controls/:control_id", ismsp.GetISMSControl)
-
-		api.POST("/evidence/generate", ismsp.GenerateEvidence)
-		api.GET("/evidence", ismsp.ListEvidence)
-
-		api.POST("/vector-search/isms-p", ismsp.VectorSearchISMSP)
-
-		api.POST("/isms-p/mappings/run", ismsp.RunMapping)
-		api.GET("/isms-p/mappings", ismsp.ListMappings)
-		api.GET("/isms-p/mappings/:mapping_id", ismsp.GetMapping)
+		// ── Backward-compat aliases (deprecated) ──
+		api.POST("/compliance/check", grc.CreateCheck)
+		api.GET("/compliance/check/:check_id", grc.GetCheck)
+		api.GET("/compliance/scans", grc.ListChecks)
+		api.GET("/compliance/scans/:check_id", grc.GetCheck)
 	}
 
 	return r

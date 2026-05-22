@@ -1,0 +1,43 @@
+{
+  "rule_id": "R-2.2.5-08",
+  "rule_name": "퇴직 처리 결과 점검",
+  "item_number": "2.2.5",
+  "item_name": "퇴직 및 직무변경 관리",
+  "detail_criterion": "퇴직·직무변경 처리 결과(권한 회수·자산 반납)가 인사·보안 부서에 의해 점검되는지 확인한다.",
+  "data_source": "D+7 자동 검증 cron",
+  "compliant": {
+    "description": "퇴직 후 7일 시점 자동 검증, 모든 항목 회수 확인",
+    "data": {
+      "departed_user": "lee.outgoing@company.com",
+      "d_plus_7_check": {
+        "okta_disabled": true,
+        "iam_user_disabled": true,
+        "k8s_rolebindings_zero": true,
+        "github_team_removed": true,
+        "pagerduty_removed": true,
+        "audit_log_appearance_after_termination": 0
+      },
+      "check_passed": true
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "7일 후 점검에서 IAM·GitHub·PagerDuty 권한이 남아있음",
+    "data": {
+      "departed_user": "lee.outgoing@company.com",
+      "d_plus_7_check": {
+        "okta_disabled": true,
+        "iam_user_disabled": false,
+        "k8s_rolebindings_zero": true,
+        "github_team_removed": false,
+        "pagerduty_removed": false,
+        "audit_log_appearance_after_termination": 3
+      },
+      "check_passed": false
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[퇴직 처리 점검 §2]\n퇴직 후 7일 시점 자동 검증 cron 수행:\nOkta / IAM / K8s RBAC / GitHub team / PagerDuty / audit log 활동 6개 항목 점검.\n미완료 시 자동 ticket 생성 + 정보보호팀장 alert.",
+  "evidence_doc_sample": "[증적: D+7 점검, 2025-06]\n퇴직: 3명 / 모두 6/6 항목 회수 확인",
+  "judgement_logic": "pass if all d_plus_7_check items == True (or 0 for appearance count)\nfail otherwise."
+}

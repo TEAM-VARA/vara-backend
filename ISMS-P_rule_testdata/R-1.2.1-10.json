@@ -1,0 +1,39 @@
+{
+  "rule_id": "R-1.2.1-10",
+  "rule_name": "자산 목록 정기 현행화",
+  "item_number": "1.2.1",
+  "item_name": "정보자산 식별",
+  "detail_criterion": "정보자산 목록이 정기적으로(예: 분기 1회 이상) 현행화되는지 확인한다.",
+  "data_source": "CronJob status + S3 datalake last write",
+  "compliant": {
+    "description": "매일 03:00 자산 스냅샷 정상 수행, 90일 이력 보관",
+    "data": {
+      "cronjob": {
+        "name": "asset-snapshot-daily",
+        "schedule": "0 3 * * *",
+        "last_successful": "2025-06-15T03:00:42Z",
+        "status": "Active"
+      },
+      "s3_snapshots_last_30days": 30,
+      "last_snapshot_size_kb": 487
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "14일째 스냅샷 미수행 (CronJob suspended)",
+    "data": {
+      "cronjob": {
+        "name": "asset-snapshot-daily",
+        "schedule": "0 3 * * *",
+        "last_successful": "2025-06-01T03:00:55Z",
+        "status": "Suspended"
+      },
+      "s3_snapshots_last_30days": 16,
+      "last_snapshot_size_kb": 0
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[자산 현행화 지침 §1]\n자산 인벤토리 스냅샷은 매일 03:00 KST에 자동 수행하여 S3 datalake에 보관한다.\n보관기간 90일. 누락 발생 시 PagerDuty 알람 → 4시간 내 복구.",
+  "evidence_doc_sample": "[증적: 자산 스냅샷 이력, 2025-06]\n일 평균 스냅샷: 1회 / 누락: 0건 / S3 보관: 90일치 / 결재: 자산 관리자",
+  "judgement_logic": "pass if cronjob.last_successful > now - 25h\n       AND cronjob.status == \"Active\"\n       AND s3_snapshots_last_30days >= 28\nfail otherwise."
+}

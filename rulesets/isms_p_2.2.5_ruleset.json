@@ -1,0 +1,458 @@
+{
+  "schema_version": "2.0.0",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA GRC Service - ISMS-P 자동 컴플라이언스 점검",
+  "item": {
+    "id": "2.2.5",
+    "name": "퇴직 및 직무변경 관리",
+    "category_path": "2. 보호대책 요구사항 > 2.2 인적 보안 > 2.2.5 퇴직 및 직무변경 관리",
+    "description": "퇴직 및 직무변경 시 인사·정보보호·IT 등 관련 부서별 이행하여야 할 자산반납, 접근권한 회수, 결과 확인 등의 절차를 수립·이행하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제5조제3항",
+      "summary": "인사이동·퇴직 시 접근 권한 변경·말소"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "2.2.5-R001",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "퇴직 절차서 결재본",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "절차 구성(자산 반납·권한 회수·정보 삭제)",
+        "R&R",
+        "절차명",
+        "결재 일자",
+        "시행일"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'절차명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결재 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'시행일' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "퇴직 절차 수립 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 퇴직 시 자산 반납·권한 회수·정보 삭제 등의 절차가 수립되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.5-R002",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "자산 반납 확인서",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "반납 대상(노트북·모바일·매체·출입증)",
+        "반납 시한",
+        "성명",
+        "자산 ID",
+        "반납 일자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'성명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'자산 ID' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'반납 일자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "퇴직 시 자산 반납 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 퇴직 시 노트북·모바일기기·저장매체·출입증 등 자산이 반납되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.2.5-R003",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "퇴직자 권한 회수 감사(감사 로그·티켓)",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "회수 시한(퇴직일 당일)",
+        "회수 대상 시스템",
+        "성명",
+        "퇴직일",
+        "회수 일자",
+        "회수 시스템"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "revocation_sla_met",
+          "op": "==",
+          "value": true,
+          "description": "퇴직 후 5분(300초) 이내 권한 전량 회수"
+        },
+        {
+          "field": "no_remaining_rolebindings",
+          "op": "==",
+          "value": true,
+          "description": "잔여 RoleBinding 없음"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "퇴직 시 계정·권한 즉시 회수 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 퇴직일 당일 또는 즉시 모든 계정·접근권한이 회수되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.2.5-R004",
+      "check_category": "이행_점검",
+      "evidence_type": "퇴직자 데이터 처리 이력",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "데이터 보존·삭제 기준(PC·메일)",
+        "처리 시한",
+        "성명",
+        "처리 항목",
+        "처리 일자",
+        "결재자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'성명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'처리 항목' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'처리 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결재자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "퇴직자 데이터 처리 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 퇴직자가 보유했던 데이터(PC·메일)의 보존·삭제 절차가 이행되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.5-R005",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "직무변경 권한 갱신 감사(감사 로그·결재)",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "변경 시 기존 권한 회수·신규 부여",
+        "시한",
+        "성명",
+        "변경 일자",
+        "회수·부여 권한"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "job_change_audit_delete_present",
+          "op": "==",
+          "value": true,
+          "description": "이전 RoleBinding delete 감사 이벤트 존재"
+        },
+        {
+          "field": "job_change_audit_create_present",
+          "op": "==",
+          "value": true,
+          "description": "신규 RoleBinding create 감사 이벤트 존재"
+        },
+        {
+          "field": "old_permissions_cleared",
+          "op": "==",
+          "value": true,
+          "description": "이전 권한 잔존 없음"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "직무 변경 시 권한 갱신 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 직무 변경(전배·승진) 시 기존 권한 회수 및 신규 권한 부여가 적시 이루어지는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.2.5-R006",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "휴직자 권한 정지 결재",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "권한 일시 정지·회수 기준(30일 이상)",
+        "성명",
+        "휴직 일자",
+        "권한 정지 일자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'성명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'휴직 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'권한 정지 일자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "휴직·장기 부재자 권한 처리 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 휴직·장기 부재자(예: 30일 이상)의 권한 일시 정지·회수가 이루어지는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.5-R007",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "퇴직자 비밀유지 고지문",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "비밀유지 의무 고지 시점",
+        "서약 갱신",
+        "성명",
+        "고지 일자",
+        "서약 갱신일"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'성명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'고지 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'서약 갱신일' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "퇴직자 비밀유지 의무 고지 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 퇴직자에게 비밀유지 의무가 고지되고 서약이 갱신되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.5-R008",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "퇴직 처리 점검 결과",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "점검 항목(권한 회수·자산 반납)",
+        "점검 책임자",
+        "성명",
+        "점검 항목",
+        "점검 결과"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'성명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'점검 항목' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'점검 결과' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "퇴직 처리 결과 점검 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 퇴직·직무변경 처리 결과(권한 회수·자산 반납)가 인사·보안 부서에 의해 점검되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.5-R009",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "Orphaned 계정 점검 보고서",
+      "system": "AWS IAM",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "점검 주기",
+        "식별 방법",
+        "제거 절차",
+        "점검 일자",
+        "Orphaned 수",
+        "제거 일자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'점검 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'Orphaned 수' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'제거 일자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "Orphaned 계정 정기 점검 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 사용자 없는 고아 계정(Orphaned Account)이 정기 점검·제거되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.5-R010",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "퇴직 예정자 활동 모니터링 보고서",
+      "system": "AWS GuardDuty",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "모니터링 대상",
+        "비정상 활동 임계(대량 다운로드 등)",
+        "사용자",
+        "활동 유형",
+        "임계 초과 여부"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'사용자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'활동 유형' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'임계 초과 여부' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "퇴직자 활동 모니터링 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 퇴직 예정자·퇴직 직전자에 대한 비정상 활동(대량 다운로드)이 모니터링되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "모든 룰 중 하나라도 미준수이면 전체 미준수. 10개 룰 평가."
+  }
+}

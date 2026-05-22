@@ -1,0 +1,45 @@
+{
+  "rule_id": "R-2.2.5-10",
+  "rule_name": "퇴직자 활동 모니터링",
+  "item_number": "2.2.5",
+  "item_name": "퇴직 및 직무변경 관리",
+  "detail_criterion": "퇴직 예정자·퇴직 직전자에 대한 비정상 활동(대량 다운로드)이 모니터링되는지 확인한다.",
+  "data_source": "audit log + CloudTrail + GuardDuty CredentialAccess",
+  "compliant": {
+    "description": "퇴직 후 N일간 모든 접근 시도 모니터링, 시도 0건",
+    "data": {
+      "departed_user": "lee.outgoing@company.com",
+      "days_since_departure": 30,
+      "login_attempts_post_departure": 0,
+      "guardduty_credential_access_findings": 0,
+      "audit_log_appearance_count": 0
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "퇴직 후에도 K8s API 접근 시도 발견 (계정 침해 또는 회수 누락)",
+    "data": {
+      "departed_user": "lee.outgoing@company.com",
+      "days_since_departure": 15,
+      "login_attempts_post_departure": 7,
+      "guardduty_credential_access_findings": 1,
+      "audit_log_appearance_count": 3,
+      "sample_events": [
+        {
+          "@timestamp": "2025-06-08T22:14:00Z",
+          "user.username": "lee.outgoing@company.com",
+          "verb": "list",
+          "objectRef.resource": "secrets",
+          "responseStatus.code": 403,
+          "sourceIPs": [
+            "203.0.113.42"
+          ]
+        }
+      ]
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[퇴직자 활동 모니터링 §1]\n퇴직 후 90일간 다음 모니터링 활성:\n  - audit log에서 퇴직자 username 출현 모니터링\n  - GuardDuty CredentialAccess 카테고리 finding 모니터링\n  - CloudTrail Console login 시도 모니터링\n1건이라도 발생 시 즉시 incident response 호출.",
+  "evidence_doc_sample": "[증적: 퇴직자 활동 모니터링, 2025-06]\n퇴직 후 모니터링: 3명 / 시도: 0건 / IR 호출: 0건",
+  "judgement_logic": "pass if login_attempts_post_departure == 0\n       AND audit_log_appearance_count == 0\n       AND guardduty_credential_access_findings == 0\nfail otherwise; trigger incident response immediately."
+}

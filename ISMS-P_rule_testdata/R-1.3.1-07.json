@@ -1,0 +1,59 @@
+{
+  "rule_id": "R-1.3.1-07",
+  "rule_name": "책임자·일정 추적성",
+  "item_number": "1.3.1",
+  "item_name": "보호대책 구현",
+  "detail_criterion": "각 보호대책의 구현 책임자·일정·산출물이 추적 가능한지 확인한다.",
+  "data_source": "Git commit history + audit log user metadata",
+  "compliant": {
+    "description": "모든 정책 변경이 git PR + audit log로 추적됨",
+    "data": {
+      "recent_policy_changes": [
+        {
+          "policy": "require-isms-tags",
+          "pr_id": "#1234",
+          "author": "park.security@",
+          "merged_at": "2025-04-01T00:00:00Z",
+          "audit_log_event": {
+            "verb": "create",
+            "user": "argocd-controller",
+            "ts": "2025-04-01T00:05:00Z"
+          }
+        }
+      ]
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "일부 정책 변경이 git에 없고 직접 kubectl apply로 적용됨",
+    "data": {
+      "recent_policy_changes": [
+        {
+          "policy": "require-isms-tags",
+          "pr_id": "#1234",
+          "author": "park.security@",
+          "merged_at": "2025-04-01",
+          "audit_log_event": {
+            "verb": "create",
+            "user": "argocd-controller"
+          }
+        },
+        {
+          "policy": "emergency-block-rule",
+          "pr_id": null,
+          "author": null,
+          "merged_at": null,
+          "audit_log_event": {
+            "verb": "create",
+            "user": "kim.admin@",
+            "ts": "2025-06-10T22:00:00Z"
+          }
+        }
+      ]
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[책임자·일정 추적성 §1]\n모든 보호대책 변경은 git PR을 통해 이루어지며, audit log의 user는 argocd-controller여야 한다.\n직접 kubectl apply 발견 시 24h 내 git로 복원 + 사유서.",
+  "evidence_doc_sample": "[증적: 정책 변경 추적, 2025-06]\n변경: 7건 / git PR 경유: 7/7 / 직접 적용: 0건",
+  "judgement_logic": "pass if all recent_policy_changes have pr_id != null\n       AND audit_log_event.user starts with \"argocd\"\nfail otherwise."
+}

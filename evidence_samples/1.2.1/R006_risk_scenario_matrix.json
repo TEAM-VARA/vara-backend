@@ -1,0 +1,84 @@
+{
+  "report_title": "위험 시나리오 매트릭스",
+  "report_date": "2026-04-20",
+  "system": "DemoCorp 위험관리 시스템",
+  "scenario_catalog": [
+    {
+      "시나리오 ID": "RS-001",
+      "위협": "랜섬웨어 공격 (THR-001)",
+      "취약점": "패치 미적용 OS 취약점 (CVE-2026-1234)",
+      "자산": "EKS 운영 클러스터 (eks-prod-cluster)",
+      "영향": "서비스 전면 중단, 데이터 암호화 피해, 복구 비용 약 5억원 추정",
+      "risk_score": 75,
+      "risk_level": "High"
+    },
+    {
+      "시나리오 ID": "RS-002",
+      "위협": "내부자 데이터 유출 (THR-002)",
+      "취약점": "과도한 DB 접근 권한 부여",
+      "자산": "RDS 고객 DB (rds-prod-customer)",
+      "영향": "고객 개인정보 유출, 과징금 최대 매출액 3%, 브랜드 이미지 손상",
+      "risk_score": 80,
+      "risk_level": "Critical"
+    },
+    {
+      "시나리오 ID": "RS-003",
+      "위협": "DDoS 공격 (THR-003)",
+      "취약점": "WAF 룰셋 미흡",
+      "자산": "ALB 프론트엔드 (alb-prod-frontend)",
+      "영향": "서비스 가용성 저하, 고객 불만 증가, 매출 손실 시간당 약 2,000만원",
+      "risk_score": 60,
+      "risk_level": "High"
+    },
+    {
+      "시나리오 ID": "RS-004",
+      "위협": "컨테이너 탈출 공격 (THR-004)",
+      "취약점": "컨테이너 런타임 취약점",
+      "자산": "EC2 워커 노드 (eks-worker-prod-*)",
+      "영향": "호스트 OS 장악, 다른 컨테이너 침투 가능, 데이터 유출 위험",
+      "risk_score": 50,
+      "risk_level": "Medium"
+    },
+    {
+      "시나리오 ID": "RS-005",
+      "위협": "공급망 공격 (THR-007)",
+      "취약점": "서드파티 라이브러리 무결성 미검증",
+      "자산": "CI/CD 파이프라인 (codepipeline-prod)",
+      "영향": "악성코드 배포, 전체 서비스 감염 가능, 장기간 탐지 불가 위험",
+      "risk_score": 64,
+      "risk_level": "High"
+    },
+    {
+      "시나리오 ID": "RS-006",
+      "위협": "개인정보보호법 강화 (THR-006)",
+      "취약점": "암호화 미적용 개인정보 필드 존재",
+      "자산": "개인정보 처리 시스템 전체",
+      "영향": "법적 제재, 과징금 부과, 인증 취소 가능",
+      "risk_score": 48,
+      "risk_level": "Medium"
+    },
+    {
+      "시나리오 ID": "RS-007",
+      "위협": "권한 오남용 (THR-008)",
+      "취약점": "IAM 최소 권한 원칙 미준수",
+      "자산": "IAM 관리자 계정 (admin-*)",
+      "영향": "비인가 리소스 생성/삭제, 비용 증가, 데이터 손상",
+      "risk_score": 36,
+      "risk_level": "Medium"
+    }
+  ],
+  "matrix_summary": {
+    "total_scenarios": 7,
+    "by_risk_level": {
+      "Critical": 1,
+      "High": 3,
+      "Medium": 3,
+      "Low": 0
+    }
+  },
+  "metadata": {
+    "collected_by": "VARA GRC Automated Collector",
+    "collection_method": "위험관리 시스템 DB + 위협 카탈로그 매핑",
+    "collected_at": "2026-05-19T05:00:00+09:00"
+  }
+}

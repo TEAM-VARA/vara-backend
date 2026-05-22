@@ -1,0 +1,59 @@
+{
+  "rule_id": "R-1.3.1-02",
+  "rule_name": "구현 결과 운영 반영",
+  "item_number": "1.3.1",
+  "item_name": "보호대책 구현",
+  "detail_criterion": "보호대책 구현 결과가 실제 운영 환경(시스템 설정·정책·절차)에 반영되어 있는지 확인한다.",
+  "data_source": "ArgoCD Application sync status + audit log policy create events",
+  "compliant": {
+    "description": "모든 ArgoCD app이 Synced+Healthy, 정책 적용 시점 audit 추적됨",
+    "data": {
+      "argocd_apps": [
+        {
+          "name": "kyverno-policies",
+          "sync": "Synced",
+          "health": "Healthy",
+          "last_sync_at": "2025-06-15T08:00:00Z"
+        },
+        {
+          "name": "falco-rules",
+          "sync": "Synced",
+          "health": "Healthy",
+          "last_sync_at": "2025-06-15T08:01:00Z"
+        }
+      ],
+      "audit_policy_create_events": [
+        {
+          "name": "require-isms-tags",
+          "created_by": "argocd-controller",
+          "ts": "2025-04-01T00:00:00Z"
+        }
+      ]
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "정책 OutOfSync 상태 유지, 변경이 운영에 반영되지 않음",
+    "data": {
+      "argocd_apps": [
+        {
+          "name": "kyverno-policies",
+          "sync": "OutOfSync",
+          "health": "Degraded",
+          "last_sync_at": "2025-05-01T08:00:00Z"
+        },
+        {
+          "name": "falco-rules",
+          "sync": "Synced",
+          "health": "Healthy",
+          "last_sync_at": "2025-06-15T08:01:00Z"
+        }
+      ],
+      "audit_policy_create_events": []
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[보호대책 운영 반영 §1]\n구현된 보호대책은 GitOps(ArgoCD)를 통해 운영 환경에 자동 반영된다.\n모든 ArgoCD Application은 Synced + Healthy 상태를 유지해야 한다.\nOutOfSync 24시간 초과 시 보안팀 alert.",
+  "evidence_doc_sample": "[증적: 보호대책 운영 반영 현황, 2025-06]\nArgoCD apps: 12개 / Synced+Healthy: 12/12 / 평균 sync 시간: 90초",
+  "judgement_logic": "pass if all argocd_apps have sync == \"Synced\" AND health == \"Healthy\"\nfail otherwise; report degraded apps."
+}

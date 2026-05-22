@@ -1,0 +1,451 @@
+{
+  "schema_version": "2.0.0",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA GRC Service - ISMS-P 자동 컴플라이언스 점검",
+  "item": {
+    "id": "2.2.2",
+    "name": "직무 분리",
+    "category_path": "2. 보호대책 요구사항 > 2.2 인적 보안 > 2.2.2 직무 분리",
+    "description": "권한 오남용 등을 방지하기 위하여 직무 분리 기준을 수립하고 적용하여야 한다. 불가피하게 직무 분리가 어려운 경우 별도의 보완대책을 마련하여 이행하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제5조",
+      "summary": "접근 권한의 관리"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "2.2.2-R001",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "직무 분리 정책서 결재본",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "분리 대상",
+        "분리 원칙",
+        "보완통제 기준",
+        "정책서명",
+        "결재 일자",
+        "시행일"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'정책서명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결재 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'시행일' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "직무 분리 정책 수립 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 권한 오·남용 방지를 위한 직무 분리(SoD) 정책이 수립되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.2-R002",
+      "check_category": "이행_점검",
+      "evidence_type": "개발-운영 분리 매트릭스",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "개발자·운영자 권한 분리",
+        "환경 분리",
+        "사용자",
+        "개발 권한",
+        "운영 권한",
+        "분리 적용"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'사용자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'개발 권한' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'운영 권한' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'분리 적용' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "개발-운영 분리 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 개발자와 운영자의 직무·권한이 분리되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.2-R003",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "관리자-감사자 권한 매트릭스",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "관리자·감사자 권한 분리",
+        "감사 독립성",
+        "직무",
+        "권한 분리 여부"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'직무' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'권한 분리 여부' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'감사 독립성' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "시스템관리자-감사자 분리 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 시스템관리자와 보안감사자의 직무가 분리되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.2-R004",
+      "check_category": "이행_점검",
+      "evidence_type": "DB 권한 매트릭스",
+      "system": "AWS IAM",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "DBA·DB 운영자 권한 분리",
+        "사용자",
+        "DB 권한",
+        "분리 여부"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'사용자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'DB 권한' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'분리 여부' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "DB 관리-DB 운영 분리 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: DBA와 DB 운영자의 권한이 분리되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.2-R005",
+      "check_category": "이행_점검",
+      "evidence_type": "보완통제 적용 매트릭스",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "보완통제 항목(승인·모니터링·로깅)",
+        "적용 절차",
+        "불가 사례",
+        "보완통제 적용",
+        "점검 결과"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'불가 사례' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'보완통제 적용' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'점검 결과' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "직무 분리 불가 시 보완통제 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 직무 분리가 불가능한 경우 보완통제(승인·모니터링)가 적용되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.2-R006",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "권한 충돌 점검 보고서",
+      "system": "AWS IAM",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "충돌 점검 주기",
+        "충돌 매트릭스",
+        "시정 절차",
+        "점검 일자",
+        "충돌 사례",
+        "시정 결과"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "sod_policy_enforced",
+          "op": "==",
+          "value": true,
+          "description": "SoD 정책 enforce 모드 활성 + 현재 충돌 위반 0건"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "권한 충돌 점검 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 한 사용자에게 충돌하는 권한이 동시 부여되지 않는지 정기 점검하는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.2.2-R007",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "개인정보취급자 권한 매트릭스",
+      "system": "AWS IAM",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "개인정보취급자·시스템관리자 분리",
+        "사용자",
+        "개인정보 접근 권한",
+        "분리 적용"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'사용자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'개인정보 접근 권한' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'분리 적용' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "개인정보취급자 직무 분리 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 개인정보취급자와 시스템관리자의 직무가 분리되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.2-R008",
+      "check_category": "이행_점검",
+      "evidence_type": "이중 승인 적용 사례",
+      "system": "Project Management",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "이중 승인 대상 작업(데이터 삭제·권한 부여·운영 변경)",
+        "승인 절차",
+        "작업명",
+        "신청자",
+        "승인자1",
+        "승인자2",
+        "일자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'작업명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'신청자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'승인자1' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'승인자2' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'일자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "중요 작업 이중 승인 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 중요 작업(데이터 삭제·권한 부여·운영 변경) 시 이중 승인(Maker-Checker)이 적용되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.2-R009",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "직무 분리 정기 점검 보고서",
+      "system": "AWS IAM",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "점검 주기(연1회)",
+        "점검 항목",
+        "점검 일자",
+        "점검 결과",
+        "시정 사항"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "sod_review_current",
+          "op": "==",
+          "value": true,
+          "description": "직무 분리 정기 점검 수행 (월 1회 이상 + 보고서 존재)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "직무 분리 정기 점검 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 직무 분리 상태가 정기적으로(연1회 등) 점검되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.2.2-R010",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "위반 조치 결재 이력",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "위반 발견 시 즉시 조치",
+        "보고 절차",
+        "위반 일자",
+        "조치 일자",
+        "조치 결과",
+        "결재자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'위반 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'조치 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'조치 결과' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결재자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "직무 분리 위반 시 조치 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 직무 분리 위반 발견 시 즉시 조치되고 결과가 보고되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "모든 룰 중 하나라도 미준수이면 전체 미준수. 10개 룰 평가."
+  }
+}

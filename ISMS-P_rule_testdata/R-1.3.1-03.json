@@ -1,0 +1,45 @@
+{
+  "rule_id": "R-1.3.1-03",
+  "rule_name": "구현 검증",
+  "item_number": "1.3.1",
+  "item_name": "보호대책 구현",
+  "detail_criterion": "보호대책 구현 후 의도한 대로 동작하는지 검증(테스트·점검)이 수행되었는지 확인한다.",
+  "data_source": "Kyverno PolicyReport + admission webhook deny events",
+  "compliant": {
+    "description": "정책이 실제로 위반을 차단하고 있음 (deny event 발생 + fail 0)",
+    "data": {
+      "policyreport_summary": {
+        "pass": 247,
+        "fail": 0,
+        "warn": 0
+      },
+      "recent_admission_denies": [
+        {
+          "policy": "require-isms-tags",
+          "resource": "rogue-ns",
+          "user": "kim.dev@",
+          "ts": "2025-06-14T15:33:00Z",
+          "message": "isms-p/scope label required"
+        }
+      ]
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "정책은 있으나 deny 이벤트 0건 (실제로 동작하지 않을 가능성)",
+    "data": {
+      "policyreport_summary": {
+        "pass": 0,
+        "fail": 0,
+        "warn": 0,
+        "skip": 247
+      },
+      "recent_admission_denies": [],
+      "policy_mode": "audit"
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[구현 검증 §2]\n보호대책 구현 후 다음으로 검증한다:\n  1. Kyverno PolicyReport pass/fail/warn 카운트 확인 (fail 0 유지)\n  2. Admission deny 이벤트 발생 여부 (정책이 실제 동작 중인지)\n  3. 분기 1회 침투 테스트로 우회 가능성 확인",
+  "evidence_doc_sample": "[증적: 구현 검증 보고, 2025-Q2]\n정책 적용: 7개 / fail 0건 / 분기 deny 이벤트: 14건 (모두 정당 차단)",
+  "judgement_logic": "pass if policyreport_summary.fail == 0\n       AND policy_mode == \"enforce\"\n       AND recent_admission_denies count > 0 (proves policy is active)\nfail otherwise."
+}

@@ -1,0 +1,46 @@
+{
+  "rule_id": "R-2.2.2-05",
+  "rule_name": "직무 분리 불가 시 보완통제",
+  "item_number": "2.2.2",
+  "item_name": "직무 분리",
+  "detail_criterion": "직무 분리가 불가능한 경우 보완통제(승인·모니터링)가 적용되는지 확인한다.",
+  "data_source": "audit log + Slack notification + 일 단위 리포트",
+  "compliant": {
+    "description": "분리 불가 사용자(소규모 팀) 활동이 강화 모니터링되고 일 단위 리포트 발송됨",
+    "data": {
+      "unseparated_users": [
+        "solo.devops@company.com"
+      ],
+      "monitoring_active": true,
+      "alert_rules": [
+        {
+          "rule": "solo.devops prod write activity",
+          "channel": "slack:#sec-monitoring",
+          "last_triggered": "2025-06-15T14:00:00Z"
+        }
+      ],
+      "daily_report_sent": true,
+      "last_daily_report": "2025-06-15T09:00:00Z",
+      "ciso_approval_id": "EXC-2025-003",
+      "next_review": "2025-12-01"
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "분리 불가 사용자에 대한 모니터링·승인 미비",
+    "data": {
+      "unseparated_users": [
+        "solo.devops@company.com"
+      ],
+      "monitoring_active": false,
+      "alert_rules": [],
+      "daily_report_sent": false,
+      "ciso_approval_id": null,
+      "next_review": null
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[직무 분리 불가 시 보완통제 §3]\n직무 분리가 불가한 사용자(소규모 팀)는 CISO 예외 결재가 필요하다.\n보완통제 의무:\n  1. audit log 실시간 알람 룰 (prod write activity)\n  2. 일 단위 활동 리포트 (Slack #sec-monitoring)\n  3. 분기 1회 활동 검토 (정보보호팀장)\n  4. 6개월 단위 예외 재승인 (CISO)",
+  "evidence_doc_sample": "[증적: 분리 불가 사용자 보완통제, 2025-06]\n대상: solo.devops@ / 결재: EXC-2025-003 / 일 단위 리포트 가동: 100%",
+  "judgement_logic": "pass if for each unseparated_user:\n         monitoring_active == True\n         AND daily_report_sent == True\n         AND ciso_approval_id != null\n         AND next_review != null\nfail otherwise."
+}

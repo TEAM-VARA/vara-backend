@@ -1,0 +1,1344 @@
+{
+  "schema_version": "2.0.0",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA GRC Service - ISMS-P 자동 컴플라이언스 점검",
+  "source_document": "ISMS-P 인증기준 안내서 (KISA, 2023.11) 2.5.4 비밀번호 관리",
+  "item": {
+    "id": "2.5.4",
+    "name": "비밀번호 관리",
+    "category_path": "2. 보호대책 요구사항 > 2.5 인증 및 권한 관리 > 2.5.4 비밀번호 관리",
+    "description": "법적 요구사항, 외부 위협요인 등을 고려하여 정보시스템 사용자 및 고객, 회원 등 정보주체(이용자)가 사용하는 비밀번호 관리절차를 수립·이행하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무: 개인정보처리자는 개인정보가 분실·도난·유출·위조·변조 또는 훼손되지 아니하도록 안전성 확보에 필요한 기술적·관리적 및 물리적 조치를 하여야 한다."
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제5조제5항",
+      "summary": "개인정보처리자는 개인정보취급자 또는 정보주체가 안전한 비밀번호를 설정하여 이행할 수 있도록 비밀번호 작성규칙을 수립하여 적용하여야 한다."
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제5조제6항",
+      "summary": "개인정보처리자는 개인정보취급자 또는 정보주체의 인증수단을 안전하게 적용하고 관리하여야 한다."
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제7조제1항",
+      "summary": "비밀번호는 복호화되지 아니하도록 일방향 암호화하여 저장한다."
+    }
+  ],
+  "sub_checkpoints": [
+    {
+      "id": "CP-01",
+      "description": "정보시스템에 대한 안전한 사용자 비밀번호 관리절차 및 작성규칙을 수립·이행하고 있는가?"
+    },
+    {
+      "id": "CP-02",
+      "description": "정보주체(이용자)가 안전한 비밀번호를 이용할 수 있도록 비밀번호 작성규칙을 수립·이행하고 있는가?"
+    },
+    {
+      "id": "CP-03",
+      "description": "개인정보취급자 또는 정보주체의 인증수단을 안전하게 적용하고 관리하고 있는가?"
+    }
+  ],
+  "evidence_examples": [
+    "비밀번호 관리 정책 및 절차 (정보보호 지침서 PDF)",
+    "웹페이지, 정보시스템 및 개인정보처리시스템 비밀번호 설정 화면 (스크린샷)"
+  ],
+  "official_deficiency_cases": [
+    {
+      "description": "정보보호 및 개인정보보호 관련 정책·지침 등에서 비밀번호 생성규칙의 기준을 정하고 있으나, 일부 정보시스템 및 개인정보처리시스템에서 내부 지침과 상이한 비밀번호를 사용하는 경우",
+      "type": "정책과 시스템 설정의 불일치"
+    },
+    {
+      "description": "비밀번호 관리 내부 규정에는 비밀번호 초기 발급 시 임시 비밀번호를 부여하고 강제적으로 변경하도록 되어 있으나, 실제로는 임시 비밀번호를 그대로 사용하고 있는 경우",
+      "type": "정책에 명시했으나 실제 미이행"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "2.5.4-R001",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "비밀번호 관리 정책 및 절차 (PDF)",
+      "system": "Policy Document",
+      "related_checkpoints": ["CP-01", "CP-02"],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction_and_embedding",
+      "auto_collectable": false,
+      "identification_keywords": [
+        "비밀번호 관리",
+        "패스워드 정책",
+        "비밀번호 작성규칙",
+        "비밀번호 관리절차",
+        "계정 관리",
+        "사용자 인증",
+        "로그인"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "정보보호 지침서 또는 별도 지침에 비밀번호/패스워드 관리 관련 챕터·조항 존재"
+        },
+        {
+          "description": "최소 2개 이상 식별 키워드가 문서 내에 명시"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "비밀번호 관련 정책/지침 문서 부재"
+        },
+        {
+          "description": "키워드는 있으나 단순 언급뿐, 구체적 규정 없음"
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "embedding_similarity_with_threshold",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.5.4-R002",
+      "check_category": "정책_문서_충실도",
+      "evidence_type": "비밀번호 관리 정책 및 절차 - 작성규칙 및 관리절차",
+      "system": "Policy Document",
+      "related_checkpoints": ["CP-01", "CP-02"],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction_and_embedding",
+      "auto_collectable": false,
+      "identification_keywords": [
+        "작성규칙",
+        "비밀번호 작성",
+        "복잡도",
+        "길이",
+        "변경주기",
+        "관리절차",
+        "임시 비밀번호",
+        "재발급",
+        "재사용"
+      ],
+      "required_content_elements": {
+        "writing_rules": [
+          {
+            "id": "길이 및 복잡도",
+            "description": "길이 및 복잡도 적용: 영문·숫자·특수문자 중 2종류 이상 조합 시 최소 8자리 이상, 또는 문자로만 구성할 경우 최소 10자리 이상",
+            "match_keywords": [
+              "8자리",
+              "10자리",
+              "영문",
+              "숫자",
+              "특수문자",
+              "복잡도",
+              "조합",
+              "2종류"
+            ],
+            "legal_basis": "개인정보의 안전성 확보조치 기준 제5조제5항"
+          },
+          {
+            "id": "변경주기",
+            "description": "변경주기 설정: 비밀번호 유효기간을 설정하여 주기적으로 변경 (위험평가 결과 등을 고려하여 자체적으로 결정)",
+            "match_keywords": [
+              "변경주기",
+              "변경 주기",
+              "유효기간",
+              "주기적 변경",
+              "정기 변경",
+              "반기",
+              "90일",
+              "180일"
+            ]
+          },
+          {
+            "id": "추측 쉬운 비밀번호 제한",
+            "description": "추측하기 쉬운 비밀번호 설정 제한: 동일한 문자 반복, 키보드 상에서 나란히 있는 문자열, 일련번호, 연속적인 숫자, 생일, 전화번호 등 추측하기 쉬운 개인정보 및 ID와 비슷한 비밀번호 사용 제한",
+            "match_keywords": [
+              "추측",
+              "동일 문자",
+              "동일한 문자",
+              "반복",
+              "연속",
+              "생일",
+              "전화번호",
+              "아이디",
+              "개인정보",
+              "키보드"
+            ]
+          },
+          {
+            "id": "비밀번호 재사용 제한",
+            "description": "동일한 비밀번호 재사용 제한: 비밀번호 변경 시 이전에 사용한 비밀번호 재사용 제한",
+            "match_keywords": [
+              "재사용",
+              "재사용 제한",
+              "이전 비밀번호",
+              "동일 비밀번호",
+              "기존 비밀번호",
+              "히스토리",
+              "history"
+            ]
+          }
+        ],
+        "management_procedures": [
+          {
+            "id": "초기·임시 비밀번호 변경",
+            "description": "시스템 도입 시 설정된 초기 또는 임시 비밀번호의 변경 후 사용",
+            "match_keywords": [
+              "초기 비밀번호",
+              "임시 비밀번호",
+              "강제 변경",
+              "초기화",
+              "최초 로그인",
+              "변경 후 사용"
+            ]
+          },
+          {
+            "id": "마스킹 처리",
+            "description": "비밀번호 처리(입력, 변경) 시 마스킹 처리",
+            "match_keywords": [
+              "마스킹",
+              "masking",
+              "비밀번호 입력",
+              "******",
+              "표시되지 않"
+            ]
+          },
+          {
+            "id": "기록·저장 제한",
+            "description": "종이·파일·모바일 기기 등에 비밀번호 기록·저장 제한, 부득이하게 기록·저장 시 암호화 등 보호대책 적용",
+            "match_keywords": [
+              "종이",
+              "파일",
+              "모바일",
+              "기록",
+              "저장 제한",
+              "암호화",
+              "보호대책"
+            ]
+          },
+          {
+            "id": "침해사고 시 즉시 변경",
+            "description": "침해사고 발생 또는 비밀번호 노출 징후 의심 시 지체 없이 비밀번호 변경",
+            "match_keywords": [
+              "침해사고",
+              "노출",
+              "유출",
+              "의심",
+              "즉시 변경",
+              "지체 없이"
+            ]
+          },
+          {
+            "id": "분실 시 본인확인 재설정",
+            "description": "비밀번호 분실 등에 따른 재설정 시 본인확인 절차 수행",
+            "match_keywords": [
+              "분실",
+              "재발급",
+              "본인확인",
+              "재설정",
+              "본인인증"
+            ]
+          },
+          {
+            "id": "관리자 비밀번호 등급 관리",
+            "description": "관리자 비밀번호는 비밀등급에 준하여 관리",
+            "match_keywords": [
+              "관리자",
+              "특수 계정",
+              "별도 관리",
+              "비밀등급",
+              "관리자 비밀번호"
+            ]
+          }
+        ]
+      },
+      "compliance_indicators": [
+        {
+          "description": "작성규칙 4개 항목 모두 지침서에 명시"
+        },
+        {
+          "description": "관리절차 6개 항목 모두 지침서에 명시"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "10개 필수 요소 중 하나라도 누락"
+        },
+        {
+          "description": "단순 언급만 있고 구체적 기준(자릿수, 변경주기 등) 미명시"
+        },
+        {
+          "description": "법령 기준에 미달하는 수치 명시 (예: 길이 6자리, 변경주기 1년)"
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "element_coverage_check",
+        "required_coverage_pct": 100,
+        "similarity_threshold": 0.75,
+        "description": "작성규칙 4개 + 관리절차 6개 = 총 10개 요소. 모든 요소가 키워드 매칭되어야 PASS"
+      }
+    },
+    {
+      "rule_id": "2.5.4-R003",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "OS 패스워드 정책 설정값 스크린샷",
+      "system": "Linux/Unix",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "image",
+      "extraction_method": "ocr_structured_parse",
+      "identification_keywords": [
+        "/etc/login.defs",
+        "/etc/pam.d/",
+        "pam_pwquality",
+        "PASS_MAX_DAYS",
+        "PASS_MIN_LEN",
+        "minlen",
+        "dcredit",
+        "ucredit",
+        "ocredit",
+        "lcredit"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "PASS_MAX_DAYS",
+          "op": "<=",
+          "value": 180,
+          "description": "비밀번호 최대 유효기간 180일 이하 (작성규칙 '변경주기' 이행)"
+        },
+        {
+          "field": "PASS_MIN_LEN",
+          "op": ">=",
+          "value": 8,
+          "description": "최소 길이 8자 이상 (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "minlen",
+          "op": ">=",
+          "value": 10,
+          "description": "pam_pwquality 최소 10자 (문자로만 구성 시 작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "dcredit",
+          "op": "<=",
+          "value": -1,
+          "description": "숫자 강제 포함 (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "ucredit",
+          "op": "<=",
+          "value": -1,
+          "description": "대문자 강제 포함 (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "ocredit",
+          "op": "<=",
+          "value": -1,
+          "description": "특수문자 강제 포함 (작성규칙 '길이 및 복잡도' 이행)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "field": "PASS_MAX_DAYS",
+          "op": "==",
+          "value": 99999,
+          "description": "사실상 만료 없음 → 작성규칙 '변경주기' 위반"
+        },
+        {
+          "field": "PASS_MIN_LEN",
+          "op": "<",
+          "value": 8,
+          "description": "최소 길이 미달 → 작성규칙 '길이 및 복잡도' 위반"
+        },
+        {
+          "pattern": "pam_pwquality 미설정",
+          "type": "absence"
+        },
+        {
+          "description": "복잡도 옵션(dcredit/ucredit/ocredit) 모두 0 → 작성규칙 '길이 및 복잡도' 위반"
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.5.4-R004",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "AD 패스워드 정책 설정값 스크린샷",
+      "system": "Active Directory",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "image",
+      "extraction_method": "ocr_structured_parse",
+      "identification_keywords": [
+        "Group Policy",
+        "Default Domain Policy",
+        "Account Policies",
+        "Password Policy",
+        "Password must meet complexity requirements",
+        "gpedit.msc",
+        "secpol.msc"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "Minimum password length",
+          "op": ">=",
+          "value": 8,
+          "description": "최소 길이 8자 이상 (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "Maximum password age",
+          "op": "<=",
+          "value": 180,
+          "unit": "days",
+          "description": "비밀번호 최대 유효기간 180일 이하 (작성규칙 '변경주기' 이행)"
+        },
+        {
+          "field": "Password must meet complexity requirements",
+          "op": "==",
+          "value": "Enabled",
+          "description": "복잡도 요구사항 활성화 (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "Enforce password history",
+          "op": ">=",
+          "value": 4,
+          "description": "이전 비밀번호 4개 이상 재사용 차단 (작성규칙 '비밀번호 재사용 제한' 이행)"
+        },
+        {
+          "field": "Account lockout threshold",
+          "op": "<=",
+          "value": 5,
+          "description": "로그인 실패 5회 이내 계정 잠금"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "field": "Maximum password age",
+          "op": "==",
+          "value": 0,
+          "description": "Never expires → 작성규칙 '변경주기' 위반"
+        },
+        {
+          "field": "Password must meet complexity requirements",
+          "op": "==",
+          "value": "Disabled",
+          "description": "복잡도 미적용 → 작성규칙 '길이 및 복잡도' 위반"
+        },
+        {
+          "field": "Minimum password length",
+          "op": "<",
+          "value": 8,
+          "description": "최소 길이 미달 → 작성규칙 '길이 및 복잡도' 위반"
+        },
+        {
+          "field": "Enforce password history",
+          "op": "==",
+          "value": 0,
+          "description": "재사용 제한 없음 → 작성규칙 '비밀번호 재사용 제한' 위반"
+        },
+        {
+          "field": "Account lockout threshold",
+          "op": "==",
+          "value": 0,
+          "description": "로그인 실패 잠금 없음"
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.5.4-R005",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "IAM 패스워드 정책 설정값",
+      "system": "AWS IAM",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "image_or_json",
+      "extraction_method": "vlm_or_api",
+      "auto_collectable": true,
+      "collection_command": "aws iam get-account-password-policy",
+      "identification_keywords": [
+        "IAM Password Policy",
+        "MinimumPasswordLength",
+        "RequireUppercaseCharacters",
+        "RequireLowercaseCharacters",
+        "RequireNumbers",
+        "RequireSymbols",
+        "PasswordReusePrevention",
+        "MaxPasswordAge",
+        "AllowUsersToChangePassword"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "MinimumPasswordLength",
+          "op": ">=",
+          "value": 8,
+          "description": "최소 8자 이상 (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "RequireUppercaseCharacters",
+          "op": "==",
+          "value": true,
+          "description": "대문자 강제 (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "RequireLowercaseCharacters",
+          "op": "==",
+          "value": true,
+          "description": "소문자 강제 (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "RequireNumbers",
+          "op": "==",
+          "value": true,
+          "description": "숫자 강제 (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "RequireSymbols",
+          "op": "==",
+          "value": true,
+          "description": "특수문자 강제 (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "MaxPasswordAge",
+          "op": "<=",
+          "value": 180,
+          "description": "비밀번호 최대 유효기간 180일 이하 (작성규칙 '변경주기' 이행)"
+        },
+        {
+          "field": "PasswordReusePrevention",
+          "op": ">=",
+          "value": 4,
+          "description": "이전 비밀번호 4개 이상 재사용 차단 (작성규칙 '비밀번호 재사용 제한' 이행)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "field": "MinimumPasswordLength",
+          "op": "<",
+          "value": 8,
+          "description": "최소 길이 미달 → 작성규칙 '길이 및 복잡도' 위반"
+        },
+        {
+          "field": "RequireSymbols",
+          "op": "==",
+          "value": false,
+          "description": "특수문자 미강제 → 작성규칙 '길이 및 복잡도' 위반"
+        },
+        {
+          "field": "MaxPasswordAge",
+          "op": "==",
+          "value": 0,
+          "description": "만료 없음 → 작성규칙 '변경주기' 위반"
+        },
+        {
+          "field": "PasswordReusePrevention",
+          "op": "==",
+          "value": 0,
+          "description": "재사용 제한 없음 → 작성규칙 '비밀번호 재사용 제한' 위반"
+        },
+        {
+          "pattern": "정책 미설정",
+          "type": "absence"
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.5.4-R006",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "DB 패스워드 정책 설정값 스크린샷",
+      "system": "Database (Oracle/MySQL/PostgreSQL)",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "image_or_sql_output",
+      "extraction_method": "ocr_structured_parse",
+      "identification_keywords": [
+        "CREATE PROFILE",
+        "PASSWORD_LIFE_TIME",
+        "PASSWORD_REUSE_TIME",
+        "PASSWORD_REUSE_MAX",
+        "FAILED_LOGIN_ATTEMPTS",
+        "PASSWORD_LOCK_TIME",
+        "PASSWORD_VERIFY_FUNCTION",
+        "validate_password.policy",
+        "validate_password.length"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "PASSWORD_LIFE_TIME",
+          "op": "<=",
+          "value": 180,
+          "unit": "days",
+          "description": "비밀번호 유효기간 180일 이하 (작성규칙 '변경주기' 이행)"
+        },
+        {
+          "field": "FAILED_LOGIN_ATTEMPTS",
+          "op": "<=",
+          "value": 5,
+          "description": "로그인 실패 5회 이내 계정 잠금"
+        },
+        {
+          "field": "PASSWORD_VERIFY_FUNCTION",
+          "op": "!=",
+          "value": null,
+          "description": "비밀번호 검증 함수 활성화 (작성규칙 '길이 및 복잡도'/'추측 쉬운 비밀번호 제한' 이행)"
+        },
+        {
+          "field": "validate_password.policy",
+          "op": "==",
+          "value": "STRONG",
+          "description": "MySQL 비밀번호 검증 정책 STRONG (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "validate_password.length",
+          "op": ">=",
+          "value": 8,
+          "description": "MySQL 최소 길이 8자 이상 (작성규칙 '길이 및 복잡도' 이행)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "field": "PASSWORD_LIFE_TIME",
+          "op": "==",
+          "value": "UNLIMITED",
+          "description": "비밀번호 만료 없음 → 작성규칙 '변경주기' 위반"
+        },
+        {
+          "field": "FAILED_LOGIN_ATTEMPTS",
+          "op": "==",
+          "value": "UNLIMITED",
+          "description": "로그인 실패 잠금 없음"
+        },
+        {
+          "field": "PASSWORD_VERIFY_FUNCTION",
+          "op": "==",
+          "value": null,
+          "description": "검증 함수 미설정 → 작성규칙 '길이 및 복잡도' 위반"
+        },
+        {
+          "field": "validate_password.policy",
+          "op": "==",
+          "value": "LOW",
+          "description": "MySQL 비밀번호 정책 LOW → 작성규칙 '길이 및 복잡도' 위반"
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.5.4-R007",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "WAS 패스워드 정책 설정값 스크린샷",
+      "system": "WAS (Tomcat/WebLogic/JBoss)",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "image",
+      "extraction_method": "ocr_structured_parse",
+      "identification_keywords": [
+        "Admin Console",
+        "Security Realm",
+        "Password Validation Provider",
+        "Authentication Provider",
+        "User Lockout",
+        "Lockout Threshold",
+        "Lockout Duration"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "Provider Status",
+          "op": "==",
+          "value": "Enabled",
+          "description": "비밀번호 검증 프로바이더 활성화 (작성규칙 '길이 및 복잡도' 이행)"
+        },
+        {
+          "field": "Lockout Threshold",
+          "op": "<=",
+          "value": 5,
+          "description": "로그인 실패 5회 이내 잠금"
+        },
+        {
+          "field": "Lockout Duration",
+          "op": ">=",
+          "value": 30,
+          "unit": "minutes",
+          "description": "잠금 지속시간 30분 이상"
+        },
+        {
+          "field": "Minimum Password Length",
+          "op": ">=",
+          "value": 8,
+          "description": "최소 길이 8자 이상 (작성규칙 '길이 및 복잡도' 이행)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "field": "Password Validation",
+          "op": "==",
+          "value": "Disabled",
+          "description": "비밀번호 검증 비활성화 → 작성규칙 '길이 및 복잡도' 위반"
+        },
+        {
+          "field": "Lockout",
+          "op": "==",
+          "value": "Disabled",
+          "description": "잠금 비활성화"
+        },
+        {
+          "description": "기본 admin 계정 비밀번호 변경 안 됨 → 관리절차 '초기·임시 비밀번호 변경' 위반"
+        },
+        {
+          "description": "정책 미적용"
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.5.4-R008",
+      "check_category": "사용자_화면_강제화",
+      "evidence_type": "회원가입·비밀번호 변경 화면 캡처",
+      "system": "Application UI",
+      "related_checkpoints": ["CP-01", "CP-02"],
+      "evidence_format": "image",
+      "extraction_method": "vlm",
+      "identification_keywords": [
+        "회원가입",
+        "Sign up",
+        "Register",
+        "비밀번호 변경",
+        "Change Password",
+        "비밀번호",
+        "Password",
+        "비밀번호 확인",
+        "Confirm Password",
+        "8자 이상",
+        "10자 이상",
+        "영문, 숫자, 특수문자",
+        "at least N characters"
+      ],
+      "compliance_indicators": [
+        {
+          "pattern": "최소(\\d+)자",
+          "type": "numeric_extract",
+          "op": ">=",
+          "value": 8,
+          "description": "최소 길이 안내 텍스트 존재 (작성규칙 '길이 및 복잡도' 강제화, 기준: 8자 이상)"
+        },
+        {
+          "pattern": "특수문자를 포함해야 합니다",
+          "type": "semantic_match",
+          "description": "복잡도 안내 텍스트 존재 (작성규칙 '길이 및 복잡도' 강제화)"
+        },
+        {
+          "pattern": "must contain at least one symbol",
+          "type": "semantic_match"
+        },
+        {
+          "pattern": "password too short",
+          "type": "semantic_match"
+        },
+        {
+          "pattern": "강도 표시 (약함/강함)",
+          "type": "ui_element",
+          "description": "비밀번호 강도 표시 UI 존재"
+        },
+        {
+          "description": "짧은 비밀번호 입력 시 가입 거부 동작 (시스템적 강제화)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "짧은 비밀번호 입력해도 가입·변경 성공 → 작성규칙 '길이 및 복잡도' 미강제화"
+        },
+        {
+          "description": "오류 메시지 없음"
+        },
+        {
+          "description": "정책 안내 텍스트 부재"
+        },
+        {
+          "description": "'password' 같은 약한 비번 통과 → 작성규칙 '추측 쉬운 비밀번호 제한' 미강제화"
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "vlm_behavioral_analysis",
+        "min_compliance_signals": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.5.4-R009",
+      "check_category": "변경주기_준수",
+      "evidence_type": "계정 목록 + 최종 변경일",
+      "system": "Various (AD/Linux/IAM/DB)",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "csv_or_table",
+      "extraction_method": "structured_parse",
+      "auto_collectable": true,
+      "collection_commands": [
+        "Get-ADUser -Properties PasswordLastSet",
+        "chage -l <user>",
+        "aws iam get-credential-report",
+        "SELECT username, last_password_change FROM ..."
+      ],
+      "identification_keywords": [
+        "User ID",
+        "사용자 ID",
+        "Account",
+        "Last password change",
+        "Password Last Set",
+        "최종 변경일자",
+        "Days since change",
+        "변경 후 경과일",
+        "Age (days)",
+        "Status",
+        "상태"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "days_since_change",
+          "op": "<",
+          "value": 180,
+          "description": "비밀번호 변경 후 180일 미만 (작성규칙 '변경주기' 이행)"
+        },
+        {
+          "description": "모든 활성 계정에 변경일 존재"
+        },
+        {
+          "description": "변경주기 도래 시 강제 변경 로그 확인"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "pattern": "Never changed",
+          "type": "value_match",
+          "description": "비밀번호 한 번도 변경하지 않음 → 작성규칙 '변경주기' 위반"
+        },
+        {
+          "pattern": "변경 이력 없음",
+          "type": "value_match"
+        },
+        {
+          "field": "days_since_change",
+          "op": ">",
+          "value": 180,
+          "description": "180일 초과 → 작성규칙 '변경주기' 위반"
+        },
+        {
+          "field": "Password never expires",
+          "op": "==",
+          "value": true,
+          "description": "만료 없음 → 작성규칙 '변경주기' 위반"
+        },
+        {
+          "description": "휴면 계정에 변경 없음"
+        }
+      ],
+      "judgement_logic": {
+        "type": "aggregated_statistics",
+        "method": "per_account_check",
+        "violation_threshold_pct": 5,
+        "description": "전체 계정의 5% 이상이 위반 시 미준수"
+      }
+    },
+    {
+      "rule_id": "2.5.4-R010",
+      "check_category": "임시_비밀번호_강제_변경",
+      "evidence_type": "코드 일부 (인증/비번 변경 모듈)",
+      "system": "Application Code",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "text",
+      "extraction_method": "code_analysis",
+      "identification_keywords": [
+        "isTemporary",
+        "temp_password",
+        "must_change_password",
+        "password_reset_required",
+        "forceChangePassword",
+        "firstLogin",
+        "pwd_change_required",
+        "redirect('/change-password')"
+      ],
+      "compliance_indicators": [
+        {
+          "pattern": "if (user.tempPassword) → redirect to change",
+          "type": "code_pattern",
+          "description": "임시 비밀번호 플래그 체크 후 변경 유도 (관리절차 '초기·임시 비밀번호 변경' 이행)"
+        },
+        {
+          "pattern": "임시 비번 발급 시 expires_at 단기 설정",
+          "type": "code_pattern",
+          "description": "임시 비밀번호 유효기간 설정 (관리절차 '초기·임시 비밀번호 변경' 이행)"
+        },
+        {
+          "description": "강제 변경 후에만 정상 세션 발급 (관리절차 '초기·임시 비밀번호 변경' 이행)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "임시 비번으로도 모든 기능 접근 가능 → 관리절차 '초기·임시 비밀번호 변경' 위반"
+        },
+        {
+          "description": "tempPassword 플래그 자체가 없음 → 관리절차 '초기·임시 비밀번호 변경' 위반"
+        },
+        {
+          "description": "강제 변경 로직 미구현 → 관리절차 '초기·임시 비밀번호 변경' 위반"
+        }
+      ],
+      "judgement_logic": {
+        "type": "code_pattern_match",
+        "method": "regex_and_ast",
+        "required_patterns": [
+          "temp_flag_check",
+          "redirect_to_change",
+          "session_block_until_change"
+        ],
+        "min_patterns": 2
+      }
+    },
+    {
+      "rule_id": "2.5.4-R011",
+      "check_category": "임시_비밀번호_강제_변경",
+      "evidence_type": "로그인 플로우 스크린샷 (임시 비밀번호 → 강제 변경)",
+      "system": "Application UI",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "image",
+      "extraction_method": "vlm",
+      "identification_keywords": [
+        "임시 비밀번호로 로그인하셨습니다",
+        "비밀번호를 변경해 주세요",
+        "You must change your password before continuing",
+        "최초 로그인"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "임시 비번 로그인 후 강제로 변경 화면으로 redirect (관리절차 '초기·임시 비밀번호 변경' 이행)"
+        },
+        {
+          "description": "변경 전까지 다른 페이지 접근 불가 (관리절차 '초기·임시 비밀번호 변경' 이행)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "임시 비번으로 로그인 후 대시보드 바로 진입 → 관리절차 '초기·임시 비밀번호 변경' 위반 (KISA 결함사례 2)"
+        },
+        {
+          "description": "변경 안내 메시지만 있고 강제력 없음 → 관리절차 '초기·임시 비밀번호 변경' 위반"
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "vlm_behavioral_analysis",
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.5.4-R012",
+      "check_category": "임시_비밀번호_강제_변경",
+      "evidence_type": "임시 비밀번호 미변경자 목록",
+      "system": "Various",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "csv_or_table",
+      "extraction_method": "structured_parse",
+      "identification_keywords": [
+        "발급일",
+        "Issued date",
+        "발급 후 경과일",
+        "미변경 계정",
+        "Not yet changed",
+        "Temp password issued but not changed"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "미변경자 0명 (관리절차 '초기·임시 비밀번호 변경' 이행)"
+        },
+        {
+          "description": "최근 발급 24시간 이내 사례만 존재"
+        },
+        {
+          "description": "미변경 시 자동 잠금 정책 존재 (관리절차 '초기·임시 비밀번호 변경' 이행)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "field": "days_since_issued_without_change",
+          "op": ">",
+          "value": 7,
+          "description": "7일 이상 임시 비밀번호 미변경 → 관리절차 '초기·임시 비밀번호 변경' 위반 (KISA 결함사례 2)"
+        },
+        {
+          "description": "미변경자 통계 자체가 없음 (관리 안 됨) → 관리절차 '초기·임시 비밀번호 변경' 위반"
+        }
+      ],
+      "judgement_logic": {
+        "type": "aggregated_statistics",
+        "method": "count_violations",
+        "max_violations": 0,
+        "grace_period_hours": 24
+      }
+    },
+    {
+      "rule_id": "2.5.4-R013",
+      "check_category": "저장_형태",
+      "evidence_type": "DB password 컬럼 샘플 (hash 값 확인)",
+      "system": "Database",
+      "related_checkpoints": ["CP-01", "CP-02"],
+      "evidence_format": "sql_output_or_image",
+      "extraction_method": "structured_parse_with_regex",
+      "identification_keywords": [
+        "password",
+        "passwd",
+        "pwd",
+        "password_hash",
+        "encrypted_password",
+        "pw_hash",
+        "salt",
+        "iteration_count",
+        "hash_algorithm"
+      ],
+      "compliance_indicators": [
+        {
+          "pattern": "^\\$2[aby]\\$",
+          "type": "regex",
+          "description": "bcrypt 단방향 해시 (안전성 확보조치 기준 제7조제1항 이행)"
+        },
+        {
+          "pattern": "^\\$argon2(i|id)\\$",
+          "type": "regex",
+          "description": "argon2 단방향 해시"
+        },
+        {
+          "pattern": "^\\$scrypt\\$|^\\$s0\\$",
+          "type": "regex",
+          "description": "scrypt 단방향 해시"
+        },
+        {
+          "pattern": "^pbkdf2_sha(256|512)\\$",
+          "type": "regex",
+          "description": "PBKDF2 단방향 해시"
+        },
+        {
+          "description": "SHA-256/512 + salt 컬럼 동반 (64/128 hex)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "평문 저장 (사람이 읽을 수 있는 문자열) → 안전성 확보조치 기준 제7조제1항 위반"
+        },
+        {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "regex",
+          "description": "MD5 (32자 hex, salt 없음) → 취약한 해시"
+        },
+        {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "regex",
+          "description": "SHA-1 (40자 hex, salt 없음) → 취약한 해시"
+        },
+        {
+          "pattern": "=$",
+          "type": "regex_suffix",
+          "description": "Base64 only → 복호화 가능"
+        },
+        {
+          "description": "양방향 암호화 (AES 등 복호화 가능) → 안전성 확보조치 기준 제7조제1항 위반"
+        },
+        {
+          "description": "salt 컬럼 부재 → 레인보우 테이블 취약"
+        }
+      ],
+      "judgement_logic": {
+        "type": "regex_match",
+        "method": "any_sample_violation_fails",
+        "sample_size_min": 10,
+        "description": "샘플 중 하나라도 결함 패턴 매칭 시 미준수"
+      }
+    },
+    {
+      "rule_id": "2.5.4-R014",
+      "check_category": "인증수단",
+      "evidence_type": "MFA/인증수단 설정 현황",
+      "system": "IAM / Authentication System",
+      "related_checkpoints": ["CP-03"],
+      "evidence_format": "image_or_json",
+      "extraction_method": "vlm_or_api",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "MFA",
+        "Multi-Factor Authentication",
+        "2FA",
+        "Two-Factor",
+        "이중 인증",
+        "다중 인증",
+        "다단계 인증",
+        "OTP",
+        "TOTP",
+        "인증서",
+        "PIN",
+        "생체인식",
+        "보안토큰",
+        "일회용 비밀번호",
+        "Enforced",
+        "Required",
+        "Enabled",
+        "Disabled"
+      ],
+      "compliance_indicators": [
+        {
+          "pattern": "MFA Required for all users",
+          "type": "semantic_match",
+          "description": "전체 사용자 MFA 적용 (안전성 확보조치 기준 제5조제6항 이행)"
+        },
+        {
+          "pattern": "Admin MFA enforced",
+          "type": "semantic_match",
+          "description": "관리자 MFA 강제 (관리절차 '관리자 비밀번호 등급 관리' 이행)"
+        },
+        {
+          "pattern": "관리자 계정 MFA 필수",
+          "type": "semantic_match"
+        },
+        {
+          "description": "인증수단별 적용 대상 명시 (관리자=하드웨어 토큰, 일반=TOTP 등)"
+        },
+        {
+          "description": "비밀번호 외 인증수단이 비인가자에게 탈취·도용되지 않도록 보호대책 적용"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "field": "MFA",
+          "op": "==",
+          "value": "Optional",
+          "description": "MFA 선택적 → 안전성 확보조치 기준 제5조제6항 위반"
+        },
+        {
+          "field": "Admin MFA",
+          "op": "==",
+          "value": "Disabled",
+          "description": "관리자 MFA 미적용 → 관리절차 '관리자 비밀번호 등급 관리' 위반"
+        },
+        {
+          "description": "ID/PW만으로 관리 콘솔 접근"
+        },
+        {
+          "description": "MFA 정책 자체 부재 → 안전성 확보조치 기준 제5조제6항 위반"
+        },
+        {
+          "description": "외부망 접속에 단일 인증만"
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "admin_mfa_required_and_all_users_recommended",
+        "critical_fields": ["Admin MFA"]
+      }
+    },
+    {
+      "rule_id": "2.5.4-R015",
+      "check_category": "인증수단",
+      "evidence_type": "로그인 화면 캡처",
+      "system": "Application UI",
+      "related_checkpoints": ["CP-03"],
+      "evidence_format": "image",
+      "extraction_method": "vlm",
+      "identification_keywords": [
+        "Login",
+        "Sign in",
+        "로그인",
+        "Username",
+        "ID",
+        "아이디",
+        "Password",
+        "비밀번호",
+        "OTP 입력란",
+        "인증 앱 코드",
+        "SMS 코드"
+      ],
+      "compliance_indicators": [
+        {
+          "pattern": "아이디 또는 비밀번호가 일치하지 않습니다",
+          "type": "exact_match",
+          "description": "generic 실패 메시지 (정보 노출 방지)"
+        },
+        {
+          "pattern": "Invalid credentials",
+          "type": "exact_match"
+        },
+        {
+          "pattern": "Login failed",
+          "type": "exact_match"
+        },
+        {
+          "pattern": "계정이 잠겼습니다",
+          "type": "semantic_match",
+          "description": "로그인 실패 시 잠금 동작"
+        },
+        {
+          "pattern": "5회 실패로 잠금",
+          "type": "semantic_match"
+        },
+        {
+          "pattern": "Account locked",
+          "type": "semantic_match"
+        },
+        {
+          "description": "2단계 인증 단계 존재 (안전성 확보조치 기준 제5조제6항 이행)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "pattern": "존재하지 않는 아이디입니다",
+          "type": "exact_match",
+          "description": "ID 존재 여부 정보 노출"
+        },
+        {
+          "pattern": "비밀번호가 틀렸습니다",
+          "type": "exact_match",
+          "description": "비밀번호 오류 정보 노출"
+        },
+        {
+          "pattern": "User not found",
+          "type": "exact_match"
+        },
+        {
+          "pattern": "Wrong password",
+          "type": "exact_match"
+        },
+        {
+          "description": "로그인 실패 횟수 제한 없음"
+        },
+        {
+          "description": "무제한 시도 가능"
+        },
+        {
+          "description": "MFA 단계 없이 바로 로그인"
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "vlm_behavioral_analysis",
+        "any_deficiency_fails": true,
+        "min_compliance_signals": 2
+      }
+    }
+  ],
+  "cross_validation": {
+    "description": "정책 문서(R002)에 명시된 작성규칙/관리절차가 실제 시스템에서 이행되는지 교차 검증. KISA 결함사례의 핵심: '지침에는 있으나 실제로 미이행'",
+    "deficiency_cases": [
+      {
+        "policy_item": "길이 및 복잡도 적용",
+        "policy_description": "영문·숫자·특수문자 중 2종류 이상 조합 시 최소 8자리 이상, 또는 문자로만 구성할 경우 최소 10자리 이상",
+        "implementation_rules": ["2.5.4-R003", "2.5.4-R004", "2.5.4-R005", "2.5.4-R006", "2.5.4-R007", "2.5.4-R008"],
+        "description": "정책에 길이·복잡도 기준을 명시했으나 일부 정보시스템에서 내부 지침과 상이한 비밀번호 설정을 사용하는 경우",
+        "severity": "high",
+        "kisa_reference": "KISA 결함사례 1"
+      },
+      {
+        "policy_item": "변경주기 설정",
+        "policy_description": "비밀번호 유효기간을 설정하여 주기적으로 변경",
+        "implementation_rules": ["2.5.4-R003", "2.5.4-R004", "2.5.4-R005", "2.5.4-R006", "2.5.4-R009"],
+        "description": "정책에 변경주기를 명시했으나 시스템의 비밀번호 유효기간 설정이 정책과 불일치하는 경우",
+        "severity": "high",
+        "kisa_reference": "KISA 결함사례 1"
+      },
+      {
+        "policy_item": "추측 쉬운 비밀번호 제한",
+        "policy_description": "동일 문자 반복, 키보드 나란히 문자열, 연속 숫자, 생일, 전화번호 등 추측 쉬운 비밀번호 사용 제한",
+        "implementation_rules": ["2.5.4-R003", "2.5.4-R004", "2.5.4-R005", "2.5.4-R008"],
+        "description": "정책에 추측 쉬운 비밀번호 제한을 명시했으나 시스템에서 복잡도 검증이 미적용된 경우",
+        "severity": "high",
+        "kisa_reference": "KISA 결함사례 1"
+      },
+      {
+        "policy_item": "비밀번호 재사용 제한",
+        "policy_description": "비밀번호 변경 시 이전에 사용한 비밀번호 재사용 제한",
+        "implementation_rules": ["2.5.4-R004", "2.5.4-R005"],
+        "description": "정책에 재사용 제한을 명시했으나 AD/IAM에서 password history가 설정되지 않은 경우",
+        "severity": "medium"
+      },
+      {
+        "policy_item": "초기·임시 비밀번호 변경 후 사용",
+        "policy_description": "시스템 도입 시 설정된 초기 또는 임시 비밀번호의 변경 후 사용",
+        "implementation_rules": ["2.5.4-R010", "2.5.4-R011", "2.5.4-R012"],
+        "description": "비밀번호 관리 내부 규정에는 임시 비밀번호를 부여하고 강제적으로 변경하도록 되어 있으나, 실제로는 임시 비밀번호를 그대로 사용하고 있는 경우",
+        "severity": "critical",
+        "kisa_reference": "KISA 결함사례 2"
+      },
+      {
+        "policy_item": "마스킹 처리",
+        "policy_description": "비밀번호 처리(입력, 변경) 시 마스킹 처리",
+        "implementation_rules": ["2.5.4-R008", "2.5.4-R015"],
+        "description": "정책에 마스킹을 명시했으나 화면에서 비밀번호 입력 시 마스킹이 적용되지 않은 경우",
+        "severity": "medium"
+      },
+      {
+        "policy_item": "기록·저장 제한",
+        "policy_description": "종이·파일·모바일 기기 등에 비밀번호 기록·저장 제한, 부득이 시 암호화",
+        "implementation_rules": [],
+        "description": "정책에 기록·저장 제한을 명시했으나 운영 현황 점검 필요 (자동 검증 불가, 수동 확인 필요)",
+        "severity": "medium",
+        "manual_review_required": true
+      },
+      {
+        "policy_item": "침해사고 시 즉시 변경",
+        "policy_description": "침해사고 발생 또는 비밀번호 노출 징후 의심 시 지체 없이 비밀번호 변경",
+        "implementation_rules": [],
+        "description": "정책에 즉시 변경을 명시했으나 실제 침해사고 대응 절차 점검 필요 (자동 검증 불가, 수동 확인 필요)",
+        "severity": "medium",
+        "manual_review_required": true
+      },
+      {
+        "policy_item": "분실 시 본인확인 재설정",
+        "policy_description": "비밀번호 분실 등에 따른 재설정 시 본인확인 절차 수행",
+        "implementation_rules": ["2.5.4-R010"],
+        "description": "정책에 본인확인 후 재설정을 명시했으나 코드에 본인확인 로직이 구현되지 않은 경우",
+        "severity": "high"
+      },
+      {
+        "policy_item": "관리자 비밀번호 등급 관리",
+        "policy_description": "관리자 비밀번호는 비밀등급에 준하여 관리",
+        "implementation_rules": ["2.5.4-R014"],
+        "description": "정책에 관리자 비밀번호 별도 관리를 명시했으나 관리자 계정에 MFA가 적용되지 않은 경우",
+        "severity": "high"
+      }
+    ]
+  },
+  "evaluation_strategy": {
+    "overall_verdict_logic": "all_rules_pass_required",
+    "description": "Phase 1: 개별 룰 15개 평가. Phase 2: 정책 문서 항목과 이행 증적 교차 검증(cross_validation). 하나라도 FAIL 시 미준수."
+  },
+  "rag_metadata": {
+    "embedding_target_fields": [
+      "item.description",
+      "sub_checkpoints[].description",
+      "rules[].identification_keywords",
+      "rules[].compliance_indicators[].pattern",
+      "rules[].deficiency_indicators[].pattern"
+    ],
+    "structured_match_fields": [
+      "rules[].compliance_indicators[].field",
+      "rules[].compliance_indicators[].op",
+      "rules[].compliance_indicators[].value"
+    ],
+    "chunk_strategy": "per_rule_with_metadata"
+  }
+}

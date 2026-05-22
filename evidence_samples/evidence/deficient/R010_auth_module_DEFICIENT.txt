@@ -1,0 +1,30 @@
+// auth_service.js — Legacy authentication module
+// Last updated: 2019-04-21
+
+const crypto = require('crypto');
+
+async function login(username, password) {
+  const user = await db.users.findOne({ username });
+  if (!user) {
+    return { success: false, message: '존재하지 않는 아이디입니다' };  // 정보 노출
+  }
+  
+  // MD5 해시 (deprecated)
+  const hash = crypto.createHash('md5').update(password).digest('hex');
+  if (hash !== user.password) {
+    return { success: false, message: '비밀번호가 틀렸습니다' };  // 정보 노출
+  }
+  
+  // 임시 비밀번호 처리 없음
+  // 만료 체크 없음
+  return { success: true, session: createSession(user) };
+}
+
+async function resetPassword(userId) {
+  // 단순 초기화 - 강제 변경 플래그 없음
+  const tempPassword = '1234';  // 약한 임시 비번
+  await db.users.update(userId, {
+    password: crypto.createHash('md5').update(tempPassword).digest('hex')
+  });
+  return tempPassword;
+}

@@ -1,0 +1,52 @@
+{
+  "AccountSummary": {
+    "AccountMFAEnabled": 1
+  },
+  "Users": [
+    {
+      "UserName": "alice.admin",
+      "MFADevices": [
+        {
+          "SerialNumber": "arn:aws:iam::123456789012:mfa/YubiKey-alice",
+          "EnableDate": "2024-11-15T08:00:00Z"
+        }
+      ],
+      "MFAEnforced": true
+    },
+    {
+      "UserName": "bob.devops",
+      "MFADevices": [
+        {
+          "SerialNumber": "arn:aws:iam::123456789012:mfa/Authy-bob",
+          "EnableDate": "2024-10-22T10:30:00Z"
+        }
+      ],
+      "MFAEnforced": true
+    },
+    {
+      "UserName": "carol.dev",
+      "MFADevices": [
+        {
+          "SerialNumber": "arn:aws:iam::123456789012:mfa/GoogleAuth-carol",
+          "EnableDate": "2025-01-08T14:15:00Z"
+        }
+      ],
+      "MFAEnforced": true
+    },
+    {
+      "UserName": "dave.support",
+      "MFADevices": [
+        {
+          "SerialNumber": "arn:aws:iam::123456789012:mfa/GoogleAuth-dave",
+          "EnableDate": "2025-03-12T09:45:00Z"
+        }
+      ],
+      "MFAEnforced": true
+    }
+  ],
+  "MFAPolicy": {
+    "AdminMFAEnforced": true,
+    "AllUsersMFAEnforced": true,
+    "ExternalAccessRequiresMFA": true
+  }
+}

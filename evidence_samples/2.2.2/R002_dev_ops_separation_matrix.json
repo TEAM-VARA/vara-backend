@@ -1,0 +1,10 @@
+{
+  "evidence_id": "EVD-2.2.2-R002-20260415",
+  "rule_id": "2.2.2-R002",
+  "evidence_type": "개발-운영 분리 매트릭스",
+  "source_format": "pdf",
+  "extraction_method": "text_extraction",
+  "collected_at": "2026-04-15T10:00:00+09:00",
+  "collector": "VARA GRC Agent v2.1",
+  "extracted_text": "데모코프 개발-운영 환경 분리 및 권한 매트릭스\n문서번호: DemoCorp-ISMS-MTX-003\n작성일: 2026년 3월 25일\n\n1. 환경 분리 현황\n\n구분          | 개발 환경 (DEV)        | 스테이징 환경 (STG)    | 운영 환경 (PRD)\n네트워크      | VPC-DEV (10.1.0.0/16) | VPC-STG (10.2.0.0/16) | VPC-PRD (10.3.0.0/16)\nEKS 클러스터  | eks-dev-cluster       | eks-stg-cluster       | eks-prd-cluster\nDB 인스턴스   | rds-dev-democorp      | rds-stg-democorp      | rds-prd-democorp\n접근 제어     | 개발팀 전용            | QA팀 + 제한적 개발팀   | 운영팀 전용\n\n2. 개발자·운영자 권한 분리 매트릭스\n\n사용자               | 소속          | 개발 권한              | 운영 권한              | 분리 적용\n김개발 (dev-kim)     | 개발1팀       | DEV: Admin, STG: Read  | PRD: 접근불가          | 적용완료\n이개발 (dev-lee)     | 개발1팀       | DEV: Admin, STG: Read  | PRD: 접근불가          | 적용완료\n박개발 (dev-park)    | 개발2팀       | DEV: Admin, STG: Read  | PRD: 접근불가          | 적용완료\n최운영 (ops-choi)    | 인프라운영팀  | DEV: 접근불가          | PRD: Admin, STG: Admin | 적용완료\n정운영 (ops-jung)    | 인프라운영팀  | DEV: 접근불가          | PRD: Admin, STG: Admin | 적용완료\n한배포 (ops-han)     | SRE팀         | DEV: Read              | PRD: Deploy Only       | 적용완료\n\n3. IAM Role 기반 접근 제어\n\n- 개발자 Role: arn:aws:iam::123456789012:role/DemoCorpDevRole\n  - eks-dev-cluster: full-access\n  - eks-prd-cluster: no-access\n\n- 운영자 Role: arn:aws:iam::123456789012:role/DemoCorpOpsRole\n  - eks-dev-cluster: no-access\n  - eks-prd-cluster: full-access\n\n4. CI/CD 파이프라인 분리\n- 개발 배포: Jenkins DEV Pipeline -> eks-dev-cluster (개발팀 트리거)\n- 운영 배포: ArgoCD PRD Pipeline -> eks-prd-cluster (운영팀 승인 후 자동 배포)\n\n검토자: 정보보호팀 김보안 팀장\n승인자: CTO 장기술 상무"
+}

@@ -1,0 +1,1587 @@
+package service
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/csv"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"math/big"
+	"mime/multipart"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/vara/backend/internal/domain/grc"
+	"github.com/vara/backend/internal/platform/embedding"
+	"github.com/vara/backend/internal/platform/ocr"
+	"github.com/vara/backend/internal/platform/pdfext"
+	"github.com/vara/backend/internal/repository/postgres"
+)
+
+// GRCService orchestrates the compliance check workflow.
+type GRCService struct {
+	repo            *postgres.GRCRepo
+	rulesetStore    *RulesetStore
+	storagePath     string // local storage root for evidence files
+	embeddingURL    string
+	vlmAPIKey       string
+	vlmModel        string
+	ocrClient       *ocr.Client
+	embeddingClient *embedding.Client
+}
+
+func NewGRCService(repo *postgres.GRCRepo, rulesetStore *RulesetStore, embClient *embedding.Client) *GRCService {
+	storagePath := os.Getenv("EVIDENCE_STORAGE_PATH")
+	if storagePath == "" {
+		storagePath = "evidence_storage"
+	}
+
+	// Tesseract OCR 초기화 (없으면 nil, 경고 로그만)
+	ocrClient := ocr.NewClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := ocrClient.CheckBinary(ctx); err != nil {
+		log.Printf("[grc] tesseract not available, OCR disabled: %v", err)
+		ocrClient = nil
+	} else {
+		log.Println("[grc] tesseract OCR enabled")
+	}
+
+	if embClient != nil && embClient.Available() {
+		log.Println("[grc] embedding client enabled")
+	} else {
+		log.Println("[grc] embedding client disabled (server URL not set)")
+	}
+
+	return &GRCService{
+		repo:            repo,
+		rulesetStore:    rulesetStore,
+		storagePath:     storagePath,
+		embeddingURL:    envOrDefault("EMBEDDING_SERVER_URL", "http://localhost:9000/embed"),
+		vlmAPIKey:       os.Getenv("ANTHROPIC_API_KEY"),
+		vlmModel:        envOrDefault("VLM_MODEL", "claude-sonnet-4-5"),
+		ocrClient:       ocrClient,
+		embeddingClient: embClient,
+	}
+}
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+// GenerateJobID creates a "ck_" prefixed nanoid-style ID.
+func GenerateJobID() string {
+	const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	b := make([]byte, 10)
+	for i := range b {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+		b[i] = alphabet[n.Int64()]
+	}
+	return "ck_" + string(b)
+}
+
+// CreateCheck validates the request, saves files, creates a DB check, and starts the async worker.
+func (s *GRCService) CreateCheck(
+	ctx context.Context,
+	companyID, ismspItemID string,
+	autoCollect bool,
+	files []*multipart.FileHeader,
+	metadataList []grc.EvidenceMetadata,
+) (*grc.Check, error) {
+	// Validate ruleset exists.
+	_, err := s.rulesetStore.Load(ismspItemID)
+	if err != nil {
+		return nil, &GRCError{Code: "UNSUPPORTED_ITEM", Message: fmt.Sprintf("지원하지 않는 ISMS-P 항목: %s", ismspItemID), HTTPStatus: 400}
+	}
+
+	// Validate file count matches metadata count.
+	if len(files) != len(metadataList) {
+		return nil, &GRCError{Code: "INVALID_EVIDENCE_METADATA", Message: "files와 evidence_metadata 길이 불일치", HTTPStatus: 400}
+	}
+
+	// Validate file count limits.
+	if len(files) == 0 || len(files) > grc.MaxFileCount {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: fmt.Sprintf("파일 수는 1~%d개여야 합니다", grc.MaxFileCount), HTTPStatus: 400}
+	}
+
+	var totalSize int64
+	for i, f := range files {
+		// Validate filename matches metadata.
+		if f.Filename != metadataList[i].Filename {
+			return nil, &GRCError{
+				Code:       "INVALID_EVIDENCE_METADATA",
+				Message:    fmt.Sprintf("파일명 불일치: files[%d]=%s, metadata[%d]=%s", i, f.Filename, i, metadataList[i].Filename),
+				HTTPStatus: 400,
+			}
+		}
+
+		// Validate file extension.
+		ext := strings.ToLower(filepath.Ext(f.Filename))
+		if !grc.AllowedFileExtensions[ext] {
+			return nil, &GRCError{
+				Code:       "UNSUPPORTED_FILE_FORMAT",
+				Message:    fmt.Sprintf("지원하지 않는 파일 형식: %s", ext),
+				HTTPStatus: 400,
+			}
+		}
+
+		// Validate single file size.
+		if f.Size > grc.MaxFileSize {
+			return nil, &GRCError{Code: "PAYLOAD_TOO_LARGE", Message: fmt.Sprintf("파일 크기 초과: %s (%.1fMB > 50MB)", f.Filename, float64(f.Size)/1024/1024), HTTPStatus: 413}
+		}
+		totalSize += f.Size
+
+		// Validate evidence_type.
+		if !grc.AllowedEvidenceTypes[metadataList[i].EvidenceType] {
+			return nil, &GRCError{
+				Code:       "INVALID_EVIDENCE_TYPE",
+				Message:    fmt.Sprintf("유효하지 않은 evidence_type: %s", metadataList[i].EvidenceType),
+				HTTPStatus: 400,
+			}
+		}
+	}
+	if totalSize > grc.MaxTotalSize {
+		return nil, &GRCError{Code: "PAYLOAD_TOO_LARGE", Message: fmt.Sprintf("전체 파일 크기 초과: %.1fMB > 200MB", float64(totalSize)/1024/1024), HTTPStatus: 413}
+	}
+
+	// Create check.
+	checkID := GenerateJobID()
+	now := time.Now().UTC()
+
+	chk := &grc.Check{
+		CheckID:     checkID,
+		CompanyID:   companyID,
+		ISMSPItemID: ismspItemID,
+		Status:      "queued",
+		ProgressPct: 0,
+		AutoCollect: autoCollect,
+		SubmittedAt: now,
+	}
+
+	if err := s.repo.CreateCheck(ctx, chk); err != nil {
+		return nil, fmt.Errorf("check 생성 실패: %w", err)
+	}
+
+	// Save files to local storage.
+	jobDir := filepath.Join(s.storagePath, companyID, checkID)
+	if err := os.MkdirAll(jobDir, 0o755); err != nil {
+		return nil, fmt.Errorf("storage directory 생성 실패: %w", err)
+	}
+
+	for i, f := range files {
+		storagePath := filepath.Join(jobDir, f.Filename)
+		contentHash, err := saveUploadedFile(f, storagePath)
+		if err != nil {
+			return nil, fmt.Errorf("파일 저장 실패 %s: %w", f.Filename, err)
+		}
+		ef := &grc.EvidenceFile{
+			CheckID:       checkID,
+			Filename:      f.Filename,
+			EvidenceType:  metadataList[i].EvidenceType,
+			System:        metadataList[i].System,
+			Description:   metadataList[i].Description,
+			StoragePath:   storagePath,
+			FileSizeBytes: f.Size,
+			TargetRuleIDs: metadataList[i].TargetRuleIDs,
+			K8sSource:     metadataList[i].K8sSource,
+			ContentHash:   contentHash,
+		}
+		if err := s.repo.InsertEvidenceFile(ctx, ef); err != nil {
+			return nil, fmt.Errorf("evidence file DB 저장 실패: %w", err)
+		}
+	}
+
+	// Launch async worker.
+	go s.runWorker(checkID)
+
+	return chk, nil
+}
+
+// saveUploadedFile writes the uploaded file to dst and returns its SHA-256 hex hash.
+func saveUploadedFile(fh *multipart.FileHeader, dst string) (string, error) {
+	src, err := fh.Open()
+	if err != nil {
+		return "", err
+	}
+	defer src.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+
+	h := sha256.New()
+	w := io.MultiWriter(out, h)
+	if _, err = io.Copy(w, src); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// GetCheckDetail returns the full check detail for the GET endpoint.
+func (s *GRCService) GetCheckDetail(ctx context.Context, checkID string) (*grc.CheckDetailResponse, error) {
+	chk, err := s.repo.GetCheck(ctx, checkID)
+	if err != nil {
+		return nil, &GRCError{Code: "CHECK_NOT_FOUND", Message: "check_id 미존재", HTTPStatus: 404}
+	}
+
+	resp := &grc.CheckDetailResponse{
+		CheckID:        chk.CheckID,
+		CompanyID:      chk.CompanyID,
+		ISMSPItemID:    chk.ISMSPItemID,
+		RulesetVersion: chk.RulesetVersion,
+		Status:         chk.Status,
+		ProgressPct:    chk.ProgressPct,
+		Verdict:        chk.Verdict,
+		Severity:       chk.Severity,
+		SubmittedAt:    chk.SubmittedAt,
+		StartedAt:      chk.StartedAt,
+		CompletedAt:    chk.CompletedAt,
+		Error:          chk.Error,
+	}
+
+	if chk.Status == "completed" {
+		resp.Summary = &grc.Summary{
+			TotalRules:        chk.TotalRules,
+			Passed:            chk.PassedRules,
+			Failed:            chk.FailedRules,
+			Skipped:           chk.SkippedRules,
+			EvidenceCollected: chk.EvidenceCount,
+			SummaryText:       chk.SummaryText,
+		}
+		resp.RuleResults, _ = s.repo.GetCheckRuleResults(ctx, checkID)
+		resp.Recommendations, _ = s.repo.GetCheckRecommendations(ctx, checkID)
+	}
+
+	return resp, nil
+}
+
+// ListChecks returns paginated compliance checks with optional filters.
+func (s *GRCService) ListChecks(ctx context.Context, filters postgres.CheckFilters, page, pageSize int) ([]grc.CheckListItem, int, error) {
+	return s.repo.ListChecks(ctx, filters, page, pageSize)
+}
+
+// ListEvidence returns evidence files for a check.
+func (s *GRCService) ListEvidence(ctx context.Context, checkID string) ([]grc.EvidenceListItem, error) {
+	return s.repo.ListEvidenceForAPI(ctx, checkID)
+}
+
+// ── Cloud Environments ──
+
+// CreateCloudEnvironments inserts cloud environment resources, generates text + embeddings.
+func (s *GRCService) CreateCloudEnvironments(ctx context.Context, envs []grc.CloudEnvironment) ([]grc.CloudEnvironment, error) {
+	for i := range envs {
+		// Generate extracted_text from raw_data.
+		if envs[i].ExtractedText == "" {
+			envs[i].ExtractedText = ExtractCloudEnvText(envs[i].ResourceType, envs[i].RawData)
+		}
+
+		// Generate embedding.
+		if s.embeddingClient != nil && s.embeddingClient.Available() && envs[i].ExtractedText != "" {
+			emb, err := s.embeddingClient.Embed(ctx, envs[i].ExtractedText)
+			if err != nil {
+				log.Printf("[grc-cloud-env] embed error for %s/%s: %v", envs[i].ResourceType, envs[i].ResourceName, err)
+			} else {
+				envs[i].Embedding = emb
+			}
+		}
+
+		if err := s.repo.InsertCloudEnvironment(ctx, &envs[i]); err != nil {
+			return nil, fmt.Errorf("insert cloud env %s/%s: %w", envs[i].ResourceType, envs[i].ResourceName, err)
+		}
+	}
+	return envs, nil
+}
+
+// ListCloudEnvironments returns paginated cloud environment resources.
+func (s *GRCService) ListCloudEnvironments(ctx context.Context, companyID, resourceType string, page, pageSize int) ([]grc.CloudEnvListItem, int, error) {
+	return s.repo.ListCloudEnvironments(ctx, companyID, resourceType, page, pageSize)
+}
+
+// ─────────────────────────────────────────────
+// Async Worker
+// ─────────────────────────────────────────────
+
+func (s *GRCService) runWorker(checkID string) {
+	ctx := context.Background()
+
+	if err := s.repo.UpdateCheckStarted(ctx, checkID); err != nil {
+		log.Printf("[grc-worker] failed to mark check started: %s: %v", checkID, err)
+		return
+	}
+
+	result, err := s.processCheck(ctx, checkID)
+	if err != nil {
+		log.Printf("[grc-worker] check %s failed: %v", checkID, err)
+		errDetail := &grc.ErrorDetail{
+			Code:    "INTERNAL_ERROR",
+			Message: err.Error(),
+		}
+		if ge, ok := err.(*GRCError); ok {
+			errDetail.Code = ge.Code
+			errDetail.Message = ge.Message
+		}
+		_ = s.repo.UpdateCheckFailed(ctx, checkID, errDetail)
+		return
+	}
+
+	if err := s.repo.SaveCheckResult(ctx, result); err != nil {
+		log.Printf("[grc-worker] failed to save result: %s: %v", checkID, err)
+		_ = s.repo.UpdateCheckFailed(ctx, checkID, &grc.ErrorDetail{Code: "INTERNAL_ERROR", Message: "결과 저장 실패"})
+		return
+	}
+}
+
+func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.ComplianceCheckResult, error) {
+	// Load check & evidence files.
+	chk, err := s.repo.GetCheck(ctx, checkID)
+	if err != nil {
+		return nil, err
+	}
+
+	evidenceFiles, err := s.repo.ListEvidenceFiles(ctx, checkID)
+	if err != nil {
+		return nil, err
+	}
+
+	ruleset, err := s.rulesetStore.Load(chk.ISMSPItemID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 1: Extract evidence data from files (with hash-based caching).
+	_ = s.repo.UpdateCheckProgress(ctx, checkID, 10)
+	evidenceStore := make(map[string]any) // filename -> extracted data
+	for _, ef := range evidenceFiles {
+		// Cache hit: DB에 이미 추출된 텍스트가 있으면 재사용
+		if ef.ExtractedText != "" {
+			log.Printf("[grc-cache] HIT (same check) %s", ef.Filename)
+			evidenceStore[ef.Filename] = ef.ExtractedText
+			continue
+		}
+		// Cache hit: 동일 해시의 이전 파일에서 추출 텍스트 조회
+		if ef.ContentHash != "" {
+			if cached, found, _ := s.repo.FindExtractedTextByHash(ctx, ef.ContentHash); found {
+				log.Printf("[grc-cache] HIT (hash=%s) %s", ef.ContentHash[:12], ef.Filename)
+				evidenceStore[ef.Filename] = cached
+				// 현재 레코드에도 캐시 저장
+				_ = s.repo.UpdateEvidenceExtractedText(ctx, checkID, ef.Filename, cached)
+				continue
+			}
+		}
+
+		// Cache miss: 파일에서 새로 추출
+		data, err := s.extractEvidence(ef)
+		if err != nil {
+			return nil, &GRCError{
+				Code:    "EXTRACTION_FAILED",
+				Message: fmt.Sprintf("%s 파일에서 추출 실패", ef.Filename),
+			}
+		}
+		evidenceStore[ef.Filename] = data
+
+		// 추출된 텍스트를 DB에 저장 (다음 점검에서 캐시로 사용)
+		var textForDB string
+		switch v := data.(type) {
+		case string:
+			textForDB = v
+		case map[string]any:
+			if b, err := json.Marshal(v); err == nil {
+				textForDB = string(b)
+			}
+		case []any:
+			if b, err := json.Marshal(v); err == nil {
+				textForDB = string(b)
+			}
+		case []map[string]string:
+			if b, err := json.Marshal(v); err == nil {
+				textForDB = string(b)
+			}
+		}
+		if textForDB != "" {
+			_ = s.repo.UpdateEvidenceExtractedText(ctx, checkID, ef.Filename, textForDB)
+			log.Printf("[grc-cache] SAVED %s (hash=%s, %d chars)", ef.Filename, ef.ContentHash, len(textForDB))
+		}
+	}
+	_ = s.repo.UpdateCheckProgress(ctx, checkID, 30)
+
+	// Step 1.5: Generate embeddings for evidence + guideline text.
+	s.generateEvidenceEmbeddings(ctx, checkID, evidenceFiles, evidenceStore, ruleset)
+	_ = s.repo.UpdateCheckProgress(ctx, checkID, 40)
+
+	embByFile, errEmb := s.repo.ListEvidenceEmbeddingsForCheck(ctx, checkID)
+	if errEmb != nil {
+		log.Printf("[grc-embed] reload evidence vectors: %v", errEmb)
+		embByFile = nil
+	}
+
+	// Step 2: Evaluate each rule.
+	var ruleResults []grc.RuleResult
+	for i, rule := range ruleset.Rules {
+		matched := matchEvidenceToRule(evidenceFiles, rule)
+		var result grc.RuleResult
+
+		if len(matched) == 0 {
+			result = grc.RuleResult{
+				RuleID:        rule.RuleID,
+				CheckCategory: rule.CheckCategory,
+				EvidenceType:  rule.EvidenceType,
+				System:        rule.System,
+				Verdict:       "skipped",
+				SkipReason:    "증적 미제출",
+				EvidenceFiles: []string{},
+			}
+		} else {
+			filenames := make([]string, len(matched))
+			var extractedData []any
+			for j, ef := range matched {
+				filenames[j] = ef.Filename
+				if d, ok := evidenceStore[ef.Filename]; ok {
+					extractedData = append(extractedData, d)
+				}
+			}
+
+			result = s.evaluateRule(ctx, rule, extractedData, filenames)
+			result.EvidenceSources = evidenceAttributionsFromFiles(matched)
+			result = s.applyEmbeddingSecondPass(ctx, rule, matched, embByFile, result)
+		}
+
+		ruleResults = append(ruleResults, result)
+		pct := 40 + (i+1)*50/len(ruleset.Rules)
+		_ = s.repo.UpdateCheckProgress(ctx, checkID, pct)
+	}
+
+	// Step 3: Aggregate results.
+	_ = s.repo.UpdateCheckProgress(ctx, checkID, 95)
+	summary := aggregateSummary(ruleResults, len(evidenceFiles))
+	summary.SummaryText = fmt.Sprintf("ISMS-P %s (%s) 점검 결과: %d개 룰 중 통과 %d / 미준수 %d / 스킵 %d",
+		chk.ISMSPItemID, ruleset.Item.Name,
+		summary.TotalRules, summary.Passed, summary.Failed, summary.Skipped)
+
+	verdict := "준수"
+	severity := "low"
+	for _, r := range ruleResults {
+		if r.Verdict == "미준수" {
+			verdict = "미준수"
+			for _, v := range r.Violations {
+				switch v.Severity {
+				case "critical":
+					severity = "critical"
+				case "high":
+					if severity != "critical" {
+						severity = "high"
+					}
+				case "medium":
+					if severity != "critical" && severity != "high" {
+						severity = "medium"
+					}
+				}
+			}
+		}
+	}
+
+	recommendations := generateRecommendations(ruleResults, ruleset)
+
+	finalResult := &grc.ComplianceCheckResult{
+		CheckID:         checkID,
+		ISMSPItemID:     chk.ISMSPItemID,
+		ItemName:        ruleset.Item.Name,
+		RulesetVersion:  "2023.11",
+		Verdict:         verdict,
+		Severity:        severity,
+		CompletedAt:     time.Now().UTC(),
+		Summary:         summary,
+		RuleResults:     ruleResults,
+		Recommendations: recommendations,
+	}
+
+	return finalResult, nil
+}
+
+// ─────────────────────────────────────────────
+// Embedding Generation
+// ─────────────────────────────────────────────
+
+// generateEvidenceEmbeddings creates BGE-M3 embeddings for extracted evidence text
+// and the corresponding guideline (rule) text, then stores them in the DB.
+// This is best-effort: if the embedding server is unavailable, it logs and returns.
+func (s *GRCService) generateEvidenceEmbeddings(
+	ctx context.Context,
+	checkID string,
+	evidenceFiles []grc.EvidenceFile,
+	evidenceStore map[string]any,
+	ruleset *Ruleset,
+) {
+	if s.embeddingClient == nil || !s.embeddingClient.Available() {
+		return
+	}
+
+	for _, ef := range evidenceFiles {
+		// Get the extracted text for this evidence file.
+		var evidenceText string
+		if d, ok := evidenceStore[ef.Filename]; ok {
+			switch v := d.(type) {
+			case string:
+				evidenceText = v
+			case map[string]any:
+				if b, err := json.Marshal(v); err == nil {
+					evidenceText = string(b)
+				}
+			case []map[string]string:
+				if b, err := json.Marshal(v); err == nil {
+					evidenceText = string(b)
+				}
+			}
+		}
+		if evidenceText == "" {
+			continue
+		}
+
+		// Find the matching rule(s) for this evidence file → build guideline text.
+		var guidelineText string
+		for _, rule := range ruleset.Rules {
+			matched := matchEvidenceToRule([]grc.EvidenceFile{ef}, rule)
+			if len(matched) > 0 {
+				guidelineText += buildGuidelineText(rule) + "\n"
+			}
+		}
+
+		// Generate embeddings (batch: evidence + guideline in one call).
+		texts := []string{evidenceText, guidelineText}
+		embeddings, err := s.embeddingClient.EmbedBatch(ctx, texts)
+		if err != nil {
+			log.Printf("[grc-embed] batch embed error for %s: %v", ef.Filename, err)
+			continue
+		}
+		if len(embeddings) < 2 {
+			continue
+		}
+
+		var evidenceEmb, guidelineEmb []float32
+		if embeddings[0] != nil {
+			evidenceEmb = embeddings[0]
+		}
+		if embeddings[1] != nil {
+			guidelineEmb = embeddings[1]
+		}
+
+		if err := s.repo.UpdateEvidenceEmbeddings(ctx, checkID, ef.Filename, guidelineText, evidenceEmb, guidelineEmb); err != nil {
+			log.Printf("[grc-embed] save embeddings error for %s: %v", ef.Filename, err)
+		} else {
+			log.Printf("[grc-embed] saved embeddings for %s (evidence=%d dims, guideline=%d dims)",
+				ef.Filename, len(evidenceEmb), len(guidelineEmb))
+		}
+	}
+}
+
+// buildGuidelineText combines a rule's criteria into a single text for embedding.
+func buildGuidelineText(rule Rule) string {
+	var parts []string
+
+	parts = append(parts, fmt.Sprintf("점검항목: %s", rule.CheckCategory))
+	if rule.EvidenceType != "" {
+		parts = append(parts, fmt.Sprintf("증적유형: %s", rule.EvidenceType))
+	}
+	if rule.System != "" {
+		parts = append(parts, fmt.Sprintf("시스템: %s", rule.System))
+	}
+
+	if len(rule.IdentificationKeywords) > 0 {
+		parts = append(parts, fmt.Sprintf("식별키워드: %s", strings.Join(rule.IdentificationKeywords, ", ")))
+	}
+
+	for _, ind := range rule.ComplianceIndicators {
+		if ind.Description != "" {
+			parts = append(parts, fmt.Sprintf("준수기준: %s", ind.Description))
+		} else if ind.Field != "" {
+			parts = append(parts, fmt.Sprintf("준수기준: %s %s %v", ind.Field, ind.Op, ind.Value))
+		} else if ind.Pattern != "" {
+			parts = append(parts, fmt.Sprintf("준수패턴: %s", ind.Pattern))
+		}
+	}
+
+	for _, ind := range rule.DeficiencyIndicators {
+		if ind.Description != "" {
+			parts = append(parts, fmt.Sprintf("결함기준: %s", ind.Description))
+		} else if ind.Pattern != "" {
+			parts = append(parts, fmt.Sprintf("결함패턴: %s", ind.Pattern))
+		}
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+// ─────────────────────────────────────────────
+// Cloud Environment Text Extraction
+// ─────────────────────────────────────────────
+
+// ExtractCloudEnvText converts a K8s resource's raw_data into a text representation for embedding.
+func ExtractCloudEnvText(resourceType string, rawData map[string]any) string {
+	var parts []string
+	parts = append(parts, fmt.Sprintf("resource_type: %s", resourceType))
+
+	// Extract common metadata fields.
+	if meta, ok := rawData["metadata"].(map[string]any); ok {
+		if name, ok := meta["name"].(string); ok {
+			parts = append(parts, fmt.Sprintf("name: %s", name))
+		}
+		if ns, ok := meta["namespace"].(string); ok {
+			parts = append(parts, fmt.Sprintf("namespace: %s", ns))
+		}
+		if labels, ok := meta["labels"].(map[string]any); ok {
+			for k, v := range labels {
+				parts = append(parts, fmt.Sprintf("label: %s=%v", k, v))
+			}
+		}
+	}
+
+	// Flatten the rest as JSON text for embedding.
+	if b, err := json.Marshal(rawData); err == nil {
+		text := string(b)
+		// Truncate very large JSON for embedding (BGE-M3 has context limits).
+		if len(text) > 4000 {
+			text = text[:4000]
+		}
+		parts = append(parts, text)
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+// ─────────────────────────────────────────────
+// Evidence Extraction
+// ─────────────────────────────────────────────
+
+func (s *GRCService) extractEvidence(ef grc.EvidenceFile) (any, error) {
+	ext := strings.ToLower(filepath.Ext(ef.Filename))
+	switch ext {
+	case ".json":
+		return parseJSONFile(ef.StoragePath)
+	case ".yaml", ".yml":
+		return parseYAMLFile(ef.StoragePath)
+	case ".csv":
+		return parseCSVFile(ef.StoragePath)
+	case ".txt":
+		return readTextFile(ef.StoragePath)
+	case ".pdf":
+		return s.extractPDFText(ef.StoragePath)
+	case ".png", ".jpg", ".jpeg", ".webp":
+		return s.extractImageText(ef)
+	default:
+		return nil, fmt.Errorf("unsupported file type: %s", ext)
+	}
+}
+
+// extractPDFText는 PDF에서 텍스트를 추출합니다.
+// 순수 Go 라이브러리로 시도하고, 실패하거나 빈 텍스트면 OCR 폴백.
+func (s *GRCService) extractPDFText(path string) (string, error) {
+	text, err := pdfext.ExtractText(path)
+	if err != nil {
+		log.Printf("[grc-pdf] pdftotext FAIL %s: %v", path, err)
+	} else {
+		log.Printf("[grc-pdf] pdftotext OK %s (%d chars): %.300s", path, len(text), text)
+	}
+	if err == nil && !pdfext.IsTextEmpty(text) {
+		return text, nil
+	}
+	// PDF 텍스트 추출 실패 → OCR 폴백 (스캔된 PDF일 수 있음)
+	if s.ocrClient != nil {
+		ocrText, ocrErr := s.ocrClient.ExtractText(context.Background(), path)
+		if ocrErr == nil && !pdfext.IsTextEmpty(ocrText) {
+			return ocrText, nil
+		}
+	}
+	if err != nil {
+		return "", fmt.Errorf("PDF text extraction failed: %w", err)
+	}
+	return text, nil
+}
+
+// extractImageText는 이미지에서 Tesseract OCR로 텍스트를 추출합니다.
+// OCR 실패 시 기존 placeholder를 반환합니다.
+func (s *GRCService) extractImageText(ef grc.EvidenceFile) (any, error) {
+	if s.ocrClient == nil {
+		return map[string]any{"_type": "image", "_path": ef.StoragePath, "_filename": ef.Filename}, nil
+	}
+	text, err := s.ocrClient.ExtractText(context.Background(), ef.StoragePath)
+	if err != nil {
+		log.Printf("[grc-ocr] FAIL %s: %v", ef.Filename, err)
+		return map[string]any{"_type": "image", "_path": ef.StoragePath, "_filename": ef.Filename}, nil
+	}
+	if strings.TrimSpace(text) == "" {
+		log.Printf("[grc-ocr] EMPTY %s", ef.Filename)
+		return map[string]any{"_type": "image", "_path": ef.StoragePath, "_filename": ef.Filename}, nil
+	}
+	log.Printf("[grc-ocr] OK %s (%d chars): %.500s", ef.Filename, len(text), text)
+	return text, nil
+}
+
+func parseJSONFile(path string) (any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var result any
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func parseYAMLFile(path string) (any, error) {
+	// Use JSON fallback: read as text.
+	return readTextFile(path)
+}
+
+func parseCSVFile(path string) ([]map[string]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	reader := csv.NewReader(f)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(records) < 2 {
+		return []map[string]string{}, nil
+	}
+
+	headers := records[0]
+	var rows []map[string]string
+	for _, record := range records[1:] {
+		row := make(map[string]string)
+		for j, val := range record {
+			if j < len(headers) {
+				row[headers[j]] = val
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func readTextFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// ─────────────────────────────────────────────
+// Evidence-to-Rule Matching
+// ─────────────────────────────────────────────
+
+func matchEvidenceToRule(files []grc.EvidenceFile, rule Rule) []grc.EvidenceFile {
+	var matched []grc.EvidenceFile
+	for _, ef := range files {
+		// If target_rule_ids is specified, use that.
+		if len(ef.TargetRuleIDs) > 0 {
+			for _, rid := range ef.TargetRuleIDs {
+				if rid == rule.RuleID {
+					matched = append(matched, ef)
+					break
+				}
+			}
+			continue
+		}
+		// Otherwise, match by evidence_type (check_category).
+		if ef.EvidenceType == rule.CheckCategory {
+			matched = append(matched, ef)
+		}
+	}
+	return matched
+}
+
+// ─────────────────────────────────────────────
+// Evaluation Handlers
+// ─────────────────────────────────────────────
+
+func (s *GRCService) evaluateRule(ctx context.Context, rule Rule, evidenceData []any, filenames []string) grc.RuleResult {
+	base := grc.RuleResult{
+		RuleID:        rule.RuleID,
+		CheckCategory: rule.CheckCategory,
+		EvidenceType:  rule.EvidenceType,
+		System:        rule.System,
+		EvidenceFiles: filenames,
+	}
+
+	switch rule.JudgementLogic.Type {
+	case "structured_match":
+		return evaluateStructured(rule, evidenceData, base)
+	case "semantic_match":
+		return s.evaluateSemantic(ctx, rule, evidenceData, base)
+	case "regex_match":
+		return evaluateRegex(rule, evidenceData, base)
+	case "aggregated_statistics":
+		return evaluateAggregated(rule, evidenceData, base)
+	case "code_pattern_match":
+		return evaluateCodePattern(rule, evidenceData, base)
+	default:
+		base.Verdict = "skipped"
+		base.SkipReason = fmt.Sprintf("지원하지 않는 judgement_logic type: %s", rule.JudgementLogic.Type)
+		return base
+	}
+}
+
+func evaluateStructured(rule Rule, evidenceData []any, base grc.RuleResult) grc.RuleResult {
+	// Merge all evidence data into one map, then flatten nested maps.
+	merged := make(map[string]any)
+	fieldNames := extractFieldNames(rule.ComplianceIndicators)
+	for _, d := range evidenceData {
+		switch v := d.(type) {
+		case map[string]any:
+			for k, val := range v {
+				merged[k] = val
+			}
+		case string:
+			// OCR 텍스트 → 구조화 파싱
+			parsed := parseOCRToStructured(v, fieldNames)
+			for k, val := range parsed {
+				merged[k] = val
+			}
+		}
+	}
+	merged = flattenMap(merged)
+
+	// 복합 JSON 필드 → 구조화 매칭용 파생 불리언 필드 자동 생성
+	NormalizeRuleFixtureEvidence(rule.RuleID, merged)
+
+	// Debug: 파싱된 필드 로그
+	log.Printf("[grc-eval] rule=%s merged fields (%d):", rule.RuleID, len(merged))
+	for k, v := range merged {
+		log.Printf("[grc-eval]   %s = %v (%T)", k, v, v)
+	}
+	// 0개 필드 시 OCR 원문 로그 (디버깅용)
+	if len(merged) == 0 {
+		for _, d := range evidenceData {
+			if s, ok := d.(string); ok {
+				log.Printf("[grc-eval] rule=%s RAW OCR TEXT:\n%s", rule.RuleID, s)
+			}
+		}
+	}
+
+	// 원본 텍스트 수집 (필드 계열 존재 여부 판단용)
+	var rawTexts []string
+	for _, d := range evidenceData {
+		if s, ok := d.(string); ok {
+			rawTexts = append(rawTexts, strings.ToLower(s))
+		}
+	}
+
+	var violations []grc.Violation
+	var matched []string
+
+	for _, ind := range rule.ComplianceIndicators {
+		if ind.Field == "" {
+			continue
+		}
+		actual, exists := merged[ind.Field]
+		if !exists {
+			// 퍼지 매칭: OCR 오독 보상 (dcredit→deredit 등)
+			if fuzzyVal, found := fuzzyFindKey(merged, ind.Field); found {
+				actual = fuzzyVal
+				exists = true
+				log.Printf("[grc-eval] fuzzy match: '%s' → found value %v", ind.Field, actual)
+			}
+		}
+		if !exists {
+			// 필드 계열이 증적 원문에 전혀 없으면 → 다른 시스템의 필드이므로 skip
+			// 예: Oracle 증적에 "validate_password" 문자열이 없으면 MySQL 전용 필드로 간주
+			if !fieldFamilyExistsInText(ind.Field, rawTexts) {
+				log.Printf("[grc-eval] skip indicator '%s': field family not in evidence text", ind.Field)
+				continue
+			}
+			violations = append(violations, grc.Violation{
+				Field:       ind.Field,
+				Expected:    fmt.Sprintf("%s %v", ind.Op, ind.Value),
+				Actual:      nil,
+				Description: fmt.Sprintf("필드 '%s' 누락", ind.Field),
+				Severity:    "high",
+			})
+			continue
+		}
+		if !compareValues(actual, ind.Op, ind.Value) {
+			desc := ind.Description
+			if desc == "" {
+				desc = fmt.Sprintf("필드 '%s': 실제값 %v, 기대값 %s %v", ind.Field, actual, ind.Op, ind.Value)
+			}
+			violations = append(violations, grc.Violation{
+				Field:       ind.Field,
+				Expected:    fmt.Sprintf("%s %v", ind.Op, ind.Value),
+				Actual:      actual,
+				Description: desc,
+				Severity:    "high",
+			})
+		} else {
+			matched = append(matched, fmt.Sprintf("%s %s %v (%v)", ind.Field, ind.Op, ind.Value, actual))
+		}
+	}
+
+	if len(violations) > 0 {
+		base.Verdict = "미준수"
+		// 자원 단위 위반 추출: K8sSource 포함된 상세 violations로 교체
+		if detailed := ExtractViolatedResources(rule.RuleID, evidenceData); len(detailed) > 0 {
+			base.Violations = detailed
+		} else {
+			base.Violations = violations
+		}
+	} else {
+		base.Verdict = "준수"
+		base.MatchedIndicators = matched
+	}
+	return base
+}
+
+// fieldFamilyExistsInText는 네임스페이스 필드(점 포함)의 "계열"이 증적 원문에 존재하는지 확인합니다.
+// 예: "validate_password.length" → "validate_password" 검색 → 없으면 MySQL 전용으로 skip
+//
+// 점(.)이 없는 필드(PASSWORD_LIFE_TIME 등)는 항상 true를 반환합니다.
+// → OCR 오독으로 stem 매칭이 실패해도 skip되지 않고 정상적으로 "누락" 위반 처리됩니다.
+func fieldFamilyExistsInText(field string, rawTextsLower []string) bool {
+	fieldLower := strings.ToLower(field)
+	// 점(.)이 없는 필드는 항상 평가 대상 (skip 안 함)
+	dotIdx := strings.Index(fieldLower, ".")
+	if dotIdx <= 0 {
+		return true
+	}
+	// 점 이전의 접두사 추출: "validate_password.length" → "validate_password"
+	stem := fieldLower[:dotIdx]
+	stemAlt := strings.ReplaceAll(stem, "_", " ")
+
+	for _, text := range rawTextsLower {
+		if strings.Contains(text, stem) || strings.Contains(text, stemAlt) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *GRCService) evaluateSemantic(ctx context.Context, rule Rule, evidenceData []any, base grc.RuleResult) grc.RuleResult {
+	// For semantic_match with vlm_behavioral_analysis, we need image analysis.
+	// For element_coverage_check, we need embedding search.
+	// Simplified implementation: keyword-based matching on text content.
+
+	var textContent string
+	for _, d := range evidenceData {
+		switch v := d.(type) {
+		case string:
+			textContent += v + "\n"
+		case map[string]any:
+			if t, ok := v["_type"]; ok && t == "image" {
+				// In production, this would call VLM. For now, skip or handle gracefully.
+				textContent += "[image evidence]\n"
+			}
+		}
+	}
+
+	method := rule.JudgementLogic.Method
+	switch method {
+	case "embedding_similarity_with_threshold":
+		return s.evaluateEmbeddingSimilarity(ctx, rule, evidenceData, base)
+	case "element_coverage_check":
+		return evaluateElementCoverage(rule, textContent, base)
+	case "vlm_behavioral_analysis":
+		return evaluateOCRKeywordMatch(rule, evidenceData, base)
+	default:
+		return evaluateKeywordMatch(rule, textContent, base)
+	}
+}
+
+func evaluateKeywordMatch(rule Rule, text string, base grc.RuleResult) grc.RuleResult {
+	minMatches := rule.JudgementLogic.MinKeywordMatches
+	if minMatches == 0 {
+		minMatches = 2
+	}
+
+	matchCount := 0
+	var matched []string
+	textLower := strings.ToLower(text)
+	for _, kw := range rule.IdentificationKeywords {
+		if strings.Contains(textLower, strings.ToLower(kw)) {
+			matchCount++
+			matched = append(matched, kw)
+		}
+	}
+
+	if matchCount >= minMatches {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("식별 키워드 %d개 매칭 (%s)", matchCount, strings.Join(matched, ", "))}
+	} else {
+		base.Verdict = "미준수"
+		base.Violations = []grc.Violation{{
+			Description: fmt.Sprintf("식별 키워드 %d개만 매칭 (최소 %d개 필요)", matchCount, minMatches),
+			Severity:    "medium",
+		}}
+	}
+	return base
+}
+
+func evaluateElementCoverage(rule Rule, text string, base grc.RuleResult) grc.RuleResult {
+	if rule.RequiredContentElements == nil {
+		base.Verdict = "skipped"
+		base.SkipReason = "required_content_elements 정의 없음"
+		return base
+	}
+
+	var missing []grc.Violation
+	var matched []string
+	textLower := strings.ToLower(text)
+
+	for category, elements := range rule.RequiredContentElements {
+		for _, elem := range elements {
+			found := false
+			for _, kw := range elem.MatchKeywords {
+				if strings.Contains(textLower, strings.ToLower(kw)) {
+					found = true
+					break
+				}
+			}
+			if found {
+				matched = append(matched, fmt.Sprintf("[%s] %s: %s", category, elem.ID, elem.Description))
+			} else {
+				missing = append(missing, grc.Violation{
+					Description: fmt.Sprintf("필수 요소 누락: [%s] %s - %s", category, elem.ID, elem.Description),
+					Severity:    "medium",
+				})
+			}
+		}
+	}
+
+	if len(missing) > 0 {
+		base.Verdict = "미준수"
+		base.Violations = missing
+		base.MatchedIndicators = matched
+	} else {
+		base.Verdict = "준수"
+		base.MatchedIndicators = matched
+	}
+	return base
+}
+
+// evaluateOCRKeywordMatch는 이미지 증적의 OCR 텍스트에서 키워드/패턴 매칭으로 준수 여부를 판단합니다.
+// R008(회원가입·비밀번호 변경 화면), R011(임시 비밀번호 강제 변경 화면), R015(로그인 화면)에서 사용.
+func evaluateOCRKeywordMatch(rule Rule, evidenceData []any, base grc.RuleResult) grc.RuleResult {
+	// 1. OCR 텍스트 수집
+	var allText strings.Builder
+	hasImageEvidence := false
+	for _, d := range evidenceData {
+		switch v := d.(type) {
+		case string:
+			if strings.TrimSpace(v) != "" {
+				allText.WriteString(v)
+				allText.WriteString("\n")
+				hasImageEvidence = true
+			}
+		case map[string]any:
+			// OCR 실패 시 image placeholder
+			if t, ok := v["_type"]; ok && t == "image" {
+				hasImageEvidence = true
+			}
+		}
+	}
+
+	if !hasImageEvidence {
+		base.Verdict = "skipped"
+		base.SkipReason = "이미지 증적 없음"
+		return base
+	}
+
+	text := allText.String()
+	if strings.TrimSpace(text) == "" {
+		base.Verdict = "skipped"
+		base.SkipReason = "OCR 텍스트 추출 실패 (Tesseract 미설치 또는 텍스트 인식 불가)"
+		return base
+	}
+
+	textLower := strings.ToLower(text)
+	// Tesseract OCR은 한국어 글자 사이에 공백을 삽입하는 경우가 많음 ("회 원 가 입" → "회원가입")
+	// 공백 제거 버전으로 패턴 매칭 (원본도 함께 시도)
+	textNoSpace := strings.ReplaceAll(textLower, " ", "")
+	log.Printf("[grc-ocr-eval] rule=%s OCR text (%d chars): %.500s", rule.RuleID, len(text), text)
+
+	// ocrContains는 원본 텍스트와 공백 제거 텍스트 모두에서 패턴을 찾습니다.
+	ocrContains := func(pattern string) bool {
+		p := strings.ToLower(pattern)
+		if strings.Contains(textLower, p) {
+			return true
+		}
+		return strings.Contains(textNoSpace, strings.ReplaceAll(p, " ", ""))
+	}
+
+	// 2. 결함 패턴 매칭 (deficiency_indicators)
+	var violations []grc.Violation
+	for _, ind := range rule.DeficiencyIndicators {
+		if ind.Pattern == "" {
+			continue
+		}
+		if ocrContains(ind.Pattern) {
+			violations = append(violations, grc.Violation{
+				Pattern:     ind.Pattern,
+				Description: ind.Description,
+				Severity:    "high",
+			})
+			log.Printf("[grc-ocr-eval] rule=%s DEFICIENCY matched: %s", rule.RuleID, ind.Pattern)
+		}
+	}
+
+	if rule.JudgementLogic.AnyDeficiencyFails && len(violations) > 0 {
+		base.Verdict = "미준수"
+		base.Violations = violations
+		return base
+	}
+
+	// 3. 준수 신호 카운트: compliance_indicator 패턴 우선, 없으면 identification_keywords 폴백
+	var matched []string
+	hasPatterns := false
+	for _, ind := range rule.ComplianceIndicators {
+		if ind.Pattern != "" {
+			hasPatterns = true
+
+			desc := ind.Description
+			if desc == "" {
+				desc = ind.Pattern
+			}
+
+			// numeric_extract: 패턴(정규식)으로 숫자 추출 후 op/value 비교
+			if ind.Type == "numeric_extract" && ind.Op != "" && ind.Value != nil {
+				// 공백 제거한 텍스트에서 정규식 매칭
+				rePattern := strings.ReplaceAll(ind.Pattern, " ", "")
+				re, err := regexp.Compile(rePattern)
+				if err != nil {
+					log.Printf("[grc-ocr-eval] rule=%s regex compile error: %v", rule.RuleID, err)
+					continue
+				}
+				m := re.FindStringSubmatch(textNoSpace)
+				if len(m) >= 2 {
+					extracted, err := strconv.ParseFloat(m[1], 64)
+					if err == nil {
+						threshold, _ := toFloat64(ind.Value)
+						pass := compareValues(extracted, ind.Op, threshold)
+						log.Printf("[grc-ocr-eval] rule=%s numeric_extract: %s → %v %s %v = %v",
+							rule.RuleID, ind.Pattern, extracted, ind.Op, threshold, pass)
+						if pass {
+							matched = append(matched, fmt.Sprintf("%s (추출값: %.0f, 기준: %s %.0f)", desc, extracted, ind.Op, threshold))
+						}
+					}
+				}
+				continue
+			}
+
+			// 기본: 문자열 포함 매칭
+			if ocrContains(ind.Pattern) {
+				matched = append(matched, desc)
+			}
+		}
+	}
+
+	// compliance_indicator에 pattern이 없는 경우 (R011 등) → identification_keywords로 폴백
+	if !hasPatterns {
+		for _, kw := range rule.IdentificationKeywords {
+			if ocrContains(kw) {
+				matched = append(matched, fmt.Sprintf("키워드: %s", kw))
+			}
+		}
+	}
+
+	minSignals := rule.JudgementLogic.MinComplianceSignals
+	if minSignals == 0 {
+		minSignals = 1
+	}
+
+	log.Printf("[grc-ocr-eval] rule=%s compliance signals: %d/%d (%v)", rule.RuleID, len(matched), minSignals, matched)
+
+	if len(matched) >= minSignals {
+		base.Verdict = "준수"
+		base.MatchedIndicators = matched
+	} else {
+		base.Verdict = "미준수"
+		base.Violations = append(violations, grc.Violation{
+			Description: fmt.Sprintf("준수 신호 %d개 감지 (최소 %d개 필요, OCR 텍스트에서 규정 안내 문구 부족)", len(matched), minSignals),
+			Severity:    "medium",
+		})
+	}
+	return base
+}
+
+func evaluateRegex(rule Rule, evidenceData []any, base grc.RuleResult) grc.RuleResult {
+	var samples []string
+	for _, d := range evidenceData {
+		switch v := d.(type) {
+		case string:
+			// Split by lines.
+			for _, line := range strings.Split(v, "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					samples = append(samples, line)
+				}
+			}
+		case []map[string]string:
+			for _, row := range v {
+				for _, val := range row {
+					val = strings.TrimSpace(val)
+					if val != "" {
+						samples = append(samples, val)
+					}
+				}
+			}
+		}
+	}
+
+	var violations []grc.Violation
+	for _, sample := range samples {
+		for _, ind := range rule.DeficiencyIndicators {
+			if ind.Pattern == "" {
+				continue
+			}
+			re, err := regexp.Compile(ind.Pattern)
+			if err != nil {
+				continue
+			}
+			if re.MatchString(sample) {
+				truncated := sample
+				if len(truncated) > 32 {
+					truncated = truncated[:32] + "..."
+				}
+				violations = append(violations, grc.Violation{
+					Pattern:     ind.Pattern,
+					Actual:      truncated,
+					Description: ind.Description,
+					Severity:    "critical",
+				})
+				break
+			}
+		}
+	}
+
+	// Also check compliance patterns.
+	hasCompliance := false
+	var matched []string
+	for _, sample := range samples {
+		for _, ind := range rule.ComplianceIndicators {
+			if ind.Pattern == "" {
+				continue
+			}
+			re, err := regexp.Compile(ind.Pattern)
+			if err != nil {
+				continue
+			}
+			if re.MatchString(sample) {
+				hasCompliance = true
+				matched = append(matched, fmt.Sprintf("%s (%s)", ind.Description, ind.Pattern))
+				break
+			}
+		}
+	}
+
+	if len(violations) > 0 {
+		base.Verdict = "미준수"
+		base.Violations = violations
+	} else if hasCompliance {
+		base.Verdict = "준수"
+		base.MatchedIndicators = matched
+	} else {
+		base.Verdict = "미준수"
+		base.Violations = []grc.Violation{{
+			Description: "준수 패턴 미매칭",
+			Severity:    "high",
+		}}
+	}
+	return base
+}
+
+func evaluateAggregated(rule Rule, evidenceData []any, base grc.RuleResult) grc.RuleResult {
+	var records []map[string]string
+	for _, d := range evidenceData {
+		switch v := d.(type) {
+		case []map[string]string:
+			records = append(records, v...)
+		}
+	}
+
+	if len(records) == 0 {
+		base.Verdict = "skipped"
+		base.SkipReason = "구조화된 레코드 없음"
+		return base
+	}
+
+	violators := 0
+	for _, record := range records {
+		if isAccountViolation(record, rule) {
+			violators++
+		}
+	}
+
+	thresholdPct := rule.JudgementLogic.ViolationThresholdPct
+	violationPct := float64(violators) / float64(len(records)) * 100
+
+	if violationPct > thresholdPct {
+		base.Verdict = "미준수"
+		base.Violations = []grc.Violation{{
+			Description: fmt.Sprintf("위반 계정 %d건 (%.1f%%), 임계값 %.0f%%", violators, violationPct, thresholdPct),
+			Severity:    "high",
+		}}
+	} else {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("위반 계정 %d건 (%.1f%%) — 임계값 %.0f%% 이하", violators, violationPct, thresholdPct)}
+	}
+	return base
+}
+
+func evaluateCodePattern(rule Rule, evidenceData []any, base grc.RuleResult) grc.RuleResult {
+	var codeText string
+	for _, d := range evidenceData {
+		if s, ok := d.(string); ok {
+			codeText += s + "\n"
+		}
+	}
+
+	if codeText == "" {
+		base.Verdict = "skipped"
+		base.SkipReason = "코드 증적 없음"
+		return base
+	}
+
+	// Check for required keywords from identification_keywords.
+	matchCount := 0
+	var matched []string
+	codeLower := strings.ToLower(codeText)
+	for _, kw := range rule.IdentificationKeywords {
+		if strings.Contains(codeLower, strings.ToLower(kw)) {
+			matchCount++
+			matched = append(matched, kw)
+		}
+	}
+
+	minPatterns := rule.JudgementLogic.MinPatterns
+	if minPatterns == 0 {
+		minPatterns = 2
+	}
+
+	if matchCount >= minPatterns {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("코드 패턴 %d개 매칭 (%s)", matchCount, strings.Join(matched, ", "))}
+	} else {
+		base.Verdict = "미준수"
+		base.Violations = []grc.Violation{{
+			Description: fmt.Sprintf("코드 패턴 %d개만 매칭 (최소 %d개 필요)", matchCount, minPatterns),
+			Severity:    "high",
+		}}
+	}
+	return base
+}
+
+// ─────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────
+
+// flattenMap recursively extracts nested map values into a single-level map.
+// e.g. {"PasswordPolicy": {"MinimumPasswordLength": 10}} → {"PasswordPolicy": {...}, "MinimumPasswordLength": 10}
+func flattenMap(m map[string]any) map[string]any {
+	result := make(map[string]any)
+	for k, v := range m {
+		result[k] = v
+		if nested, ok := v.(map[string]any); ok {
+			for nk, nv := range flattenMap(nested) {
+				if _, exists := result[nk]; !exists {
+					result[nk] = nv
+				}
+			}
+		}
+	}
+	return result
+}
+
+func compareValues(actual any, op string, expected any) bool {
+	// Bool-like 동등성: Enabled/true/yes ↔ Disabled/false/no
+	actualBool, actualIsBool := toBoolLike(actual)
+	expectedBool, expectedIsBool := toBoolLike(expected)
+	if actualIsBool && expectedIsBool {
+		switch op {
+		case "==":
+			return actualBool == expectedBool
+		case "!=":
+			return actualBool != expectedBool
+		}
+	}
+
+	actualF, actualOk := toFloat64(actual)
+	expectedF, expectedOk := toFloat64(expected)
+
+	if actualOk && expectedOk {
+		switch op {
+		case "==":
+			return actualF == expectedF
+		case "!=":
+			return actualF != expectedF
+		case "<":
+			return actualF < expectedF
+		case "<=":
+			return actualF <= expectedF
+		case ">":
+			return actualF > expectedF
+		case ">=":
+			return actualF >= expectedF
+		}
+	}
+
+	// String comparison.
+	actualStr := fmt.Sprintf("%v", actual)
+	expectedStr := fmt.Sprintf("%v", expected)
+	switch op {
+	case "==":
+		return strings.EqualFold(actualStr, expectedStr)
+	case "!=":
+		return !strings.EqualFold(actualStr, expectedStr)
+	}
+	return false
+}
+
+// toBoolLike는 Enabled/Disabled/true/false/yes/no를 bool로 매핑합니다.
+func toBoolLike(v any) (bool, bool) {
+	if b, ok := v.(bool); ok {
+		return b, true
+	}
+	s := strings.ToLower(fmt.Sprintf("%v", v))
+	switch s {
+	case "true", "enabled", "yes":
+		return true, true
+	case "false", "disabled", "no":
+		return false, true
+	}
+	return false, false
+}
+
+func toFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	case string:
+		f, err := strconv.ParseFloat(n, 64)
+		return f, err == nil
+	case bool:
+		if n {
+			return 1, true
+		}
+		return 0, true
+	}
+	return 0, false
+}
+
+func isAccountViolation(record map[string]string, rule Rule) bool {
+	for _, ind := range rule.DeficiencyIndicators {
+		if ind.Field != "" && ind.Op != "" {
+			if actual, ok := record[ind.Field]; ok {
+				if compareValues(actual, ind.Op, ind.Value) {
+					return true
+				}
+			}
+		}
+		if ind.Pattern != "" {
+			for _, val := range record {
+				if strings.Contains(strings.ToLower(val), strings.ToLower(ind.Pattern)) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func aggregateSummary(results []grc.RuleResult, evidenceCount int) grc.Summary {
+	s := grc.Summary{
+		TotalRules:        len(results),
+		EvidenceCollected: evidenceCount,
+	}
+	for _, r := range results {
+		switch r.Verdict {
+		case "준수":
+			s.Passed++
+		case "미준수":
+			s.Failed++
+		case "skipped":
+			s.Skipped++
+		}
+	}
+	return s
+}
+
+func generateRecommendations(results []grc.RuleResult, ruleset *Ruleset) []grc.Recommendation {
+	var recs []grc.Recommendation
+	for _, r := range results {
+		if r.Verdict != "미준수" {
+			continue
+		}
+		// Find the rule in ruleset to get legal_basis.
+		var action, reference string
+		for _, rule := range ruleset.Rules {
+			if rule.RuleID == r.RuleID {
+				// Build action from violations.
+				if len(r.Violations) > 0 {
+					parts := make([]string, 0, len(r.Violations))
+					for _, v := range r.Violations {
+						if v.Description != "" {
+							parts = append(parts, v.Description)
+						}
+					}
+					action = "개선 필요: " + strings.Join(parts, "; ")
+				} else {
+					action = fmt.Sprintf("룰 %s (%s) 미준수 항목 개선 필요", rule.RuleID, rule.CheckCategory)
+				}
+				if src := formatEvidenceSourcesForRecommendation(r.EvidenceSources); src != "" {
+					action = fmt.Sprintf("다음 Kubernetes 구성에서 확인됨 [%s]. %s", src, action)
+				}
+				// Get legal reference.
+				for _, lr := range ruleset.LegalRefs {
+					reference = fmt.Sprintf("%s %s", lr.Law, lr.Article)
+					break
+				}
+				break
+			}
+		}
+		recs = append(recs, grc.Recommendation{
+			RuleID:    r.RuleID,
+			Action:    action,
+			Reference: reference,
+		})
+	}
+	return recs
+}
+
+// ─────────────────────────────────────────────
+// GRCError
+// ─────────────────────────────────────────────
+
+type GRCError struct {
+	Code       string
+	Message    string
+	HTTPStatus int
+}
+
+func (e *GRCError) Error() string {
+	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
+}

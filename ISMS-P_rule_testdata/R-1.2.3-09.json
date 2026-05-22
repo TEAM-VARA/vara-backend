@@ -1,0 +1,50 @@
+{
+  "rule_id": "R-1.2.3-09",
+  "rule_name": "환경 변경 시 위험 재평가",
+  "item_number": "1.2.3",
+  "item_name": "위험 평가",
+  "detail_criterion": "중대한 환경 변경(아키텍처 변경·신규 서비스·법규 변경) 발생 시 위험 재평가가 수행되는지 확인한다.",
+  "data_source": "Terraform/ArgoCD change events → EventBridge → Audit Manager",
+  "compliant": {
+    "description": "주요 변경 발생 시 자동 재평가 트리거됨",
+    "data": {
+      "recent_major_changes": [
+        {
+          "change_id": "CR-2025-0501",
+          "type": "new-service",
+          "date": "2025-06-01",
+          "reassessment_triggered": true,
+          "reassessment_completed": "2025-06-03"
+        }
+      ],
+      "reassessment_coverage": 1.0
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "신규 서비스 3개 출시했으나 재평가 미수행",
+    "data": {
+      "recent_major_changes": [
+        {
+          "change_id": "CR-2025-0501",
+          "type": "new-service",
+          "date": "2025-06-01",
+          "reassessment_triggered": false,
+          "reassessment_completed": null
+        },
+        {
+          "change_id": "CR-2025-0512",
+          "type": "vpc-peering-add",
+          "date": "2025-06-05",
+          "reassessment_triggered": false,
+          "reassessment_completed": null
+        }
+      ],
+      "reassessment_coverage": 0.0
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[환경 변경 재평가 §3]\n다음 변경 발생 시 24시간 내 위험 재평가 자동 트리거:\n  - 신규 서비스/마이크로서비스 출시\n  - VPC peering / Transit Gateway 변경\n  - 신규 외부 연계 추가\n  - 권한 모델 변경 (RBAC, IAM)\nEventBridge 룰로 자동화.",
+  "evidence_doc_sample": "[증적: 환경 변경 재평가 이력]\n주요 변경: 7건 / 재평가 완료: 7/7 / 평균 SLA: 18시간",
+  "judgement_logic": "pass if reassessment_coverage >= 0.95\nfail if any major_change has no reassessment within 72h."
+}

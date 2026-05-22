@@ -1,0 +1,59 @@
+{
+  "document_title": "eBPF/Cilium DNS 기반 Shadow IT 탐지 보고서",
+  "document_id": "SHADOW-IT-2025-001",
+  "organization": "(주)한빛시스템즈",
+  "작성일": "2025-04-01",
+  "검토자": "한승우 (DevOps 엔지니어)",
+  "승인자": "최동현 (인프라팀장)",
+  "Shadow IT": "범위 정의 외 인가받지 않은 클라우드·SaaS 서비스의 사용을 탐지하고 통제하는 체계를 운영",
+  "DNS": "EKS 클러스터 내 모든 DNS 조회를 Cilium eBPF 기반으로 모니터링하여 비인가 도메인 접근을 실시간 탐지",
+  "화이트리스트": "인가된 외부 도메인만 접근 허용하는 DNS 화이트리스트 정책을 Cilium NetworkPolicy로 시행",
+  "Tetragon": "Cilium Tetragon을 활용하여 프로세스 레벨 네트워크 활동을 추적하고, 비인가 외부 통신 시도를 커널 레벨에서 차단",
+  "탐지_설정": {
+    "Cilium_버전": "1.15.2",
+    "Tetragon_버전": "1.1.0",
+    "DNS_모니터링_범위": "전체 EKS 클러스터 (모든 네임스페이스)",
+    "화이트리스트_도메인": [
+      "*.amazonaws.com",
+      "api.inicis.com",
+      "api.cjlogistics.com",
+      "openapi.hanjin.com",
+      "sens.apigw.ntruss.com",
+      "nice.checkplus.co.kr",
+      "sftp.hometax.go.kr",
+      "ghcr.io",
+      "registry.k8s.io",
+      "*.eks.amazonaws.com"
+    ],
+    "차단_정책": "기본 Deny + 화이트리스트 Allow (Zero Trust)"
+  },
+  "점검_결과": {
+    "점검_기간": "2025-03-01T00:00:00+09:00 ~ 2025-03-31T23:59:59+09:00",
+    "총_DNS_쿼리_수": 15823456,
+    "인가_도메인_쿼리": 15823456,
+    "비인가_도메인_시도": 0,
+    "차단_건수": 0,
+    "unauthorized_count": 0
+  },
+  "shadow_it_dns_policy_ok": true,
+  "최근_24시간_요약": {
+    "기준_시각": "2025-04-01T09:00:00+09:00",
+    "총_DNS_쿼리": 524120,
+    "비인가_시도": 0,
+    "unauthorized_count": 0,
+    "상태": "정상"
+  },
+  "이전_탐지_이력": [
+    {
+      "탐지_일시": "2025-01-22T14:32:00+09:00",
+      "탐지_도메인": "slack-webhooks.example-saas.com",
+      "출발_Pod": "commerce-api-7f8d9c6b5-x2k4m",
+      "네임스페이스": "commerce",
+      "조치": "개발팀 확인 결과 테스트 코드에 하드코딩된 외부 웹훅 URL. 해당 코드 제거 후 재배포",
+      "조치_일자": "2025-01-23",
+      "상태": "해결 완료"
+    }
+  ],
+  "정기_보고_주기": "월 1회 (매월 1일 자동 생성)",
+  "최종_갱신일": "2025-04-01"
+}

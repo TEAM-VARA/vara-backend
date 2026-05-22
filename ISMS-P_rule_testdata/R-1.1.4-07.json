@@ -1,0 +1,113 @@
+{
+  "rule_id": "R-1.1.4-07",
+  "rule_name": "K8s 클러스터·네임스페이스 범위 매핑",
+  "item_number": "1.1.4",
+  "item_name": "범위 설정",
+  "detail_criterion": "범위 내 K8s 클러스터·네임스페이스가 명확히 매핑되어 있고, 범위 외 클러스터와의 연결이 통제되는지 확인한다.",
+  "data_source": "kubectl get ns -o json",
+  "compliant": {
+    "description": "모든 namespace가 isms-p/scope label을 가지고 있음",
+    "data": {
+      "items": [
+        {
+          "metadata": {
+            "name": "kube-system",
+            "labels": {
+              "isms-p/scope": "out-of-scope",
+              "isms-p/scope-reason": "k8s-internal"
+            }
+          }
+        },
+        {
+          "metadata": {
+            "name": "argocd",
+            "labels": {
+              "isms-p/scope": "in-scope",
+              "isms-p/owner": "platform-team"
+            }
+          }
+        },
+        {
+          "metadata": {
+            "name": "payment-prod",
+            "labels": {
+              "isms-p/scope": "in-scope",
+              "isms-p/owner": "payment-team",
+              "isms-p/classification": "pii"
+            }
+          }
+        },
+        {
+          "metadata": {
+            "name": "order-prod",
+            "labels": {
+              "isms-p/scope": "in-scope",
+              "isms-p/owner": "order-team",
+              "isms-p/classification": "internal"
+            }
+          }
+        },
+        {
+          "metadata": {
+            "name": "dev-sandbox",
+            "labels": {
+              "isms-p/scope": "out-of-scope",
+              "isms-p/scope-reason": "dev-only-no-pii"
+            }
+          }
+        }
+      ]
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "payment-prod, legacy-svc 두 namespace에 scope label 누락",
+    "data": {
+      "items": [
+        {
+          "metadata": {
+            "name": "kube-system",
+            "labels": {
+              "isms-p/scope": "out-of-scope"
+            }
+          }
+        },
+        {
+          "metadata": {
+            "name": "argocd",
+            "labels": {
+              "isms-p/scope": "in-scope"
+            }
+          }
+        },
+        {
+          "metadata": {
+            "name": "payment-prod",
+            "labels": {}
+          }
+        },
+        {
+          "metadata": {
+            "name": "order-prod",
+            "labels": {
+              "isms-p/scope": "in-scope",
+              "isms-p/owner": "order-team"
+            }
+          }
+        },
+        {
+          "metadata": {
+            "name": "legacy-svc",
+            "labels": {
+              "app": "legacy"
+            }
+          }
+        }
+      ]
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[클라우드 자산 범위 관리 지침 §4.2]\nEKS 클러스터 내 모든 namespace는 다음 라벨을 필수로 보유해야 한다.\n  - isms-p/scope: in-scope | out-of-scope\n  - in-scope인 경우: isms-p/owner (팀 ID), isms-p/classification (public|internal|confidential|pii)\n  - out-of-scope인 경우: isms-p/scope-reason (제외 사유)\n신규 namespace 생성 시 Kyverno admission policy가 위 라벨을 강제하며, 미충족 시 생성을 거부한다.",
+  "evidence_doc_sample": "[증적: K8s 클러스터/Namespace 매핑 매트릭스, 2025-Q2]\n클러스터: prod-eks-seoul (ARN: arn:aws:eks:ap-northeast-2:123456789012:cluster/prod-eks-seoul)\n총 namespace: 12개 / in-scope: 7개 / out-of-scope: 5개\n점검 일자: 2025-06-15, 점검자: 정보보호팀 김OO\n점검 결과: 모든 namespace에 isms-p/scope label 부여 확인",
+  "judgement_logic": "pass if ALL namespaces have metadata.labels[\"isms-p/scope\"] in {\"in-scope\",\"out-of-scope\"}\n       AND in-scope namespaces have labels[\"isms-p/owner\"] AND labels[\"isms-p/classification\"]\n       AND out-of-scope namespaces have labels[\"isms-p/scope-reason\"]\nfail otherwise; report namespaces missing required labels.\n\njq oneliner:\n  kubectl get ns -o json | jq '[.items[] | select(.metadata.labels[\"isms-p/scope\"] == null)] | length' \n  → must return 0"
+}

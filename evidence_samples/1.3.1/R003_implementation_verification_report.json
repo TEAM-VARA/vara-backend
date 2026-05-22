@@ -1,0 +1,57 @@
+{
+  "document_title": "보호대책 구현 검증 보고서",
+  "organization": "바라소프트 주식회사",
+  "system": "AWS Config - 보안 설정 점검",
+  "검증 기준": "ISMS-P 인증기준 및 사내 정보보호 정책에 따른 보호대책 구현 완료 후 동작 검증",
+  "검증 방법": "자동화 테스트(AWS Config Conformance Packs) + 수동 점검(체크리스트 기반)",
+  "verification_items": [
+    {
+      "검증 일자": "2025-08-20",
+      "검증 항목": "네트워크 접근통제 정책 - Security Group 인바운드 규칙 검증",
+      "결과(Pass/Fail)": "Pass",
+      "책임자": "김보안 (정보보호팀 선임)",
+      "상세내용": "프로덕션 VPC 내 모든 Security Group에 대해 0.0.0.0/0 인바운드 허용 규칙 미존재 확인",
+      "검증_방법_상세": "AWS Config Rule: restricted-common-ports 적합"
+    },
+    {
+      "검증 일자": "2025-10-08",
+      "검증 항목": "DB 암호화 적용 - RDS 저장 데이터 암호화 상태 확인",
+      "결과(Pass/Fail)": "Pass",
+      "책임자": "이데이터 (인프라팀 책임)",
+      "상세내용": "전체 RDS 인스턴스(5대) KMS 암호화 활성화 확인, 암호화 키 로테이션 정책 90일 설정 확인",
+      "검증_방법_상세": "AWS Config Rule: rds-storage-encrypted, rds-snapshot-encrypted 적합"
+    },
+    {
+      "검증 일자": "2025-10-30",
+      "검증 항목": "클라우드 보안 설정 - IAM 정책 최소 권한 원칙 검증",
+      "결과(Pass/Fail)": "Pass",
+      "책임자": "박클라우드 (클라우드팀 선임)",
+      "상세내용": "IAM Policy에 '*' 액션 허용 정책 미존재 확인, 서비스 계정 권한 범위 적정성 검증",
+      "검증_방법_상세": "AWS Config Rule: iam-policy-no-statements-with-admin-access 적합"
+    },
+    {
+      "검증 일자": "2025-12-05",
+      "검증 항목": "통합 로그 모니터링 - CloudWatch 알람 동작 테스트",
+      "결과(Pass/Fail)": "Pass",
+      "책임자": "최모니터 (보안관제팀 대리)",
+      "상세내용": "의도적 보안 이벤트 발생 후 5분 이내 알림 수신 확인 (SNS + Slack 연동)",
+      "검증_방법_상세": "수동 테스트 - 테스트 시나리오 3건 수행, 모두 정상 동작"
+    },
+    {
+      "검증 일자": "2025-12-12",
+      "검증 항목": "취약점 패치 관리 - 미패치 인스턴스 존재 여부 확인",
+      "결과(Pass/Fail)": "Pass",
+      "책임자": "정패치 (인프라팀 선임)",
+      "상세내용": "SSM Patch Manager 컴플라이언스 100% 확인, Critical/High 취약점 미패치 인스턴스 0대",
+      "검증_방법_상세": "AWS Config Rule: ec2-managedinstance-patch-compliance-status-check 적합"
+    }
+  ],
+  "결과 기록": {
+    "총 검증 항목": 5,
+    "Pass": 5,
+    "Fail": 0,
+    "검증 완료율": "100%"
+  },
+  "collected_at": "2025-12-20T10:00:00+09:00",
+  "collector": "VARA GRC 자동 수집 에이전트 v2.1 - AWS Config API 연동"
+}

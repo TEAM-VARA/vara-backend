@@ -25,9 +25,11 @@ func (h *HealthHandler) Healthz(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "postgres down"})
 		return
 	}
-	if err := h.rdb.Ping(ctx).Err(); err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "redis down"})
-		return
+	if h.rdb != nil {
+		if err := h.rdb.Ping(ctx).Err(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "redis down"})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

@@ -1,0 +1,74 @@
+{
+  "rule_id": "R-2.2.1-07",
+  "rule_name": "주요 직무자 활동 모니터링",
+  "item_number": "2.2.1",
+  "item_name": "주요 직무자 지정 및 관리",
+  "detail_criterion": "주요 직무자의 활동(시스템 접근·중요 정보 처리)이 모니터링·로깅되는지 확인한다.",
+  "data_source": "EKS audit log + CloudTrail Data Events",
+  "compliant": {
+    "description": "주요 직무자의 모든 활동이 audit log에 기록, 별도 dashboard로 모니터링",
+    "data": {
+      "audit_log_enabled": true,
+      "log_types": [
+        "api",
+        "audit",
+        "authenticator",
+        "controllerManager",
+        "scheduler"
+      ],
+      "monitored_users": [
+        "kim.sre@company.com",
+        "park.platform@company.com"
+      ],
+      "sample_audit_events": [
+        {
+          "@timestamp": "2025-06-15T10:23:45Z",
+          "user.username": "kim.sre@company.com",
+          "user.groups": [
+            "isms-key-personnel"
+          ],
+          "verb": "get",
+          "objectRef.resource": "pods",
+          "objectRef.namespace": "payment-prod",
+          "responseStatus.code": 200,
+          "sourceIPs": [
+            "10.0.5.42"
+          ]
+        },
+        {
+          "@timestamp": "2025-06-15T11:01:12Z",
+          "user.username": "kim.sre@company.com",
+          "user.groups": [
+            "isms-key-personnel"
+          ],
+          "verb": "patch",
+          "objectRef.resource": "deployments",
+          "objectRef.name": "payment-app",
+          "objectRef.namespace": "payment-prod",
+          "responseStatus.code": 200
+        }
+      ],
+      "log_retention_days": 365,
+      "dashboard_url": "https://datadog.company.com/dashboard/key-personnel-activity"
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "audit log가 비활성 또는 일부 log type만 활성",
+    "data": {
+      "audit_log_enabled": false,
+      "log_types": [],
+      "monitored_users": [
+        "kim.sre@company.com",
+        "park.platform@company.com"
+      ],
+      "sample_audit_events": [],
+      "log_retention_days": 0,
+      "dashboard_url": null
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[주요 직무자 활동 모니터링 §2]\nEKS Control Plane audit logging 모든 log type(api/audit/authenticator/controllerManager/scheduler) 활성 필수.\nCloudWatch Logs Insights로 주요 직무자(isms-key-personnel group)의 모든 활동 실시간 dashboard.\nS3 export로 1년 영구 보관 (Object Lock 적용).\n주간 검토: 비정상 패턴(시간 외 사용, 미사용 권한 갑작스러운 호출) alert.",
+  "evidence_doc_sample": "[증적: 주요 직무자 활동 모니터링 결과, 2025-06]\naudit log 가동률: 100% / 모니터링 사용자: 2명 / 일일 평균 활동: 47건\n이상 패턴 탐지: 0건 / dashboard 검토자: 정보보호팀 주간 review",
+  "judgement_logic": "pass if audit_log_enabled == True\n       AND \"audit\" in log_types AND \"authenticator\" in log_types\n       AND log_retention_days >= 365\n       AND dashboard_url != null\nfail otherwise.\n\nCloudWatch Logs Insights query for key personnel:\n  fields @timestamp, user.username, verb, objectRef.namespace, objectRef.resource, responseStatus.code\n  | filter user.groups contains \"isms-key-personnel\"\n  | sort @timestamp desc"
+}

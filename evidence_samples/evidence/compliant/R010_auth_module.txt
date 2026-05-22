@@ -1,0 +1,54 @@
+// auth_service.js — DemoCorp Authentication Module
+// Last updated: 2025-12-03
+
+const bcrypt = require('bcrypt');
+const SALT_ROUNDS = 12;
+
+async function login(username, password) {
+  const user = await db.users.findOne({ username });
+  if (!user) {
+    return { success: false, message: '아이디 또는 비밀번호가 일치하지 않습니다' };
+  }
+  
+  const valid = await bcrypt.compare(password, user.password_hash);
+  if (!valid) {
+    await db.login_attempts.increment(user.id);
+    return { success: false, message: '아이디 또는 비밀번호가 일치하지 않습니다' };
+  }
+  
+  // 임시 비밀번호 강제 변경 체크
+  if (user.is_temporary_password || user.must_change_password) {
+    return {
+      success: true,
+      requires_password_change: true,
+      redirect: '/change-password',
+      session_scope: 'password_change_only'  // 다른 페이지 접근 차단
+    };
+  }
+  
+  // 만료된 비밀번호 체크
+  const daysSinceChange = daysBetween(user.password_last_changed, new Date());
+  if (daysSinceChange > 180) {
+    return {
+      success: true,
+      requires_password_change: true,
+      redirect: '/change-password',
+      reason: 'password_expired'
+    };
+  }
+  
+  return { success: true, session: createSession(user) };
+}
+
+async function resetPassword(userId, adminId) {
+  // 관리자가 비밀번호 초기화 시
+  const tempPassword = generateTempPassword();  // 강력한 랜덤
+  await db.users.update(userId, {
+    password_hash: await bcrypt.hash(tempPassword, SALT_ROUNDS),
+    is_temporary_password: true,           // ← 강제 변경 플래그
+    must_change_password: true,
+    temp_password_issued_at: new Date(),
+    temp_password_expires_at: addHours(new Date(), 24)  // 24시간 내 사용
+  });
+  return tempPassword;  // 본인확인 후 안전한 채널로 전달
+}

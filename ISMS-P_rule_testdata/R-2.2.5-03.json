@@ -1,0 +1,57 @@
+{
+  "rule_id": "R-2.2.5-03",
+  "rule_name": "퇴직 시 계정·권한 즉시 회수",
+  "item_number": "2.2.5",
+  "item_name": "퇴직 및 직무변경 관리",
+  "detail_criterion": "퇴직일 당일 또는 즉시 모든 계정·접근권한이 회수되는지 확인한다.",
+  "data_source": "CloudTrail + audit log (delete events for rolebindings)",
+  "compliant": {
+    "description": "퇴직 등록 후 5분 내 모든 권한 자동 회수",
+    "data": {
+      "hr_termination_event": {
+        "user": "lee.outgoing@company.com",
+        "ts": "2025-06-10T17:00:00Z"
+      },
+      "okta_deactivation_at": "2025-06-10T17:00:30Z",
+      "iam_user_disable_at": "2025-06-10T17:01:00Z",
+      "k8s_rolebinding_delete_events": [
+        {
+          "verb": "delete",
+          "objectRef.name": "lee-prod-readonly",
+          "user.username": "system:serviceaccount:scim-controller:sync",
+          "ts": "2025-06-10T17:02:15Z"
+        },
+        {
+          "verb": "delete",
+          "objectRef.name": "lee-dev-admin",
+          "user.username": "system:serviceaccount:scim-controller:sync",
+          "ts": "2025-06-10T17:02:18Z"
+        }
+      ],
+      "time_to_full_revocation_sec": 138
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "퇴직 후 7일 지났는데 K8s RoleBinding이 여전히 남아있음",
+    "data": {
+      "hr_termination_event": {
+        "user": "lee.outgoing@company.com",
+        "ts": "2025-06-03T17:00:00Z"
+      },
+      "okta_deactivation_at": "2025-06-03T17:00:30Z",
+      "iam_user_disable_at": null,
+      "k8s_rolebinding_delete_events": [],
+      "time_to_full_revocation_sec": null,
+      "remaining_rolebindings_for_user": [
+        "lee-prod-readonly",
+        "lee-dev-admin",
+        "lee-cluster-admin"
+      ]
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[퇴직 시 권한 회수 §2]\nHR 시스템 퇴직 등록 → Okta deactivate → SCIM → IAM/K8s RBAC 자동 회수.\nSLA: 5분 내 모든 권한 회수 완료.\n회수 시점은 EKS audit log의 delete event로 영구 evidence 보관.",
+  "evidence_doc_sample": "[증적: 퇴직자 권한 회수 audit, 2025-06]\n퇴직: 3명 / 모두 SLA(5분) 내 회수 완료 / audit log: S3 영구 보관",
+  "judgement_logic": "pass if time_to_full_revocation_sec <= 300 (5 minutes)\n       AND len(remaining_rolebindings_for_user) == 0\nfail otherwise.\n\nCloudWatch Logs Insights:\n  filter verb = \"delete\" AND objectRef.resource = \"rolebindings\" \n         AND objectRef.name contains \"<퇴직자id>\"\n  | sort @timestamp asc\n  → must show events within 5 min of HR termination"
+}

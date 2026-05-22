@@ -1,0 +1,654 @@
+{
+  "schema_version": "2.0.0",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA GRC Service - ISMS-P 자동 컴플라이언스 점검",
+  "item": {
+    "id": "1.2.3",
+    "name": "위험 평가",
+    "category_path": "1. 관리체계 수립 및 운영 > 1.2 위험 관리 > 1.2.3 위험 평가",
+    "description": "조직의 대내외 환경분석을 통하여 유형별 위협정보를 수집하고 조직에 적합한 위험 평가 방법론을 수립하여 관리체계 전 영역에 대하여 연 1회 이상 위험을 평가하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "정보통신망법",
+      "article": "제47조",
+      "summary": "정보보호 관리체계 인증 기준"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "1.2.3-R001",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "위험관리 방법론 문서 결재본",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "접근방법(정성·정량·혼합)",
+        "평가 척도",
+        "위험도 산정식",
+        "표준(ISO 31000·NIST 등) 참고",
+        "방법론명",
+        "척도",
+        "산정식",
+        "결재 일자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'방법론명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'척도' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'산정식' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결재 일자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "위험관리 방법론 수립 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 조직의 위험관리 방법론(접근방법·평가 척도·위험도 산정)이 정의되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.2.3-R002",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "연간 위험평가 계획서 결재본",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "평가 범위",
+        "일정",
+        "평가팀 구성",
+        "경영진 승인",
+        "계획 연도",
+        "범위",
+        "결재자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'계획 연도' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'범위' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'일정' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결재자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "위험평가 계획 수립 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 연간 위험평가 계획(범위·일정·인력)이 수립되고 경영진 승인을 받았는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.2.3-R003",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "위협 식별 결과",
+      "system": "AWS GuardDuty",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "위협 유형(외부 공격·내부 위협·재해·법·규제)",
+        "위협 카탈로그",
+        "위협명",
+        "유형",
+        "발생 빈도",
+        "영향 자산"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'위협명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'유형' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'발생 빈도' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'영향 자산' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "위협 식별 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 조직에 영향을 줄 수 있는 위협(외부 공격·내부 위협·자연재해·법·규제 등)이 식별되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "1.2.3-R004",
+      "check_category": "정책_문서_충실도",
+      "evidence_type": "취약점 진단 보고서",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "진단 도구(Inspector·취약점 스캐너)",
+        "진단 주기",
+        "진단 범위",
+        "진단 일자",
+        "취약점 수",
+        "등급별 분포",
+        "진단 도구"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "vuln_scan_clean",
+          "op": "==",
+          "value": true,
+          "description": "Critical 취약점 0건 + kube-bench 90점 이상 + Falco 런타임 알림 0건"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "기술적 취약점 식별 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 기술적 취약점이 식별되어 있는지(취약점 진단·모의해킹 결과 포함) 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "1.2.3-R005",
+      "check_category": "이행_점검",
+      "evidence_type": "관리적·물리적 점검 보고서",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "절차 미준수·출입통제 미비 등 식별 항목",
+        "점검 항목",
+        "발견사항",
+        "위험 등급",
+        "시정 계획"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'점검 항목' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'발견사항' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'위험 등급' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'시정 계획' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "관리적·물리적 취약점 식별 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 관리적·물리적 취약점(절차 미준수, 출입통제 미비 등)이 식별되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.2.3-R006",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "위험 시나리오 매트릭스",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "시나리오 구성(위협-취약점-자산-결과)",
+        "카탈로그",
+        "시나리오 ID",
+        "위협",
+        "취약점",
+        "자산",
+        "영향"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'시나리오 ID' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'위협' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'취약점' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'자산' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'영향' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "위험 시나리오 도출 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 위협-취약점-자산의 조합으로 위험 시나리오가 도출되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "1.2.3-R007",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "위험도 산정 결과",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "산정 요소(자산 가치·발생가능성·영향도)",
+        "산정 공식",
+        "등급 분류",
+        "위험 ID",
+        "산정값",
+        "등급(Critical/High/Medium/Low)",
+        "산정 일자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'위험 ID' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'산정값' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'등급(Critical/High/Medium/Low)' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'산정 일자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "위험도 산정 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 자산 중요도·발생 가능성·영향도를 기반으로 위험도가 정량/정성적으로 산정되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.2.3-R008",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "정기 위험평가 보고서",
+      "system": "AWS Config",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "평가 주기(최소 연1회)",
+        "평가 수행 절차",
+        "평가 일자",
+        "평가 결과",
+        "결재 일자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'평가 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'평가 결과' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결재 일자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "위험평가 정기 수행 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 위험평가가 정기적으로(최소 연1회) 수행되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.2.3-R009",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "변경 영향도 평가",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "재평가 트리거(아키텍처·서비스·법규 변경)",
+        "재평가 시한",
+        "변경 사항",
+        "재평가 일자",
+        "결과"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'변경 사항' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'재평가 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결과' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "환경 변경 시 위험 재평가 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 중대한 환경 변경(아키텍처 변경·신규 서비스·법규 변경) 발생 시 위험 재평가가 수행되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.2.3-R010",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "DoA 정의서",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "DoA 산정 기준",
+        "경영진 승인 절차",
+        "정기 갱신",
+        "DoA 값",
+        "결정 일자",
+        "결재자",
+        "적용 범위"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'DoA 값' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결정 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결재자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'적용 범위' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "위험수용수준(DoA) 정의 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 조직의 위험수용수준(Degree of Assurance)이 경영진 승인을 거쳐 정의되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.2.3-R011",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "위험 우선순위 매트릭스",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "우선순위 기준(위험도·법적 요구·구현 가능성)",
+        "우선순위 매트릭스",
+        "위험 ID",
+        "우선순위",
+        "대책 매핑"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'위험 ID' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'우선순위' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'대책 매핑' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "위험 평가 우선순위화 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 위험평가 결과가 위험도 기준으로 우선순위화되어 보호대책 수립에 활용되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.2.3-R012",
+      "check_category": "정책_문서_충실도",
+      "evidence_type": "법규-위험 매핑 매트릭스",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "미준수 위험 식별",
+        "법규별 영향도 평가",
+        "위험 등록",
+        "법규명",
+        "미준수 위험",
+        "영향도"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'법규명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'미준수 위험' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'영향도' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "법적 요구사항 위험 반영 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 법적 요구사항 미준수에 따른 위험이 위험평가에 포함되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.2.3-R013",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "위험평가팀 구성표",
+      "system": "AWS IAM",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "평가팀 자격 요건",
+        "내부 vs 외부 전문가",
+        "독립성 보장",
+        "팀원 성명",
+        "자격증",
+        "소속",
+        "독립성 확인"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'팀원 성명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'자격증' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'소속' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'독립성 확인' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "위험평가 인력 전문성·독립성 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 위험평가 수행 인력이 전문성·독립성을 갖추고 있는지 확인한다(내부 또는 외부 전문가)."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.2.3-R014",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "위험평가 결과 보고서(경영진 결재본)",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "결과 보고서 결재선",
+        "경영진 검토 의무",
+        "결재 일자",
+        "결재자",
+        "결과 요약",
+        "시행 사항"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'결재 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결재자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결과 요약' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'시행 사항' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "위험평가 결과 경영진 승인 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 위험평가 결과 보고서가 경영진의 검토·승인을 받았는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "모든 룰 중 하나라도 미준수이면 전체 미준수. 14개 룰 평가."
+  }
+}

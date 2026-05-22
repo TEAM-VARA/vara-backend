@@ -1,0 +1,10 @@
+{
+  "evidence_id": "EVD-2.2.2-R003-20260415",
+  "rule_id": "2.2.2-R003",
+  "evidence_type": "관리자-감사자 권한 매트릭스",
+  "source_format": "pdf",
+  "extraction_method": "text_extraction",
+  "collected_at": "2026-04-15T10:30:00+09:00",
+  "collector": "VARA GRC Agent v2.1",
+  "extracted_text": "데모코프 관리자·감사자 권한 분리 매트릭스\n문서번호: DemoCorp-ISMS-MTX-004\n작성일: 2026년 3월 25일\n\n1. 관리자·감사자 권한 분리 현황\n\n본 매트릭스는 시스템관리자와 보안감사자의 직무 분리 및 감사 독립성 확보를 위한 권한 분리 현황을 기술한다.\n\n2. 직무 및 권한 분리 여부 매트릭스\n\n사용자             | 직무             | 시스템 관리 권한       | 감사/로그 권한         | 권한 분리 여부\n최운영 (ops-choi)  | 시스템관리자     | EKS Admin, EC2 Admin   | CloudTrail: 접근불가   | 분리 완료\n정운영 (ops-jung)  | 시스템관리자     | EKS Admin, RDS Admin   | GuardDuty: 접근불가    | 분리 완료\n강감사 (aud-kang)  | 보안감사자       | EKS: ReadOnly          | CloudTrail: Full       | 분리 완료\n윤감사 (aud-yoon)  | 보안감사자       | EC2: ReadOnly          | GuardDuty: Full        | 분리 완료\n서감사 (aud-seo)   | 외부감사인       | 전체: ReadOnly         | 전체 로그: ReadOnly    | 분리 완료\n\n3. 감사 독립성 확보 방안\n\n- 보안감사자는 시스템 구성 변경 권한을 보유하지 않음\n- 시스템관리자는 감사 로그 열람/수정/삭제 권한을 보유하지 않음\n- CloudTrail 로그는 별도 S3 버킷(democorp-audit-logs)에 저장하며 관리자 계정 접근 차단\n- GuardDuty 알림은 감사팀 전용 SNS 토픽으로 발송\n- 감사 로그 보존 기간: 최소 5년 (S3 Glacier 아카이빙)\n\n4. IAM 정책 분리\n- 관리자 정책: arn:aws:iam::123456789012:policy/DemoCorpSysAdminPolicy\n  - 감사 서비스(CloudTrail, GuardDuty, Config) 접근 명시적 Deny\n- 감사자 정책: arn:aws:iam::123456789012:policy/DemoCorpAuditorPolicy\n  - 리소스 변경 API(Create*, Delete*, Modify*, Update*) 명시적 Deny\n\n검토자: 준법감시실 이준법 실장\n승인자: CISO 박정보 이사"
+}

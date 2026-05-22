@@ -1,0 +1,10 @@
+{
+  "document_title": "보호대책 이행 트래커 (Jira) 현황 보고서",
+  "organization": "바라소프트 주식회사",
+  "department": "정보보호팀",
+  "report_date": "2025-12-20",
+  "document_type": "pdf_extracted_text",
+  "extracted_text": "보호대책 이행 트래커 현황 보고서\n\n1. 개요\n본 보고서는 보호대책 이행 현황을 Jira 프로젝트 관리 도구를 활용하여 추적 시스템을 통해 체계적으로 관리하고 있음을 입증하는 문서입니다. 각 보호대책의 책임자, 일정, 산출물 매핑이 완료되어 있으며 추적 가능한 상태입니다.\n\n2. 추적 시스템 정보\n- 도구: Atlassian Jira (Cloud)\n- 프로젝트명: ISMS-P 보호대책 이행관리 (프로젝트 키: SEC)\n- 대시보드 URL: https://varasoft.atlassian.net/jira/projects/SEC/board\n\n3. 보호대책 이행 현황\n\n대책 ID: SEC-2025-001\n대책명: 네트워크 접근통제 정책 고도화\n책임자: 김보안 (정보보호팀 선임)\n일정: 2025-07-01 ~ 2025-08-12 (완료)\n산출물 링크: https://varasoft.atlassian.net/jira/SEC-101\n상태: Done\n\n대책 ID: SEC-2025-002\n대책명: DB 암호화 적용 (개인정보 테이블)\n책임자: 이데이터 (인프라팀 책임)\n일정: 2025-08-01 ~ 2025-10-05 (완료)\n산출물 링크: https://varasoft.atlassian.net/jira/SEC-102\n상태: Done\n\n대책 ID: SEC-2025-003\n대책명: 클라우드 보안 설정 점검 자동화\n책임자: 박클라우드 (클라우드팀 선임)\n일정: 2025-09-01 ~ 2025-10-28 (완료)\n산출물 링크: https://varasoft.atlassian.net/jira/SEC-103\n상태: Done\n\n대책 ID: SEC-2025-004\n대책명: 통합 로그 모니터링 시스템 구축\n책임자: 최모니터 (보안관제팀 대리)\n일정: 2025-09-15 ~ 2025-12-03 (완료)\n산출물 링크: https://varasoft.atlassian.net/jira/SEC-104\n상태: Done\n\n대책 ID: SEC-2025-005\n대책명: 취약점 점검 및 패치 관리 프로세스 수립\n책임자: 정패치 (인프라팀 선임)\n일정: 2025-10-01 ~ 2025-12-10 (완료)\n산출물 링크: https://varasoft.atlassian.net/jira/SEC-105\n상태: Done\n\n대책 ID: SEC-2025-006\n대책명: WAF 고도화\n책임자: 박방화벽 (클라우드보안팀 책임)\n일정: 2025-09-01 ~ 2026-01-15 (진행중)\n산출물 링크: https://varasoft.atlassian.net/jira/SEC-106\n상태: In Progress\n\n대책 ID: SEC-2025-007\n대책명: 개발환경 분리 및 접근통제 강화\n책임자: 이네트워크 (인프라팀 선임)\n일정: 2025-10-01 ~ 2026-02-28 (진행중)\n산출물 링크: https://varasoft.atlassian.net/jira/SEC-107\n상태: In Progress\n\n4. 산출물 관리\n각 Jira 이슈에는 다음 산출물이 첨부되어 있습니다:\n- 구현 설계서 (Confluence 링크)\n- 테스트 결과 보고서\n- 변경 승인서\n- 운영 반영 확인서\n\n작성자: 김보안 (정보보호팀 팀장)\n최종 갱신일: 2025-12-20",
+  "collected_at": "2025-12-20T12:00:00+09:00",
+  "collector": "VARA GRC 자동 수집 에이전트 v2.1 - Jira API 연동"
+}

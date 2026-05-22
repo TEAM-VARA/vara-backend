@@ -1,0 +1,35 @@
+{
+  "rule_id": "R-2.2.6-08",
+  "rule_name": "위반자 권한 즉시 회수",
+  "item_number": "2.2.6",
+  "item_name": "보안 위반 시 조치",
+  "detail_criterion": "위반자 발견 시 추가 피해 방지를 위해 권한 즉시 회수가 이루어지는지 확인한다.",
+  "data_source": "Falco rule → Tines SOAR → Okta suspend + audit log verify",
+  "compliant": {
+    "description": "위반 탐지 → 자동 권한 회수 → audit log로 출현 0건 확인",
+    "data": {
+      "violator": "kim.compromised@company.com",
+      "detection_at": "2025-06-10T14:30:00Z",
+      "okta_suspend_at": "2025-06-10T14:30:45Z",
+      "iam_user_disable_at": "2025-06-10T14:30:50Z",
+      "k8s_rolebinding_delete_at": "2025-06-10T14:31:00Z",
+      "audit_log_appearance_after_suspend": 0,
+      "time_to_revocation_sec": 60
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "위반 탐지 후 수동 처리, 회수 지연으로 추가 활동 발생",
+    "data": {
+      "violator": "kim.compromised@company.com",
+      "detection_at": "2025-06-10T14:30:00Z",
+      "okta_suspend_at": "2025-06-10T18:00:00Z",
+      "audit_log_appearance_after_detection": 47,
+      "time_to_revocation_sec": 12600
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[위반자 권한 즉시 회수 §2]\n위반 탐지(Falco/GuardDuty critical) 시:\n  1. Tines SOAR 자동 트리거\n  2. Okta suspend (< 1분)\n  3. SCIM 동기화로 IAM/K8s 권한 자동 회수\n  4. audit log로 회수 후 출현 0건 검증\nSLA: 5분 내 완료.",
+  "evidence_doc_sample": "[증적: 자동 권한 회수 이력]\n위반: 1건 / 회수 SLA: 60초 (목표 5분 내) / 후속 활동: 0건",
+  "judgement_logic": "pass if time_to_revocation_sec <= 300\n       AND audit_log_appearance_after_suspend == 0\nfail otherwise."
+}

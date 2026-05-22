@@ -1,0 +1,92 @@
+[
+  {
+    "filename": "R001_security_violation_procedure.json",
+    "evidence_type": "정책_문서_존재",
+    "system": "AWS EKS",
+    "description": "보안 위반 처리 절차서 결재본 (절차명, 결재 일자, 시행일 포함)",
+    "target_rule_ids": [
+      "2.2.6-R001"
+    ]
+  },
+  {
+    "filename": "R002_violation_classification_table.json",
+    "evidence_type": "정책_문서_존재",
+    "system": "AWS EKS",
+    "description": "위반 행위 유형별·중대성별 분류표 (위반 유형, 등급, 조치 사항 포함)",
+    "target_rule_ids": [
+      "2.2.6-R002"
+    ]
+  },
+  {
+    "filename": "R003_reporting_system_manual.json",
+    "evidence_type": "정책_시스템_설정",
+    "system": "AWS EKS",
+    "description": "신고 시스템 운영 매뉴얼 (채널 종류, 신고 건수, 처리 결과 포함)",
+    "target_rule_ids": [
+      "2.2.6-R003"
+    ]
+  },
+  {
+    "filename": "R004_investigation_report.json",
+    "evidence_type": "정책_문서_존재",
+    "system": "AWS GuardDuty",
+    "description": "위반 조사 보고서 (JSON structured_match: all_evidence_channels_present, timeline_generated, evidence_retention_with_legal_hold)",
+    "target_rule_ids": [
+      "2.2.6-R004"
+    ]
+  },
+  {
+    "filename": "R005_disciplinary_committee_minutes.json",
+    "evidence_type": "이행_점검",
+    "system": "AWS EKS",
+    "description": "징계위원회 회의록 (위원회 일자, 의결 결과, 시행 일자 포함)",
+    "target_rule_ids": [
+      "2.2.6-R005"
+    ]
+  },
+  {
+    "filename": "R006_violation_case_training.json",
+    "evidence_type": "교육_훈련",
+    "system": "AWS GuardDuty",
+    "description": "위반 사례 비식별화 교육 자료 (사례 ID, 교육 일자, 이수자 포함)",
+    "target_rule_ids": [
+      "2.2.6-R006"
+    ]
+  },
+  {
+    "filename": "R007_legal_action_procedure.json",
+    "evidence_type": "정책_문서_존재",
+    "system": "AWS EKS",
+    "description": "법적 조치 절차서 및 신고 이력 (사건명, 신고일, 접수 기관 포함)",
+    "target_rule_ids": [
+      "2.2.6-R007"
+    ]
+  },
+  {
+    "filename": "R008_privilege_revocation_log.json",
+    "evidence_type": "정책_문서_존재",
+    "system": "AWS EKS",
+    "description": "위반자 권한 회수 결재 이력 (성명, 발견 일자, 회수 일자 포함)",
+    "target_rule_ids": [
+      "2.2.6-R008"
+    ]
+  },
+  {
+    "filename": "R009_violation_statistics_report.json",
+    "evidence_type": "정책_문서_존재",
+    "system": "Project Management",
+    "description": "위반 통계·트렌드 분석 보고서 (분석 기간, 위반 건수, 트렌드, 시사점 포함)",
+    "target_rule_ids": [
+      "2.2.6-R009"
+    ]
+  },
+  {
+    "filename": "R010_executive_report.json",
+    "evidence_type": "정책_문서_존재",
+    "system": "Policy Document",
+    "description": "위반 조치 경영진 보고서 (보고 일자, 위반 사안, 결재자 포함)",
+    "target_rule_ids": [
+      "2.2.6-R010"
+    ]
+  }
+]

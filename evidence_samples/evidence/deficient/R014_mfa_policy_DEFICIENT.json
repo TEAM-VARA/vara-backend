@@ -1,0 +1,42 @@
+{
+  "AccountSummary": {
+    "AccountMFAEnabled": 0
+  },
+  "Users": [
+    {
+      "UserName": "root",
+      "MFADevices": [],
+      "MFAEnforced": false
+    },
+    {
+      "UserName": "alice.admin",
+      "MFADevices": [],
+      "MFAEnforced": false
+    },
+    {
+      "UserName": "bob.devops",
+      "MFADevices": [],
+      "MFAEnforced": false
+    },
+    {
+      "UserName": "carol.dev",
+      "MFADevices": [],
+      "MFAEnforced": false
+    },
+    {
+      "UserName": "dave.support",
+      "MFADevices": [
+        {
+          "SerialNumber": "arn:aws:iam::123456789012:mfa/Authy-dave",
+          "EnableDate": "2025-08-12T09:45:00Z"
+        }
+      ],
+      "MFAEnforced": false
+    }
+  ],
+  "MFAPolicy": {
+    "AdminMFAEnforced": false,
+    "AllUsersMFAEnforced": false,
+    "ExternalAccessRequiresMFA": false
+  }
+}

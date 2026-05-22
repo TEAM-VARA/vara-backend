@@ -1,0 +1,56 @@
+{
+  "rule_id": "R-2.2.2-02",
+  "rule_name": "개발-운영 분리",
+  "item_number": "2.2.2",
+  "item_name": "직무 분리",
+  "detail_criterion": "개발자와 운영자의 직무·권한이 분리되어 있는지 확인한다.",
+  "data_source": "IAM role policies + K8s RBAC + audit log",
+  "compliant": {
+    "description": "개발자 그룹은 prod 권한 0, 운영자는 dev 환경 격리",
+    "data": {
+      "group_permissions": {
+        "developers": {
+          "dev_eks_access": true,
+          "prod_eks_access": false,
+          "prod_namespaces_accessed_30d": 0
+        },
+        "sre": {
+          "dev_eks_access": true,
+          "prod_eks_access": true,
+          "prod_namespaces_accessed_30d": 12
+        }
+      },
+      "audit_log_violations_30d": 0
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "개발자 그룹이 prod cluster 접근 가능 + 실제 prod namespace 변경 이벤트 발견",
+    "data": {
+      "group_permissions": {
+        "developers": {
+          "dev_eks_access": true,
+          "prod_eks_access": true,
+          "prod_namespaces_accessed_30d": 17
+        }
+      },
+      "audit_log_violations_30d": 17,
+      "sample_violations": [
+        {
+          "@timestamp": "2025-06-12T14:30:00Z",
+          "user.username": "lee.dev@company.com",
+          "user.groups": [
+            "developers"
+          ],
+          "verb": "create",
+          "objectRef.namespace": "payment-prod",
+          "objectRef.resource": "configmaps"
+        }
+      ]
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[개발-운영 분리 정책 §2]\n개발자 그룹(developers)은 prod EKS 클러스터에 접근 불가.\n운영자 그룹(sre)만 prod 접근, 개발자가 prod 자원 변경 시 즉시 critical alert.\nIAM Identity Center 매핑: dev 그룹 → dev-only role, prod 권한은 sre/security 그룹 한정.",
+  "evidence_doc_sample": "[증적: 개발-운영 분리 점검, 2025-06]\ndev 그룹의 prod 접근 시도: 0건 / sre의 dev 활동: 정상 / 위반: 0건",
+  "judgement_logic": "pass if group_permissions.developers.prod_eks_access == False\n       AND audit_log_violations_30d == 0\nfail otherwise; report violations.\n\nCloudWatch Logs Insights:\n  filter user.groups contains \"developers\" AND objectRef.namespace startsWith \"prod-\"\n  → result count must be 0"
+}

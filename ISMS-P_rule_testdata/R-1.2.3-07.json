@@ -1,0 +1,65 @@
+{
+  "rule_id": "R-1.2.3-07",
+  "rule_name": "위험도 산정",
+  "item_number": "1.2.3",
+  "item_name": "위험 평가",
+  "detail_criterion": "자산 중요도·발생 가능성·영향도를 기반으로 위험도가 정량/정성적으로 산정되어 있는지 확인한다.",
+  "data_source": "Security Hub findings + 자산 criticality cross-join",
+  "compliant": {
+    "description": "모든 finding이 CVSS × 자산 criticality로 위험도 산정됨",
+    "data": {
+      "risk_matrix": [
+        {
+          "finding_id": "F-001",
+          "cvss": 9.1,
+          "asset_criticality": "critical",
+          "risk_score": 9.1,
+          "priority": "P1"
+        },
+        {
+          "finding_id": "F-002",
+          "cvss": 7.5,
+          "asset_criticality": "medium",
+          "risk_score": 4.5,
+          "priority": "P3"
+        }
+      ],
+      "all_findings_scored": true
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "자산 criticality 미부여로 위험도 산정 불가 findings 다수",
+    "data": {
+      "risk_matrix": [
+        {
+          "finding_id": "F-001",
+          "cvss": 9.1,
+          "asset_criticality": "critical",
+          "risk_score": 9.1,
+          "priority": "P1"
+        },
+        {
+          "finding_id": "F-007",
+          "cvss": 8.2,
+          "asset_criticality": null,
+          "risk_score": null,
+          "priority": "UNKNOWN"
+        },
+        {
+          "finding_id": "F-012",
+          "cvss": 7.0,
+          "asset_criticality": null,
+          "risk_score": null,
+          "priority": "UNKNOWN"
+        }
+      ],
+      "all_findings_scored": false,
+      "unscored_count": 2
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[위험도 산정 기준 §4]\n위험도 = CVSS × 자산 criticality 가중치 (critical 1.0 / high 0.8 / medium 0.6 / low 0.4)\n모든 finding은 24시간 내 위험도 산정 완료.\n미산정 finding은 자동으로 P-UNKNOWN 처리 + alert.",
+  "evidence_doc_sample": "[증적: 위험도 산정 매트릭스, 2025-06]\n총 findings: 67건 / 산정 완료: 67/67 / P1 5건 P2 11건 P3 28건 P4 23건",
+  "judgement_logic": "pass if all_findings_scored == True\nfail otherwise; report unscored findings."
+}

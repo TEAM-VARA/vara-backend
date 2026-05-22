@@ -1,0 +1,51 @@
+{
+  "rule_id": "R-1.2.1-12",
+  "rule_name": "자산 폐기 시 목록 갱신",
+  "item_number": "1.2.1",
+  "item_name": "정보자산 식별",
+  "detail_criterion": "자산 폐기·종료 시 자산 목록에서 적시 제거되는지 확인한다.",
+  "data_source": "EKS audit log (delete events) + 자산 인벤토리 archive 마킹",
+  "compliant": {
+    "description": "폐기 이벤트 발생 후 24시간 내 인벤토리에서 archive 마킹됨",
+    "data": {
+      "delete_events": [
+        {
+          "verb": "delete",
+          "objectRef.resource": "namespaces",
+          "objectRef.name": "legacy-svc",
+          "ts": "2025-06-10T11:00:00Z"
+        }
+      ],
+      "inventory_status_after_24h": {
+        "legacy-svc": {
+          "state": "archived",
+          "archived_ts": "2025-06-10T11:15:00Z",
+          "archive_reason": "system-replacement"
+        }
+      }
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "폐기 이벤트 발생했으나 인벤토리에 여전히 active로 남아있음",
+    "data": {
+      "delete_events": [
+        {
+          "verb": "delete",
+          "objectRef.resource": "namespaces",
+          "objectRef.name": "legacy-svc",
+          "ts": "2025-06-01T11:00:00Z"
+        }
+      ],
+      "inventory_status_after_24h": {
+        "legacy-svc": {
+          "state": "active"
+        }
+      }
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[자산 폐기 절차 §4]\n자산 폐기 시 audit log에 delete event가 기록되며, 동시에 Lambda가 인벤토리 시스템에 archive 마킹을 자동 호출한다.\n24시간 내 archive 마킹 실패 시 자산 관리자에 알람.\n폐기 이벤트는 S3 Object Lock으로 영구 보관.",
+  "evidence_doc_sample": "[증적: 자산 폐기 이력 대장, 2025-06]\n폐기 자산: 3건 / archive 마킹: 3/3 (자동) / 보관 위치: s3://isms-asset-history/delete-events/",
+  "judgement_logic": "pass if for each delete event:\n         inventory_status[event.objectRef.name].state == \"archived\" within 24h\nfail otherwise; report orphan delete events."
+}

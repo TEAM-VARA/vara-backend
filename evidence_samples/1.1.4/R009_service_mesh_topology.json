@@ -1,0 +1,162 @@
+{
+  "document_title": "Service Mesh 토폴로지",
+  "document_id": "SVCMESH-2025-001",
+  "organization": "(주)한빛시스템즈",
+  "작성일": "2025-04-01",
+  "검토자": "한승우 (DevOps 엔지니어)",
+  "승인자": "최동현 (인프라팀장)",
+  "Service Mesh·Service Map 활용": "Istio Service Mesh 기반 마이크로서비스 토폴로지를 자동 생성하고, Kiali 대시보드를 통해 실시간 시각화",
+  "자동 시각화 도구": "Istio 1.20 + Kiali 1.78 + Grafana 10.2 (자동 토폴로지 생성 및 트래픽 모니터링)",
+  "클러스터_정보": {
+    "클러스터명": "hanbit-prod-eks",
+    "EKS_버전": "1.29",
+    "리전": "ap-northeast-2",
+    "네임스페이스": ["commerce", "payment", "auth", "admin", "batch", "istio-system", "monitoring"]
+  },
+  "서비스 노드": [
+    {
+      "서비스명": "commerce-api",
+      "네임스페이스": "commerce",
+      "replicas": 3,
+      "Istio_사이드카": "envoy 1.28.1",
+      "mTLS": "STRICT",
+      "서비스_유형": "ClusterIP"
+    },
+    {
+      "서비스명": "order-api",
+      "네임스페이스": "commerce",
+      "replicas": 2,
+      "Istio_사이드카": "envoy 1.28.1",
+      "mTLS": "STRICT",
+      "서비스_유형": "ClusterIP"
+    },
+    {
+      "서비스명": "payment-api",
+      "네임스페이스": "payment",
+      "replicas": 2,
+      "Istio_사이드카": "envoy 1.28.1",
+      "mTLS": "STRICT",
+      "서비스_유형": "ClusterIP"
+    },
+    {
+      "서비스명": "auth-api",
+      "네임스페이스": "auth",
+      "replicas": 2,
+      "Istio_사이드카": "envoy 1.28.1",
+      "mTLS": "STRICT",
+      "서비스_유형": "ClusterIP"
+    },
+    {
+      "서비스명": "admin-api",
+      "네임스페이스": "admin",
+      "replicas": 1,
+      "Istio_사이드카": "envoy 1.28.1",
+      "mTLS": "STRICT",
+      "서비스_유형": "ClusterIP"
+    },
+    {
+      "서비스명": "batch-scheduler",
+      "네임스페이스": "batch",
+      "replicas": 1,
+      "Istio_사이드카": "envoy 1.28.1",
+      "mTLS": "STRICT",
+      "서비스_유형": "CronJob"
+    }
+  ],
+  "호출 관계": [
+    {
+      "출발": "istio-ingressgateway",
+      "도착": "commerce-api",
+      "프로토콜": "HTTP/2 (mTLS)",
+      "평균_RPS": 450,
+      "경로": "/api/v1/products/*, /api/v1/cart/*"
+    },
+    {
+      "출발": "commerce-api",
+      "도착": "order-api",
+      "프로토콜": "gRPC (mTLS)",
+      "평균_RPS": 120,
+      "경로": "order.OrderService/*"
+    },
+    {
+      "출발": "commerce-api",
+      "도착": "auth-api",
+      "프로토콜": "gRPC (mTLS)",
+      "평균_RPS": 200,
+      "경로": "auth.AuthService/ValidateToken"
+    },
+    {
+      "출발": "order-api",
+      "도착": "payment-api",
+      "프로토콜": "gRPC (mTLS)",
+      "평균_RPS": 80,
+      "경로": "payment.PaymentService/ProcessPayment"
+    },
+    {
+      "출발": "payment-api",
+      "도착": "external (KG이니시스)",
+      "프로토콜": "HTTPS (ServiceEntry)",
+      "평균_RPS": 80,
+      "경로": "https://api.inicis.com/v2/payments"
+    },
+    {
+      "출발": "order-api",
+      "도착": "external (CJ대한통운)",
+      "프로토콜": "HTTPS (ServiceEntry)",
+      "평균_RPS": 30,
+      "경로": "https://api.cjlogistics.com/v1/shipments"
+    },
+    {
+      "출발": "istio-ingressgateway (internal)",
+      "도착": "admin-api",
+      "프로토콜": "HTTP/2 (mTLS)",
+      "평균_RPS": 15,
+      "경로": "/admin/api/v1/*"
+    },
+    {
+      "출발": "admin-api",
+      "도착": "commerce-api",
+      "프로토콜": "gRPC (mTLS)",
+      "평균_RPS": 10,
+      "경로": "commerce.AdminService/*"
+    }
+  ],
+  "트래픽": {
+    "수집_기간": "2025-03-01 ~ 2025-03-31",
+    "총_요청_수": 38542800,
+    "평균_일간_요청": 1243316,
+    "최대_일간_요청": 1876420,
+    "mTLS_적용률": "100%",
+    "에러율_평균": "0.12%",
+    "P99_레이턴시": "245ms"
+  },
+  "자동 검증 결과": {
+    "검증_일시": "2025-04-01T03:00:00+09:00",
+    "검증_도구": "Kiali Validation + 자체 개발 토폴로지 검증 스크립트",
+    "검증_항목": [
+      {
+        "항목": "Istio 사이드카 주입 누락 Pod",
+        "결과": "0건 (전체 Pod 사이드카 주입 완료)",
+        "상태": "적합"
+      },
+      {
+        "항목": "mTLS STRICT 미적용 네임스페이스",
+        "결과": "0건 (전체 네임스페이스 STRICT 모드)",
+        "상태": "적합"
+      },
+      {
+        "항목": "미등록 ServiceEntry (비인가 외부 호출)",
+        "결과": "0건",
+        "상태": "적합"
+      },
+      {
+        "항목": "토폴로지와 문서화된 흐름도 불일치",
+        "결과": "0건 (FLOW-2025-001 대비 일치)",
+        "상태": "적합"
+      }
+    ],
+    "전체_적합_여부": true
+  },
+  "정기_검증_주기": "월 1회 (매월 1일 03:00 자동 실행)",
+  "최종_갱신일": "2025-04-01"
+}

@@ -1,0 +1,62 @@
+{
+  "rule_id": "R-2.2.5-05",
+  "rule_name": "직무 변경 시 권한 갱신",
+  "item_number": "2.2.5",
+  "item_name": "퇴직 및 직무변경 관리",
+  "detail_criterion": "직무 변경(전배·승진) 시 기존 권한 회수 및 신규 권한 부여가 적시 이루어지는지 확인한다.",
+  "data_source": "audit log RoleBinding create/delete history per user",
+  "compliant": {
+    "description": "직무 변경 시 이전 권한 회수 + 신규 권한 부여 audit 추적됨",
+    "data": {
+      "user": "kim.transferred@company.com",
+      "hr_role_change_event": {
+        "from": "developer",
+        "to": "sre",
+        "ts": "2025-06-01T09:00:00Z"
+      },
+      "audit_events": [
+        {
+          "verb": "delete",
+          "objectRef.name": "kim-team-A-dev",
+          "ts": "2025-06-01T09:05:00Z",
+          "user": "scim-controller"
+        },
+        {
+          "verb": "create",
+          "objectRef.name": "kim-team-B-sre",
+          "ts": "2025-06-01T09:05:30Z",
+          "user": "scim-controller"
+        }
+      ],
+      "parallel_period_end": "2025-06-14T23:59:59Z",
+      "old_permissions_removed_at": "2025-06-14T23:59:59Z"
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "직무 변경했으나 이전 권한 회수 안 됨 (누적된 권한)",
+    "data": {
+      "user": "kim.transferred@company.com",
+      "hr_role_change_event": {
+        "from": "developer",
+        "to": "sre",
+        "ts": "2025-04-01T09:00:00Z"
+      },
+      "audit_events": [
+        {
+          "verb": "create",
+          "objectRef.name": "kim-team-B-sre",
+          "ts": "2025-04-01T09:05:30Z",
+          "user": "scim-controller"
+        }
+      ],
+      "old_permissions_still_active": [
+        "kim-team-A-dev"
+      ]
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[직무 변경 권한 갱신 §2]\n직무 변경 시 이전 권한은 14일 병행 기간 후 자동 회수.\naudit log로 변경 전·후 RoleBinding 이력 추적, 회수 누락 시 alert.",
+  "evidence_doc_sample": "[증적: 직무 변경 권한 갱신, 2025-06]\n변경: 2명 / 이전 권한 회수: 2/2 / 평균 병행: 12일",
+  "judgement_logic": "pass if for user with role change:\n         exists delete event for old role binding within 30d\n         AND exists create event for new role binding within 24h\nfail otherwise."
+}

@@ -29,9 +29,10 @@ func main() {
 
 	rdb, err := cache.NewRedis(cfg.Redis)
 	if err != nil {
-		log.Fatalf("redis 연결 실패: %v", err)
+		log.Printf("warn: redis 연결 실패 (Redis 없이 계속 진행): %v", err)
+	} else {
+		defer rdb.Close()
 	}
-	defer rdb.Close()
 
 	log.Println("DB 연결 완료")
 

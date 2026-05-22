@@ -1,0 +1,108 @@
+{
+  "rule_id": "R-1.2.2-10",
+  "rule_name": "흐름도-실제 흐름 일치성 점검",
+  "item_number": "1.2.2",
+  "item_name": "현황 및 흐름분석",
+  "detail_criterion": "문서화된 흐름도와 실제 네트워크/API 흐름의 일치성을 정기적으로 점검하는지 확인한다.",
+  "data_source": "정의 dataflow.yaml vs eBPF aggregation matrix",
+  "compliant": {
+    "description": "정의된 흐름과 실측 흐름 100% 일치",
+    "data": {
+      "defined_flows": [
+        {
+          "from": "web-frontend",
+          "to": "order-service"
+        },
+        {
+          "from": "order-service",
+          "to": "payment-service"
+        },
+        {
+          "from": "order-service",
+          "to": "orders-db"
+        }
+      ],
+      "observed_flows": [
+        {
+          "from": "web-frontend",
+          "to": "order-service",
+          "rate_per_min": 142
+        },
+        {
+          "from": "order-service",
+          "to": "payment-service",
+          "rate_per_min": 28
+        },
+        {
+          "from": "order-service",
+          "to": "orders-db",
+          "rate_per_min": 89
+        }
+      ],
+      "shadow_flows": [],
+      "dead_paths": []
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "shadow flow 2건 (정의 없는 흐름), dead path 1건 (정의됐으나 미사용)",
+    "data": {
+      "defined_flows": [
+        {
+          "from": "web-frontend",
+          "to": "order-service"
+        },
+        {
+          "from": "order-service",
+          "to": "orders-db"
+        },
+        {
+          "from": "order-service",
+          "to": "legacy-billing"
+        }
+      ],
+      "observed_flows": [
+        {
+          "from": "web-frontend",
+          "to": "order-service",
+          "rate_per_min": 142
+        },
+        {
+          "from": "order-service",
+          "to": "orders-db",
+          "rate_per_min": 89
+        },
+        {
+          "from": "order-service",
+          "to": "undocumented-analytics",
+          "rate_per_min": 5
+        },
+        {
+          "from": "order-service",
+          "to": "old-cache-cluster",
+          "rate_per_min": 2
+        }
+      ],
+      "shadow_flows": [
+        {
+          "from": "order-service",
+          "to": "undocumented-analytics"
+        },
+        {
+          "from": "order-service",
+          "to": "old-cache-cluster"
+        }
+      ],
+      "dead_paths": [
+        {
+          "from": "order-service",
+          "to": "legacy-billing"
+        }
+      ]
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[흐름도 일치성 점검 §2]\n정의된 흐름(dataflow.yaml, git 관리)과 eBPF로 측정된 실제 흐름을 매일 04:00 비교.\n  - Shadow flow (실측 있는데 정의 없음): 즉시 alert, 24h 내 정당성 검토\n  - Dead path (정의 있는데 실측 없음): 7일 후 정의서에서 제거 권장\n일치율 KPI: 분기별 95% 이상 유지.",
+  "evidence_doc_sample": "[증적: 흐름 일치성 점검, 2025-06-15]\n정의 흐름: 47건 / 실측 흐름: 47건 / 일치율: 100% / shadow: 0 / dead: 0",
+  "judgement_logic": "pass if len(shadow_flows) == 0 AND len(dead_paths) <= 1\nfail if shadow flows > 0 OR dead paths > 3.\n\naggregated query:\n  defined = parse_yaml(\"dataflow.yaml\") → set of (from, to)\n  observed = ebpf_aggregation(\"-24h\") → set of (from, to)\n  shadow = observed - defined → must be empty\n  dead = defined - observed → must be ≤ 1"
+}

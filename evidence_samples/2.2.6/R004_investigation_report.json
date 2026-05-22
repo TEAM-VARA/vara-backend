@@ -1,0 +1,98 @@
+{
+  "document_type": "위반 조사 보고서",
+  "document_id": "SEC-INV-2026-003",
+  "organization": "데모코프(주)",
+  "system": "AWS GuardDuty",
+  "investigation_summary": {
+    "case_id": "INV-2026-003",
+    "incident_type": "내부자 비인가 데이터 접근",
+    "detection_source": "AWS GuardDuty + CloudTrail 연동 탐지",
+    "investigation_start": "2026-03-10T14:00:00+09:00",
+    "investigation_end": "2026-03-25T18:00:00+09:00",
+    "investigator": "정보보호팀 최보안 수석"
+  },
+  "evidence_collection": {
+    "channels": [
+      {
+        "source": "audit",
+        "description": "내부 감사 로그 (HR 시스템, ERP)",
+        "records_collected": 1245,
+        "collection_date": "2026-03-10"
+      },
+      {
+        "source": "CloudTrail",
+        "description": "AWS CloudTrail API 호출 로그",
+        "records_collected": 8734,
+        "collection_date": "2026-03-10"
+      },
+      {
+        "source": "VPC",
+        "description": "VPC Flow Logs 네트워크 트래픽 분석",
+        "records_collected": 45210,
+        "collection_date": "2026-03-11"
+      },
+      {
+        "source": "Falco",
+        "description": "Falco 런타임 보안 이벤트",
+        "records_collected": 312,
+        "collection_date": "2026-03-11"
+      },
+      {
+        "source": "eBPF",
+        "description": "eBPF 커널 레벨 시스템 콜 추적",
+        "records_collected": 15678,
+        "collection_date": "2026-03-12"
+      }
+    ],
+    "all_evidence_channels_present": true
+  },
+  "timeline": {
+    "events": [
+      {
+        "timestamp": "2026-03-08T22:15:00+09:00",
+        "event": "비인가 S3 버킷 접근 시도 감지 (GuardDuty Alert)",
+        "severity": "HIGH"
+      },
+      {
+        "timestamp": "2026-03-08T22:17:00+09:00",
+        "event": "CloudTrail에서 GetObject API 호출 확인 (고객 DB 백업 파일)",
+        "severity": "CRITICAL"
+      },
+      {
+        "timestamp": "2026-03-08T22:20:00+09:00",
+        "event": "VPC Flow Logs에서 외부 IP로 대량 데이터 전송 시도 확인",
+        "severity": "CRITICAL"
+      },
+      {
+        "timestamp": "2026-03-08T22:22:00+09:00",
+        "event": "자동화 보안 정책에 의해 해당 IAM 역할 즉시 비활성화",
+        "severity": "HIGH"
+      },
+      {
+        "timestamp": "2026-03-09T09:00:00+09:00",
+        "event": "정보보호팀 사고 대응 개시",
+        "severity": "MEDIUM"
+      }
+    ],
+    "timeline_generated": true
+  },
+  "evidence_retention": {
+    "retention_policy": "법적 보존 기간 준수 (최소 5년)",
+    "storage_location": "S3 Glacier Deep Archive (democorp-legal-hold-bucket)",
+    "legal_hold_applied": true,
+    "legal_hold_id": "LH-2026-003",
+    "legal_hold_start_date": "2026-03-10",
+    "integrity_verification": {
+      "method": "SHA-256 해시 검증 + S3 Object Lock",
+      "verified": true,
+      "last_verified": "2026-05-01T00:00:00+09:00"
+    },
+    "evidence_retention_with_legal_hold": true
+  },
+  "metadata": {
+    "format": "json",
+    "file_hash": "sha256:d6a4b1f5c7e9012345678def90123fedcba3210987654def34567890123cdef4",
+    "collected_at": "2026-05-15T09:40:00+09:00",
+    "collector": "vara-grc-agent"
+  }
+}

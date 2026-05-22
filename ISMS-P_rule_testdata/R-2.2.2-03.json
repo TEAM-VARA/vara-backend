@@ -1,0 +1,55 @@
+{
+  "rule_id": "R-2.2.2-03",
+  "rule_name": "시스템관리자-감사자 분리",
+  "item_number": "2.2.2",
+  "item_name": "직무 분리",
+  "detail_criterion": "시스템관리자와 보안감사자의 직무가 분리되어 있는지 확인한다.",
+  "data_source": "IAM group + K8s RBAC + S3 Object Lock check",
+  "compliant": {
+    "description": "감사자 role은 read-only + log access only, log 삭제 권한 없음",
+    "data": {
+      "auditor_group_permissions": {
+        "k8s_verbs_allowed": [
+          "get",
+          "list",
+          "watch"
+        ],
+        "log_read_access": true,
+        "log_write_access": false,
+        "log_delete_access": false
+      },
+      "sysadmin_group_permissions": {
+        "k8s_verbs_allowed": [
+          "*"
+        ],
+        "log_read_access": true,
+        "log_write_access": false,
+        "log_delete_access": false
+      },
+      "user_overlap": 0
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "감사자가 sysadmin 권한도 보유 (자기 감사 가능)",
+    "data": {
+      "auditor_group_permissions": {
+        "k8s_verbs_allowed": [
+          "get",
+          "list",
+          "watch"
+        ],
+        "log_read_access": true
+      },
+      "user_overlap": 2,
+      "overlapping_users": [
+        "kim.audit@company.com",
+        "park.sysadmin@company.com"
+      ]
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[시스템관리자-감사자 분리 §1]\n감사자 role: K8s read-only (get/list/watch) + audit log read-only.\n시스템관리자 role: K8s 모든 verb 가능, 단 audit log는 read-only(삭제 불가, S3 Object Lock).\n동일 사용자가 양 그룹 소속 금지(Kyverno admission으로 강제).",
+  "evidence_doc_sample": "[증적: 직무 분리 점검, 2025-06]\nauditor 그룹: 3명 / sysadmin 그룹: 7명 / 중복: 0명",
+  "judgement_logic": "pass if user_overlap == 0\n       AND auditor_group_permissions.log_delete_access == False\nfail otherwise."
+}

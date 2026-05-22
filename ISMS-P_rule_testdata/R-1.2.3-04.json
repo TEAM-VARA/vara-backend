@@ -1,0 +1,56 @@
+{
+  "rule_id": "R-1.2.3-04",
+  "rule_name": "기술적 취약점 식별",
+  "item_number": "1.2.3",
+  "item_name": "위험 평가",
+  "detail_criterion": "기술적 취약점이 식별되어 있는지(취약점 진단·모의해킹 결과 포함) 확인한다.",
+  "data_source": "AWS Inspector + ECR scan + kube-bench + Falco runtime",
+  "compliant": {
+    "description": "취약점 스캔 결과 Critical 0, High SLA 내 처리됨",
+    "data": {
+      "inspector_findings": {
+        "CRITICAL": 0,
+        "HIGH": 3,
+        "MEDIUM": 12,
+        "LOW": 47
+      },
+      "sla_compliance": {
+        "CRITICAL_within_7d": "0/0",
+        "HIGH_within_30d": "3/3",
+        "MEDIUM_within_90d": "12/12"
+      },
+      "kube_bench_score": 92,
+      "falco_runtime_alerts_24h": 0,
+      "last_scan": "2025-06-15T01:00:00Z"
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "Critical 취약점 5건 SLA 미준수, Falco 런타임 이상행위 탐지",
+    "data": {
+      "inspector_findings": {
+        "CRITICAL": 5,
+        "HIGH": 17,
+        "MEDIUM": 23,
+        "LOW": 89
+      },
+      "sla_compliance": {
+        "CRITICAL_within_7d": "0/5",
+        "HIGH_within_30d": "12/17"
+      },
+      "overdue_critical": [
+        {
+          "cve": "CVE-2024-12345",
+          "package": "log4j",
+          "first_seen": "2025-04-01"
+        }
+      ],
+      "kube_bench_score": 67,
+      "falco_runtime_alerts_24h": 4
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[기술적 취약점 관리 §3]\n취약점 스캔 도구:\n  - AWS Inspector: EC2/Lambda/ECR 지속 스캔\n  - ECR scan: 컨테이너 이미지 빌드 시점\n  - kube-bench: CIS K8s Benchmark 점수 90+ 유지\n  - Falco: 런타임 이상행위(syscall 패턴) 탐지\nSLA: Critical 7일 / High 30일 / Medium 90일 내 조치.",
+  "evidence_doc_sample": "[증적: 취약점 점검 결과, 2025-06]\nInspector: 0 Critical, 3 High (SLA 내) / kube-bench: 92점 / Falco: 0 alert",
+  "judgement_logic": "pass if inspector_findings.CRITICAL == 0 (or 100% within 7d SLA)\n       AND kube_bench_score >= 90\n       AND falco_runtime_alerts_24h == 0\nfail otherwise."
+}

@@ -1,0 +1,31 @@
+{
+  "rule_id": "R-1.2.3-08",
+  "rule_name": "위험평가 정기 수행",
+  "item_number": "1.2.3",
+  "item_name": "위험 평가",
+  "detail_criterion": "위험평가가 정기적으로(최소 연1회) 수행되는지 확인한다.",
+  "data_source": "AWS Audit Manager + AWS Config compliance dashboard",
+  "compliant": {
+    "description": "연 1회 종합 평가 + 일 단위 Config 자동 평가 정상 운영",
+    "data": {
+      "audit_manager_last_assessment": "2025-03-15",
+      "next_scheduled": "2026-03-15",
+      "config_daily_compliance_runs_last_30d": 30,
+      "kyverno_policy_report_runs_last_30d": 30
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "연간 평가 18개월째 미수행, 일 단위 점검도 누락",
+    "data": {
+      "audit_manager_last_assessment": "2024-01-10",
+      "next_scheduled": null,
+      "config_daily_compliance_runs_last_30d": 12,
+      "kyverno_policy_report_runs_last_30d": 28
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[위험평가 주기 §2]\n종합 위험평가: 연 1회 (AWS Audit Manager).\n일 단위 자동 평가: AWS Config rule + Kyverno PolicyReport.\n환경 변경(중요 인프라 변경, 신규 서비스 출시) 시 즉시 재평가.",
+  "evidence_doc_sample": "[증적: 위험평가 수행 기록, 2025]\n2025-03 종합 평가 완료 / 일 단위 자동: 99% 가동률 / 다음 계획: 2026-03",
+  "judgement_logic": "pass if audit_manager_last_assessment > now - 365d\n       AND config_daily_compliance_runs_last_30d >= 28\nfail otherwise."
+}

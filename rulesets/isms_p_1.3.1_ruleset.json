@@ -1,0 +1,475 @@
+{
+  "schema_version": "2.0.0",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA GRC Service - ISMS-P 자동 컴플라이언스 점검",
+  "item": {
+    "id": "1.3.1",
+    "name": "보호대책 구현",
+    "category_path": "1. 관리체계 수립 및 운영 > 1.3 관리체계 운영 > 1.3.1 보호대책 구현",
+    "description": "위험 평가 결과에 따라 식별된 위험을 처리하기 위하여 조직에 적합한 보호대책을 선정·구현하고 경영진의 수용 여부를 판단하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "정보통신망법",
+      "article": "제47조",
+      "summary": "정보보호 관리체계 인증 기준"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "1.3.1-R001",
+      "check_category": "정책_문서_충실도",
+      "evidence_type": "이행 일정 vs 실제 추적표",
+      "system": "Project Management",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "일정 준수 의무",
+        "지연 보고 절차",
+        "일정 조정",
+        "대책명",
+        "계획 일정",
+        "실제 일정",
+        "지연 일수"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'대책명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'계획 일정' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'실제 일정' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'지연 일수' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "이행계획 일정 준수 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 보호대책 이행계획에 명시된 일정이 준수되고 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "1.3.1-R002",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "보호대책 구현 결과 보고서",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "운영 반영 시점",
+        "시스템 설정·정책·절차 갱신",
+        "대책명",
+        "구현 일자",
+        "운영 반영 일자",
+        "설정 항목"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "all_argocd_apps_synced_healthy",
+          "op": "==",
+          "value": true,
+          "description": "모든 ArgoCD Application이 Synced+Healthy"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "구현 결과 운영 반영 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 보호대책 구현 결과가 실제 운영 환경(시스템 설정·정책·절차)에 반영되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "1.3.1-R003",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "구현 검증 보고서",
+      "system": "AWS Config",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "검증 방법(테스트·점검)",
+        "검증 기준",
+        "결과 기록",
+        "검증 일자",
+        "검증 항목",
+        "결과(Pass/Fail)",
+        "책임자"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "implementation_verified",
+          "op": "==",
+          "value": true,
+          "description": "구현 검증 완료 (PolicyReport fail 0 + deny 이벤트 발생 + enforce 모드)"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "구현 검증 수행 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 보호대책 구현 후 의도한 대로 동작하는지 검증(테스트·점검)이 수행되었는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "1.3.1-R004",
+      "check_category": "이행_점검",
+      "evidence_type": "미이행 사유 분석 보고서",
+      "system": "AWS Config",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "미이행 사유 분석",
+        "후속조치 계획",
+        "책임자 지정",
+        "대책명",
+        "미이행 사유",
+        "후속조치",
+        "일정"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'대책명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'미이행 사유' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'후속조치' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'일정' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "미이행 사유·후속조치 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 이행계획 대비 미이행 사항에 대한 사유 분석과 후속조치 계획이 수립되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.3.1-R005",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "구현 결과 경영진 보고서",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "보고 주기·범위",
+        "경영진 검토·승인",
+        "보고 일자",
+        "보고 대상자",
+        "결재자",
+        "시행 사항"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'보고 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'보고 대상자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결재자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'시행 사항' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "구현 결과 경영진 보고 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 보호대책 구현 결과가 경영진에 보고되어 검토·승인되었는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.3.1-R006",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "IaC 코드 저장소",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "자동화 적용 대상(반복 설정·패치)",
+        "IaC 활용(Terraform·CloudFormation)",
+        "정책 코드화",
+        "IaC 도구",
+        "자동화 비율",
+        "적용 자원 수",
+        "Git Commit"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'IaC 도구' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'자동화 비율' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'적용 자원 수' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'Git Commit' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "구현 자동화 적용 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 반복적인 보호대책(보안 설정·패치)에 자동화·코드형 보안(IaC)이 적용되었는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.3.1-R007",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "보호대책 이행 트래커(Jira·Asana)",
+      "system": "Project Management",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "책임자·일정·산출물 매핑",
+        "추적 시스템",
+        "대책 ID",
+        "책임자",
+        "일정",
+        "산출물 링크"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'대책 ID' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'책임자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'일정' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'산출물 링크' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "구현 책임자·일정 추적성 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 각 보호대책의 구현 책임자·일정·산출물이 추적 가능한지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.3.1-R008",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "산출물 보관 위치(사내 포털·Git)",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "산출물 종류(설계서·설정 파일·테스트 결과)",
+        "보관 위치·기간",
+        "산출물명",
+        "보관 경로",
+        "보관 기간",
+        "책임자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'산출물명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'보관 경로' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'보관 기간' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'책임자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "보호대책 산출물 보관 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 보호대책 구현 산출물(설계서·설정 파일·테스트 결과)이 체계적으로 보관되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.3.1-R009",
+      "check_category": "이행_점검",
+      "evidence_type": "운영 인계서",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "인계 시점",
+        "인계 항목(매뉴얼·설정·트레이닝)",
+        "인계 결재",
+        "인계 일자",
+        "인계자·수계자",
+        "인계 항목",
+        "결재자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'인계 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'인계자·수계자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'인계 항목' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결재자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "구현 후 운영 인계 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 구현된 보호대책이 운영 부서에 정식 인계되어 운영되고 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "1.3.1-R010",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "구현 후 잔여 위험 평가 보고서",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "재평가 시점(구현 완료 후)",
+        "DoA 비교",
+        "추가 대책 검토",
+        "위험 ID",
+        "잔여 위험도",
+        "DoA 대비",
+        "결정 사항"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'위험 ID' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'잔여 위험도' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'DoA 대비' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'결정 사항' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "구현 후 잔여 위험 재평가 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 보호대책 구현 후 잔여 위험에 대한 재평가가 수행되어 위험수용수준 이내인지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "모든 룰 중 하나라도 미준수이면 전체 미준수. 10개 룰 평가."
+  }
+}

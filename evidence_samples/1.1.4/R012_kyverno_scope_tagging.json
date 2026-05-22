@@ -1,0 +1,81 @@
+{
+  "document_title": "Kyverno ClusterPolicy + PolicyReport (범위 태깅)",
+  "document_id": "KYVERNO-SCOPE-2025-001",
+  "organization": "(주)한빛시스템즈",
+  "작성일": "2025-04-01",
+  "검토자": "한승우 (DevOps 엔지니어)",
+  "승인자": "최동현 (인프라팀장)",
+  "Kyverno": "Kyverno 1.11.4를 사용하여 Kubernetes 리소스에 대한 정책 기반 거버넌스를 시행",
+  "isms-p/scope": "모든 Kubernetes 리소스에 'isms-p/scope' 레이블을 필수 부착하도록 ClusterPolicy로 강제",
+  "PolicyReport": "Kyverno PolicyReport를 통해 정책 위반 현황을 실시간 모니터링하고 보고",
+  "enforce": "ClusterPolicy validationFailureAction을 'Enforce'로 설정하여 태그 미부착 리소스 배포를 원천 차단",
+  "클러스터_정보": {
+    "클러스터명": "hanbit-prod-eks",
+    "Kyverno_버전": "1.11.4",
+    "PolicyReport_CRD_버전": "v1alpha2"
+  },
+  "ClusterPolicy_정의": {
+    "정책명": "require-isms-scope-labels",
+    "적용_대상": ["Deployment", "StatefulSet", "DaemonSet", "CronJob", "Service", "ConfigMap", "Secret"],
+    "제외_네임스페이스": ["kube-system", "kube-public", "kube-node-lease"],
+    "검증_규칙": [
+      {
+        "규칙명": "check-isms-scope-label",
+        "검증_항목": "metadata.labels['isms-p/scope']",
+        "허용_값": ["in-scope", "out-of-scope", "shared"],
+        "위반_시_동작": "Enforce (배포 차단)"
+      },
+      {
+        "규칙명": "check-isms-data-classification",
+        "검증_항목": "metadata.labels['isms-p/data-classification']",
+        "허용_값": ["public", "internal", "confidential", "personal"],
+        "위반_시_동작": "Enforce (배포 차단)"
+      }
+    ],
+    "validationFailureAction": "Enforce"
+  },
+  "PolicyReport_결과": {
+    "보고_일시": "2025-04-01T09:00:00+09:00",
+    "총_평가_리소스": 287,
+    "pass": 287,
+    "fail": 0,
+    "warn": 0,
+    "error": 0,
+    "skip": 0,
+    "네임스페이스별_현황": [
+      {"네임스페이스": "commerce", "총_리소스": 68, "pass": 68, "fail": 0},
+      {"네임스페이스": "payment", "총_리소스": 34, "pass": 34, "fail": 0},
+      {"네임스페이스": "auth", "총_리소스": 28, "pass": 28, "fail": 0},
+      {"네임스페이스": "admin", "총_리소스": 22, "pass": 22, "fail": 0},
+      {"네임스페이스": "batch", "총_리소스": 15, "pass": 15, "fail": 0},
+      {"네임스페이스": "istio-system", "총_리소스": 45, "pass": 45, "fail": 0},
+      {"네임스페이스": "monitoring", "총_리소스": 38, "pass": 38, "fail": 0},
+      {"네임스페이스": "kyverno", "총_리소스": 12, "pass": 12, "fail": 0},
+      {"네임스페이스": "cert-manager", "총_리소스": 25, "pass": 25, "fail": 0}
+    ]
+  },
+  "isms_scope_tagging_ok": true,
+  "최근_위반_차단_이력": [
+    {
+      "일시": "2025-03-18T11:22:00+09:00",
+      "사용자": "developer-kim (kubectl apply)",
+      "리소스": "Deployment/test-nginx",
+      "네임스페이스": "commerce",
+      "위반_사유": "metadata.labels['isms-p/scope'] 미부착",
+      "조치": "Enforce에 의해 배포 차단. 개발자에게 레이블 부착 안내 후 재배포 완료",
+      "해결_일시": "2025-03-18T11:35:00+09:00"
+    }
+  ],
+  "AWS_리소스_태깅": {
+    "도구": "AWS Config Rules + AWS Organizations Tag Policy",
+    "필수_태그": [
+      {"태그_키": "isms-p:scope", "허용_값": ["in-scope", "out-of-scope", "shared"]},
+      {"태그_키": "isms-p:data-classification", "허용_값": ["public", "internal", "confidential", "personal"]},
+      {"태그_키": "isms-p:owner", "허용_값": "자유 입력 (팀명/담당자)"}
+    ],
+    "준수율": "100% (287/287 리소스 태그 부착 완료)",
+    "미준수_리소스": 0
+  },
+  "정기_보고_주기": "주 1회 (매주 월요일 09:00 자동 생성)",
+  "최종_갱신일": "2025-04-01"
+}

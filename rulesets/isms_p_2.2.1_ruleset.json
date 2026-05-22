@@ -1,0 +1,458 @@
+{
+  "schema_version": "2.0.0",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA GRC Service - ISMS-P 자동 컴플라이언스 점검",
+  "item": {
+    "id": "2.2.1",
+    "name": "주요 직무자 지정 및 관리",
+    "category_path": "2. 보호대책 요구사항 > 2.2 인적 보안 > 2.2.1 주요 직무자 지정 및 관리",
+    "description": "개인정보 및 중요정보의 취급이나 주요 시스템 접근 등 주요 직무의 기준과 직무자 지정 절차를 수립하고 주요 직무자 목록을 최신으로 관리하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보 보호법",
+      "article": "제28조",
+      "summary": "개인정보취급자에 대한 감독"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제4조",
+      "summary": "내부 관리계획의 수립·시행"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "2.2.1-R001",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "주요 직무 정의서",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "주요 직무 정의(개인정보취급자·시스템관리자·보안관리자)",
+        "식별 절차",
+        "직무명",
+        "정의",
+        "책임 영역"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'직무명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'정의' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'책임 영역' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "주요 직무 식별 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 개인정보취급자·시스템관리자·보안관리자 등 주요 직무가 식별·정의되어 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.1-R002",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "주요 직무자 명부",
+      "system": "AWS IAM",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "지정 절차",
+        "명부 관리 의무",
+        "성명",
+        "직무",
+        "지정일"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "key_personnel_group_managed",
+          "op": "==",
+          "value": true,
+          "description": "주요 직무자 그룹 기반 RoleBinding 존재 + 개별 사용자 admin 부여 없음"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "주요 직무자 지정·관리 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 주요 직무자가 공식 절차로 지정되고 명부로 관리되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.2.1-R003",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "보안 검토 결과",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "신원 확인",
+        "결격 사유 검토",
+        "검토 항목",
+        "검토 일자",
+        "적합성 판정"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'검토 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'검토 항목' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'적합성 판정' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "주요 직무자 보안 검토 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 주요 직무자 지정 시 보안 적합성 검토(신원 확인·결격 사유)가 이루어지는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.1-R004",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "주요 직무자 서약서",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "강화된 서약 양식",
+        "서약 시점",
+        "갱신 주기",
+        "성명",
+        "서약일",
+        "서약 항목"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'성명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'서약일' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'서약 항목' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "주요 직무자 보안 서약 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 주요 직무자가 강화된 보안 서약(비밀유지·개인정보보호)을 작성·관리하는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.2.1-R005",
+      "check_category": "교육_훈련",
+      "evidence_type": "주요 직무자 교육 이수 명단",
+      "system": "Policy Document",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "전문 교육 항목",
+        "교육 주기",
+        "이수 의무",
+        "교육명",
+        "이수자",
+        "이수일"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'교육명' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'이수자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'이수일' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "주요 직무자 전문 교육 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 주요 직무자에게 별도의 전문 교육이 시행되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.1-R006",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "주요 직무자 권한 매트릭스",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "최소 권한 부여",
+        "권한 적정성 검토",
+        "직무",
+        "부여 권한",
+        "검토 결과"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'직무' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'부여 권한' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'검토 결과' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "주요 직무자 권한 최소화 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 주요 직무자에게 부여된 권한이 업무 수행에 필요한 최소한으로 제한되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.1-R007",
+      "check_category": "정책_시스템_설정",
+      "evidence_type": "EKS 제어플레인 감사 로그 설정",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "EKS audit log",
+        "CloudTrail",
+        "kube-apiserver audit policy",
+        "감사 로그"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "audit_log_enabled",
+          "op": "==",
+          "value": true,
+          "description": "EKS 제어플레인 감사 로그 활성화"
+        },
+        {
+          "field": "required_eks_audit_log_types_present",
+          "op": "==",
+          "value": true,
+          "description": "api/audit/authenticator 등 필수 logTypes 포함"
+        },
+        {
+          "field": "log_retention_days",
+          "op": ">=",
+          "value": 365,
+          "description": "감사 로그 보존 1년 이상"
+        },
+        {
+          "field": "dashboard_configured",
+          "op": "==",
+          "value": true,
+          "description": "모니터링 대시보드 URL 등 구성"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "주요 직무자 활동 모니터링 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 주요 직무자의 활동(시스템 접근·중요 정보 처리)이 모니터링·로깅되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "2.2.1-R008",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "주요 직무자 정기 점검 보고서",
+      "system": "AWS IAM",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "점검 주기(분기·반기)",
+        "명부·권한 점검",
+        "점검 일자",
+        "점검 결과",
+        "변경 사항"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'점검 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'점검 결과' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'변경 사항' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "주요 직무자 정기 점검 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 주요 직무자 명부와 권한이 정기적으로(분기·반기) 점검·갱신되는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.1-R009",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "변경 시 권한 회수 결재 이력",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "pdf",
+      "extraction_method": "text_extraction",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "변경 시 권한 회수 시한",
+        "이관 절차",
+        "변경 일자",
+        "회수 일자",
+        "처리자"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'변경 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'회수 일자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'처리자' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "주요 직무자 변경 시 즉시 조치 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 주요 직무자 변경(이직·전배·휴직) 시 권한 즉시 회수·이관이 이루어지는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "keyword_match",
+        "min_keyword_matches": 2,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "2.2.1-R010",
+      "check_category": "정책_문서_존재",
+      "evidence_type": "대체자 지정 결재",
+      "system": "AWS EKS",
+      "related_checkpoints": [],
+      "evidence_format": "json",
+      "extraction_method": "json_parse",
+      "auto_collectable": true,
+      "identification_keywords": [
+        "대체자 지정 의무",
+        "인계 절차",
+        "부재 기간",
+        "대체자",
+        "인계 항목"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "'부재 기간' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'대체자' 관련 내용이 증적에 포함"
+        },
+        {
+          "description": "'인계 항목' 관련 내용이 증적에 포함"
+        }
+      ],
+      "deficiency_indicators": [
+        {
+          "description": "주요 직무자 휴가·부재 시 대체 관련 증적 부재 또는 내용 부실"
+        },
+        {
+          "description": "상세기준 미충족: 주요 직무자 휴가·부재 시 대체자 지정·인계 절차가 있는지 확인한다."
+        }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "모든 룰 중 하나라도 미준수이면 전체 미준수. 10개 룰 평가."
+  }
+}

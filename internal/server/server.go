@@ -13,6 +13,7 @@ import (
 	"github.com/vara/backend/internal/config"
 	"github.com/vara/backend/internal/external/trivy"
 	"github.com/vara/backend/internal/handler"
+	"github.com/vara/backend/internal/platform/embedding"
 	"github.com/vara/backend/internal/platform/epss"
 	"github.com/vara/backend/internal/platform/exploitdb"
 	"github.com/vara/backend/internal/platform/kev"
@@ -60,14 +61,20 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		MaxConcurrent: 1, // 동시 trivy 스캔 최대 3개 (호스트 자원 보호)
 	})
 
+	// ── GRC Compliance Check ──
+	grcRepo := postgres.NewGRCRepo(pg)
+	rulesetStore := service.NewRulesetStore("rulesets")
+	embClient := embedding.NewClient(os.Getenv("EMBEDDING_SERVER_URL"))
+	grcSvc := service.NewGRCService(grcRepo, rulesetStore, embClient)
+
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)
 	agentH := handler.NewAgent(pg, rdb, agentSvc)
-	ismspH := handler.NewISMSP(pg)
 	scoringH := handler.NewScoring(scoringRepo, scoringSvc)
 	clusterReaderH := handler.NewClusterReader(clusterReaderRepo, sbomSvc) // 수정: sbomSvc 추가
+	grcH := handler.NewGRC(grcSvc, rulesetStore)
 
-	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH)
+	r := newRouter(healthH, agentH, scoringH, clusterReaderH, grcH)
 
 	return &Server{
 		cfg: cfg,

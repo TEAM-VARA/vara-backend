@@ -1,0 +1,156 @@
+[
+  {
+    "filename": "R001_R002_information_security_policy.pdf",
+    "evidence_type": "정책_문서_존재",
+    "system": "Policy Document",
+    "description": "DemoCorp 정보보호 지침서 (전체)",
+    "target_rule_ids": [
+      "2.5.4-R001",
+      "2.5.4-R002"
+    ]
+  },
+  {
+    "filename": "R003_os_pam_policy.png",
+    "evidence_type": "정책_시스템_설정",
+    "system": "Linux",
+    "description": "Linux PAM 패스워드 정책 설정 스크린샷",
+    "target_rule_ids": [
+      "2.5.4-R003"
+    ]
+  },
+  {
+    "filename": "R004_ad_password_policy.png",
+    "evidence_type": "정책_시스템_설정",
+    "system": "Active Directory",
+    "description": "AD GPO 패스워드 정책",
+    "target_rule_ids": [
+      "2.5.4-R004"
+    ]
+  },
+  {
+    "filename": "R005_iam_password_policy.png",
+    "evidence_type": "정책_시스템_설정",
+    "system": "AWS_IAM",
+    "description": "AWS IAM 패스워드 정책 화면",
+    "target_rule_ids": [
+      "2.5.4-R005"
+    ]
+  },
+  {
+    "filename": "R005_iam_password_policy.json",
+    "evidence_type": "정책_시스템_설정",
+    "system": "AWS_IAM",
+    "description": "aws iam get-account-password-policy 출력",
+    "target_rule_ids": [
+      "2.5.4-R005"
+    ]
+  },
+  {
+    "filename": "R006_db_password_policy.png",
+    "evidence_type": "정책_시스템_설정",
+    "system": "Database",
+    "description": "Oracle DBA_PROFILES 조회 결과",
+    "target_rule_ids": [
+      "2.5.4-R006"
+    ]
+  },
+  {
+    "filename": "R007_was_security.png",
+    "evidence_type": "정책_시스템_설정",
+    "system": "WAS",
+    "description": "WebLogic Security Realm 설정",
+    "target_rule_ids": [
+      "2.5.4-R007"
+    ]
+  },
+  {
+    "filename": "R008_signup_screen.png",
+    "evidence_type": "사용자_화면_강제화",
+    "system": "Application UI",
+    "description": "회원가입 화면 — 강한 비밀번호 강제",
+    "target_rule_ids": [
+      "2.5.4-R008"
+    ]
+  },
+  {
+    "filename": "R009_account_password_age.csv",
+    "evidence_type": "변경주기_준수",
+    "system": "Various",
+    "description": "전 계정 마지막 변경일 통계",
+    "target_rule_ids": [
+      "2.5.4-R009"
+    ]
+  },
+  {
+    "filename": "R010_auth_module.txt",
+    "evidence_type": "임시_비밀번호_강제_변경",
+    "system": "Application Code",
+    "description": "인증 모듈 코드 - 강제 변경 로직 포함",
+    "target_rule_ids": [
+      "2.5.4-R010"
+    ]
+  },
+  {
+    "filename": "R011_first_login_flow.png",
+    "evidence_type": "임시_비밀번호_강제_변경",
+    "system": "Application UI",
+    "description": "임시 비번 로그인 후 강제 변경 화면",
+    "target_rule_ids": [
+      "2.5.4-R011"
+    ]
+  },
+  {
+    "filename": "R012_temp_password_unchanged.csv",
+    "evidence_type": "임시_비밀번호_강제_변경",
+    "system": "Various",
+    "description": "임시 비번 발급 후 미변경자 목록",
+    "target_rule_ids": [
+      "2.5.4-R012"
+    ]
+  },
+  {
+    "filename": "R013_db_password_samples.csv",
+    "evidence_type": "저장_형태",
+    "system": "Database",
+    "description": "DB password 컬럼 샘플 - bcrypt/argon2",
+    "target_rule_ids": [
+      "2.5.4-R013"
+    ]
+  },
+  {
+    "filename": "R014_mfa_policy.png",
+    "evidence_type": "인증수단",
+    "system": "AWS_IAM",
+    "description": "MFA 설정 정책 - 전 사용자 강제",
+    "target_rule_ids": [
+      "2.5.4-R014"
+    ]
+  },
+  {
+    "filename": "R014_mfa_policy.json",
+    "evidence_type": "인증수단",
+    "system": "AWS_IAM",
+    "description": "MFA 정책 JSON 출력",
+    "target_rule_ids": [
+      "2.5.4-R014"
+    ]
+  },
+  {
+    "filename": "R015_login_screen.png",
+    "evidence_type": "인증수단",
+    "system": "Application UI",
+    "description": "로그인 실패 - generic 메시지",
+    "target_rule_ids": [
+      "2.5.4-R015"
+    ]
+  },
+  {
+    "filename": "R015_login_screen_locked.png",
+    "evidence_type": "인증수단",
+    "system": "Application UI",
+    "description": "로그인 5회 실패 - 계정 잠금",
+    "target_rule_ids": [
+      "2.5.4-R015"
+    ]
+  }
+]

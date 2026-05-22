@@ -1,0 +1,39 @@
+{
+  "rule_id": "R-2.2.5-09",
+  "rule_name": "Orphaned 계정 정기 점검",
+  "item_number": "2.2.5",
+  "item_name": "퇴직 및 직무변경 관리",
+  "detail_criterion": "사용자 없는 고아 계정(Orphaned Account)이 정기 점검·제거되는지 확인한다.",
+  "data_source": "aws iam generate-credential-report + audit log 90d analysis",
+  "compliant": {
+    "description": "90일 미사용 IAM user 0건, ServiceAccount 미사용 0건",
+    "data": {
+      "iam_users_unused_90d": 0,
+      "k8s_sa_unused_90d": 0,
+      "last_check_at": "2025-06-15T04:00:00Z",
+      "all_inactive_disabled_or_reviewed": true
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "미사용 IAM user 7명, ServiceAccount 12개 방치",
+    "data": {
+      "iam_users_unused_90d": 7,
+      "k8s_sa_unused_90d": 12,
+      "last_check_at": "2025-03-15T04:00:00Z",
+      "orphaned_iam_users": [
+        "old-contractor-1",
+        "old-contractor-2",
+        "lee.left.2024"
+      ],
+      "orphaned_service_accounts": [
+        "payment-deployer-old",
+        "ci-runner-legacy"
+      ]
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[Orphaned 계정 점검 §1]\n매주 cron: IAM credential report + audit log 90일 분석으로 미사용 계정 식별.\n미사용 90일 IAM user → 자동 disable.\n미사용 90일 ServiceAccount → 보호대책 검토 후 삭제.",
+  "evidence_doc_sample": "[증적: Orphaned 계정 점검, 2025-06]\n점검: 매주 / 발견·자동 disable: IAM 1건(2025-06-08), SA 0건",
+  "judgement_logic": "pass if iam_users_unused_90d == 0\n       AND k8s_sa_unused_90d == 0\n       AND last_check_at > now - 8d\nfail otherwise.\n\naudit log:\n  fields user.username | stats count() by user.username | filter count = 0 (last 90d)\n  → must match HR active employee list"
+}

@@ -1,0 +1,101 @@
+{
+  "rule_id": "R-1.1.4-11",
+  "rule_name": "Shadow IT 식별·통제",
+  "item_number": "1.1.4",
+  "item_name": "범위 설정",
+  "detail_criterion": "범위 정의 외 인가받지 않고 사용되는 클라우드 서비스·SaaS를 탐지·관리하는 절차가 있는지 확인한다.",
+  "data_source": "eBPF DNS event stream (Cilium Tetragon / Pixie)",
+  "compliant": {
+    "description": "모든 DNS 쿼리가 인가 도메인 화이트리스트 내에 있음",
+    "data": {
+      "authorized_domains": [
+        "*.amazonaws.com",
+        "*.company-internal.com",
+        "*.cloudfront.net",
+        "github.com",
+        "pypi.org",
+        "docker.io"
+      ],
+      "dns_events_last_24h": [
+        {
+          "pod": "order-app-7d9f8",
+          "namespace": "order-prod",
+          "query": "rds-prod.cluster-abc.ap-northeast-2.rds.amazonaws.com",
+          "ts": "2025-06-15T10:23:11Z",
+          "authorized": true
+        },
+        {
+          "pod": "order-app-7d9f8",
+          "namespace": "order-prod",
+          "query": "api.payment.company-internal.com",
+          "ts": "2025-06-15T10:23:15Z",
+          "authorized": true
+        },
+        {
+          "pod": "ci-runner-abc",
+          "namespace": "ci",
+          "query": "github.com",
+          "ts": "2025-06-15T10:25:01Z",
+          "authorized": true
+        },
+        {
+          "pod": "ci-runner-abc",
+          "namespace": "ci",
+          "query": "pypi.org",
+          "ts": "2025-06-15T10:25:03Z",
+          "authorized": true
+        }
+      ],
+      "unauthorized_count": 0
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "Dropbox·OpenAI·개인 클라우드 도메인 호출 발견 - shadow IT 의심",
+    "data": {
+      "authorized_domains": [
+        "*.amazonaws.com",
+        "*.company-internal.com",
+        "*.cloudfront.net",
+        "github.com",
+        "pypi.org",
+        "docker.io"
+      ],
+      "dns_events_last_24h": [
+        {
+          "pod": "order-app-7d9f8",
+          "namespace": "order-prod",
+          "query": "rds-prod.cluster-abc.ap-northeast-2.rds.amazonaws.com",
+          "ts": "2025-06-15T10:23:11Z",
+          "authorized": true
+        },
+        {
+          "pod": "dev-tool-xyz",
+          "namespace": "dev-sandbox",
+          "query": "api.dropbox.com",
+          "ts": "2025-06-15T11:02:33Z",
+          "authorized": false
+        },
+        {
+          "pod": "dev-tool-xyz",
+          "namespace": "dev-sandbox",
+          "query": "api.openai.com",
+          "ts": "2025-06-15T11:03:01Z",
+          "authorized": false
+        },
+        {
+          "pod": "rogue-pod-99",
+          "namespace": "dev-sandbox",
+          "query": "personal-backup.example.com",
+          "ts": "2025-06-15T13:45:22Z",
+          "authorized": false
+        }
+      ],
+      "unauthorized_count": 3
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[Shadow IT 통제 지침 §3.1]\n모든 클러스터 내 Pod의 외부 DNS 쿼리는 사전 등록된 인가 도메인 화이트리스트 내에서만 허용된다.\n인가 도메인 외 호출 시:\n  1. eBPF DNS hook (Cilium Tetragon)이 즉시 감지\n  2. 정보보호팀 Slack #shadow-it 채널에 알람 발송\n  3. 24시간 내 정당성 검토 후 화이트리스트 등록 또는 차단(NetworkPolicy egress)\n화이트리스트는 분기 1회 정보보호팀이 재검토하여 미사용 도메인 제거.",
+  "evidence_doc_sample": "[증적: Shadow IT 탐지 보고서, 2025-06]\n탐지 도구: Cilium Tetragon DNS event stream\n점검 기간: 2025-06-01 ~ 2025-06-30\n미인가 도메인 호출: 17건 (15건 정당성 인정 후 화이트리스트 등록, 2건 차단 조치)\n조치 완료: 2025-06-30, 보고자: 정보보호팀 박OO",
+  "judgement_logic": "pass if count(dns_events where authorized == False AND ts > now - 24h) == 0\n       OR all unauthorized events have ticketed exception within 24h\nfail otherwise; report unauthorized domain calls with source pod/namespace.\n\nebpf query (Pixie PxL):\n  df = px.DataFrame(table='dns_events', start_time='-24h')\n  df = df[~df.query_name.contains_any(authorized_patterns)]\n  count → must be 0"
+}

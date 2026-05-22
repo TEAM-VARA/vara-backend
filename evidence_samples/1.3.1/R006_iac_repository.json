@@ -1,0 +1,10 @@
+{
+  "document_title": "IaC 코드 저장소 현황 보고서",
+  "organization": "바라소프트 주식회사",
+  "department": "클라우드보안팀 / DevOps팀",
+  "report_date": "2025-12-19",
+  "document_type": "pdf_extracted_text",
+  "extracted_text": "IaC(Infrastructure as Code) 코드 저장소 현황 보고서\n\n1. 개요\n본 보고서는 반복적인 보호대책(보안 설정, 패치)에 대한 자동화 적용 현황 및 IaC 활용 현황을 정리한 문서입니다. 정책 코드화를 통해 자동화 적용 대상(반복 설정, 패치)의 일관성과 재현성을 확보하고 있습니다.\n\n2. IaC 도구 현황\n- 주요 IaC 도구: Terraform v1.6.4 (HashiCorp)\n- 보조 도구: AWS CloudFormation (레거시 스택 관리)\n- 구성 관리: Helm Charts v3 (Kubernetes 리소스)\n- 정책 코드화 도구: OPA/Rego (Terraform Plan 사전 검증)\n\n3. 자동화 비율\n- 전체 인프라 자원 중 IaC 관리 비율: 94.2%\n- 보안 설정 자동화 비율: 97.8% (수동 관리 항목: 물리 네트워크 장비 2대)\n- 패치 자동화 비율: 88.5% (SSM Patch Manager + Terraform)\n\n4. 적용 자원 수\n- Terraform 관리 AWS 자원 수: 487개\n  - EC2 인스턴스: 32대\n  - RDS 인스턴스: 5대\n  - S3 버킷: 28개\n  - IAM Role/Policy: 67개\n  - Security Group: 45개\n  - VPC/Subnet/Route Table: 38개\n  - 기타 자원: 272개\n- Helm Chart 관리 Kubernetes 리소스: 156개\n- CloudFormation 관리 레거시 자원: 23개\n\n5. Git Commit 이력\n- 저장소: https://github.com/varasoft/infra-terraform (Private)\n- 최근 30일 커밋 수: 47건\n- 최근 주요 커밋:\n  - Git Commit: a8f3c21 \"feat: add WAF v2 managed rules for OWASP Top 10\" (2025-12-15)\n  - Git Commit: b2e7d94 \"fix: tighten S3 bucket policy for audit logs\" (2025-12-12)\n  - Git Commit: c4a1f67 \"chore: rotate KMS key alias for RDS encryption\" (2025-12-08)\n  - Git Commit: d9b5e23 \"feat: add CloudWatch alarm for unauthorized API calls\" (2025-12-05)\n  - Git Commit: e6c8a45 \"security: enforce IMDSv2 on all EC2 instances\" (2025-12-01)\n\n6. CI/CD 파이프라인\n- Terraform Plan: PR 생성 시 자동 실행 (GitHub Actions)\n- OPA Policy Check: Terraform Plan 결과에 대한 보안 정책 사전 검증\n- Terraform Apply: main 브랜치 merge 후 승인자 확인 후 자동 배포\n- Drift Detection: 매일 09:00 자동 실행, 수동 변경 탐지 시 Slack 알림\n\n작성자: 박클라우드 (클라우드보안팀 선임)\n검토자: 김보안 (정보보호팀 팀장)",
+  "collected_at": "2025-12-20T11:30:00+09:00",
+  "collector": "VARA GRC 자동 수집 에이전트 v2.1 - PDF 텍스트 추출"
+}

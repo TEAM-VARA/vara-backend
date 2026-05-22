@@ -1,0 +1,9 @@
+{
+  "document_title": "주요 직무자 권한 매트릭스",
+  "document_id": "VARA-SEC-AUTH-2025-006",
+  "version": "2.0",
+  "effective_date": "2025-04-01",
+  "approved_by": "CISO 박영수",
+  "organization": "(주)바라테크",
+  "extracted_text": "주요 직무자 권한 매트릭스 및 적정성 검토 보고서\n\n1. 목적\n본 문서는 주요 직무자에게 부여된 권한이 업무 수행에 필요한 최소한으로 제한되는지 확인하기 위해 최소 권한 부여 원칙에 따른 권한 적정성 검토 결과를 기록한다.\n\n2. 권한 매트릭스\n\n2.1 직무: 보안관리자 (이준혁)\n부여 권한:\n  - AWS IAM: SecurityAudit 역할 (읽기 전용)\n  - EKS: security-admin 네임스페이스 접근\n  - CloudWatch: 전체 로그 조회\n  - GuardDuty: 알림 조회 및 처리\n검토 결과: 적정 - 보안 모니터링 및 감사에 필요한 최소 권한만 부여됨\n\n2.2 직무: 개인정보취급자 (박소영)\n부여 권한:\n  - AWS RDS: customer_db 읽기 전용\n  - S3: privacy-documents 버킷 읽기/쓰기\n  - EKS: privacy-service 네임스페이스 접근\n검토 결과: 적정 - 개인정보 처리 업무에 필요한 최소 권한만 부여됨\n\n2.3 직무: 시스템관리자 (김태현)\n부여 권한:\n  - AWS EKS: 클러스터 관리자 (cluster-admin)\n  - AWS EC2: 운영 인스턴스 관리\n  - AWS RDS: 인프라 관리 (DDL 제외)\n  - CloudWatch: 인프라 모니터링\n검토 결과: 적정 - 인프라 운영에 필요한 권한이며, DDL 권한 제외로 최소 권한 준수\n\n2.4 직무: 개인정보취급자 (정하늘)\n부여 권한:\n  - AWS Athena: 분석용 데이터셋 조회 (마스킹 적용)\n  - S3: analytics-output 버킷 읽기/쓰기\n검토 결과: 적정 - 데이터 분석에 필요한 최소 권한, 원본 데이터 직접 접근 불가\n\n2.5 직무: 시스템관리자 (최민수)\n부여 권한:\n  - AWS VPC: 네트워크 설정 관리\n  - AWS WAF: 규칙 관리\n  - Security Group: 변경 권한 (승인 후)\n검토 결과: 적정 - 네트워크 보안 관리에 필요한 최소 권한, 변경 시 승인 필요\n\n2.6 직무: 개인정보취급자 (한지우)\n부여 권한:\n  - AWS CodeCommit: payment-service 리포지토리 읽기/쓰기\n  - EKS: payment-dev 네임스페이스 접근\n  - AWS RDS: payment_db 개발환경 접근\n검토 결과: 적정 - 결제시스템 개발에 필요한 최소 권한, 운영환경 접근 불가\n\n3. 종합 검토 결과\n검토 일자: 2025-03-28\n검토자: 이준혁 (보안관리자)\n승인자: 박영수 (CISO)\n전체 검토 결과: 전 주요 직무자 권한이 최소 권한 부여 원칙에 부합함. 과잉 권한 부여 사례 없음.\n차기 검토 예정일: 2025-09-30 (반기별 정기 검토)"
+}

@@ -1,0 +1,72 @@
+{
+  "rule_id": "R-1.2.1-08",
+  "rule_name": "자산 중요도·보안등급 부여",
+  "item_number": "1.2.1",
+  "item_name": "정보자산 식별",
+  "detail_criterion": "식별된 정보자산에 대해 법적 요구사항·업무 영향도를 고려한 중요도(보안등급)가 부여되어 있는지 확인한다.",
+  "data_source": "kubectl get ns -o json (criticality label)",
+  "compliant": {
+    "description": "모든 in-scope namespace에 criticality, data-classification label 부여",
+    "data": {
+      "items": [
+        {
+          "name": "payment-prod",
+          "labels": {
+            "isms-p/scope": "in-scope",
+            "criticality": "critical",
+            "data-classification": "pii"
+          }
+        },
+        {
+          "name": "order-prod",
+          "labels": {
+            "isms-p/scope": "in-scope",
+            "criticality": "high",
+            "data-classification": "internal"
+          }
+        },
+        {
+          "name": "web-prod",
+          "labels": {
+            "isms-p/scope": "in-scope",
+            "criticality": "medium",
+            "data-classification": "public"
+          }
+        }
+      ]
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "criticality·data-classification label 미부여 namespace 2개",
+    "data": {
+      "items": [
+        {
+          "name": "payment-prod",
+          "labels": {
+            "isms-p/scope": "in-scope",
+            "criticality": "critical",
+            "data-classification": "pii"
+          }
+        },
+        {
+          "name": "order-prod",
+          "labels": {
+            "isms-p/scope": "in-scope"
+          }
+        },
+        {
+          "name": "analytics-prod",
+          "labels": {
+            "isms-p/scope": "in-scope",
+            "criticality": "high"
+          }
+        }
+      ]
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[자산 분류 정책 §3.2]\nin-scope 자산은 다음 label/tag를 필수로 보유한다:\n  - criticality: critical | high | medium | low (C+I+A 합산 기준)\n  - data-classification: pii | confidential | internal | public\n미부여 자산은 자동 점검에서 fail 처리되며, 24시간 내 부여하지 않으면 워크로드 차단.",
+  "evidence_doc_sample": "[증적: 자산 등급 부여 현황, 2025-06]\nin-scope namespace: 7개 / 라벨 부여: 7/7 / 등급 분포: critical 2, high 3, medium 2\n미부여 자산: 0건 / 점검: 자동 (분기 1회 사람 review)",
+  "judgement_logic": "pass if for each ns in in-scope:\n         ns.labels.criticality in {critical, high, medium, low}\n         AND ns.labels[\"data-classification\"] in {pii, confidential, internal, public}\nfail otherwise."
+}

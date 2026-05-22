@@ -1,0 +1,72 @@
+{
+  "document_title": "직무변경 권한 갱신 감사 로그",
+  "document_type": "직무변경 권한 갱신 감사(감사 로그·결재)",
+  "audit_summary": {
+    "성명": "정예린",
+    "사번": "EMP-2022-0156",
+    "이전 부서": "QA팀",
+    "신규 부서": "보안운영팀",
+    "변경 일자": "2025-03-17",
+    "변경 사유": "승진 및 직무 전환",
+    "시한": "직무변경일 당일 이내",
+    "job_change_audit_delete_present": true,
+    "job_change_audit_create_present": true,
+    "old_permissions_cleared": true
+  },
+  "revocation_events": [
+    {
+      "timestamp": "2025-03-17T09:00:15+09:00",
+      "action": "RoleBinding deleted",
+      "namespace": "qa-team",
+      "rolebinding_name": "yerin-jung-qa-engineer",
+      "성명": "정예린",
+      "performed_by": "automation/job-change-handler",
+      "approval_ticket": "HR-JC-2025-0023"
+    },
+    {
+      "timestamp": "2025-03-17T09:00:22+09:00",
+      "action": "IAM Policy detached",
+      "policy_arn": "arn:aws:iam::123456789012:policy/QATeamAccess",
+      "성명": "정예린",
+      "performed_by": "automation/job-change-handler",
+      "approval_ticket": "HR-JC-2025-0023"
+    }
+  ],
+  "grant_events": [
+    {
+      "timestamp": "2025-03-17T09:01:05+09:00",
+      "action": "RoleBinding created",
+      "namespace": "security-ops",
+      "rolebinding_name": "yerin-jung-secops-analyst",
+      "성명": "정예린",
+      "performed_by": "automation/job-change-handler",
+      "approval_ticket": "HR-JC-2025-0023"
+    },
+    {
+      "timestamp": "2025-03-17T09:01:12+09:00",
+      "action": "IAM Policy attached",
+      "policy_arn": "arn:aws:iam::123456789012:policy/SecOpsTeamAccess",
+      "성명": "정예린",
+      "performed_by": "automation/job-change-handler",
+      "approval_ticket": "HR-JC-2025-0023"
+    }
+  ],
+  "회수·부여 권한": {
+    "회수된 권한": ["QA환경 EKS 접근", "QA S3 버킷 접근", "QA Jira 프로젝트"],
+    "부여된 권한": ["보안운영 EKS 접근", "GuardDuty 콘솔 접근", "보안운영 Jira 프로젝트"]
+  },
+  "post_change_verification": {
+    "verified_at": "2025-03-17T09:30:00+09:00",
+    "verified_by": "정보보호팀 최영민",
+    "old_namespace_bindings_remaining": 0,
+    "new_namespace_bindings_active": 1,
+    "result": "기존 권한 전량 회수 및 신규 권한 정상 부여 확인"
+  },
+  "변경 시 기존 권한 회수·신규 부여": "직무변경 시 기존 권한 즉시 회수 후 신규 직무 권한 부여",
+  "metadata": {
+    "source_system": "AWS CloudTrail / EKS Audit Log",
+    "collected_at": "2025-05-20T09:25:00+09:00",
+    "collector": "vara-grc-agent",
+    "hash_sha256": "e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "rule_id": "R-2.2.1-08",
+  "rule_name": "주요 직무자 정기 점검",
+  "item_number": "2.2.1",
+  "item_name": "주요 직무자 지정 및 관리",
+  "detail_criterion": "주요 직무자 명부와 권한이 정기적으로(분기·반기) 점검·갱신되는지 확인한다.",
+  "data_source": "CronJob 분기 점검 결과 리포트",
+  "compliant": {
+    "description": "분기 1회 점검 수행, 명부-실 권한 일치, 사유서·결재 완비",
+    "data": {
+      "last_review": {
+        "date": "2025-06-30",
+        "reviewer": "정보보호팀장",
+        "result": "compliant",
+        "findings": 0,
+        "approved_by": "CISO",
+        "approved_at": "2025-07-02"
+      },
+      "next_review": "2025-09-30"
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "6개월째 점검 미수행",
+    "data": {
+      "last_review": {
+        "date": "2024-12-15",
+        "reviewer": "정보보호팀장",
+        "result": "compliant",
+        "findings": 0,
+        "approved_by": "CISO"
+      },
+      "next_review": null
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[주요 직무자 정기 점검 §1]\n주요 직무자 명부·권한·활동은 분기 1회 정기 점검.\n점검자: 정보보호팀 / 결재자: CISO.\n점검 결과는 GRC 시스템에 등록, 다음 점검 일정 등록 필수.",
+  "evidence_doc_sample": "[증적: 분기 점검 보고서, 2025-Q2]\n점검일: 2025-06-30 / 명부 일치 ○ / 권한 적정 ○ / 활동 모니터링 ○ / 미준수: 0",
+  "judgement_logic": "pass if last_review.date > now - 100d\n       AND last_review.approved_by != null\nfail otherwise."
+}

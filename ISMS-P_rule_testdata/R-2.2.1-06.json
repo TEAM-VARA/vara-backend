@@ -1,0 +1,37 @@
+{
+  "rule_id": "R-2.2.1-06",
+  "rule_name": "주요 직무자 권한 최소화",
+  "item_number": "2.2.1",
+  "item_name": "주요 직무자 지정 및 관리",
+  "detail_criterion": "주요 직무자에게 부여된 권한이 업무 수행에 필요한 최소한으로 제한되는지 확인한다.",
+  "data_source": "audit log 90d analysis: permissions_used vs permissions_granted",
+  "compliant": {
+    "description": "IAM Access Analyzer가 미사용 권한 정기 식별, 분기 1회 회수",
+    "data": {
+      "kim.sre@": {
+        "permissions_granted": 247,
+        "permissions_used_90d": 89,
+        "unused_pct": 64.0,
+        "last_review_at": "2025-06-01",
+        "unused_revoked_count": 158
+      }
+    },
+    "expected_result": "PASS"
+  },
+  "non_compliant": {
+    "description": "주요 직무자 미사용 권한 다수, 1년+ 미검토",
+    "data": {
+      "kim.sre@": {
+        "permissions_granted": 247,
+        "permissions_used_90d": 47,
+        "unused_pct": 81.0,
+        "last_review_at": "2024-01-15",
+        "unused_revoked_count": 0
+      }
+    },
+    "expected_result": "FAIL"
+  },
+  "guideline_doc_sample": "[권한 최소화 §3]\n주요 직무자 권한은 분기별 검토하여 90일간 미사용 권한을 회수한다.\nIAM Access Analyzer + audit log 90일 분석 자동화.\n미사용률 70% 초과 시 alert.",
+  "evidence_doc_sample": "[증적: 주요 직무자 권한 검토, 2025-Q2]\n검토자: 정보보호팀장 / 회수: 158개 권한 (kim.sre@) / 다음 검토: 2025-09",
+  "judgement_logic": "pass if last_review_at > now - 100d\n       AND unused_pct < 30 (after review)\nfail otherwise."
+}
