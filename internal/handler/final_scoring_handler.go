@@ -13,11 +13,12 @@ import (
 // FinalScoringHandler는 Final Score API를 담당합니다.
 //
 // 엔드포인트:
-//   POST /api/v1/scoring/final/compute
-//     Body: { "cluster_name": "..." }
 //
-//   GET /api/v1/scoring/final/pods/:pod_uid?cluster=<name>
-//   GET /api/v1/scoring/final/clusters/:cluster_name
+//	POST /api/v1/scoring/final/compute
+//	  Body: { "cluster_name": "..." }
+//
+//	GET /api/v1/scoring/final/pods/:pod_uid?cluster=<name>
+//	GET /api/v1/scoring/final/clusters/:cluster_name
 type FinalScoringHandler struct {
 	service *service.FinalScoringService
 }
@@ -43,6 +44,31 @@ func (h *FinalScoringHandler) Compute(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// ComputeForPod는 단일 Pod의 final score를 즉시 재계산합니다.
+func (h *FinalScoringHandler) ComputeForPod(c *gin.Context) {
+	podUID := c.Param("pod_uid")
+	if podUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pod_uid is required"})
+		return
+	}
+
+	var req scoring.ComputeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+	result, err := h.service.ComputeForPod(ctx, req.ClusterName, podUID)
+	if err != nil {
+		fmt.Printf("warn: final compute pod failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // GetByPod : GET /api/v1/scoring/final/pods/:pod_uid?cluster=<name>

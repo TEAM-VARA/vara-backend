@@ -150,3 +150,9 @@ func (s *ToxicService) ListByCluster(ctx context.Context, clusterName string) ([
 func (s *ToxicService) LoadMultipliersForCluster(ctx context.Context, clusterName string) (map[string]float64, error) {
 	return s.repo.LoadMultipliersForCluster(ctx, clusterName)
 }
+
+// GetMultiplierForPod는 단일 Pod의 toxic multiplier를 반환합니다.
+// Final ComputeForPod에서 사용. 데이터 없으면 0 반환 (Final 쪽에서 기본값 처리).
+func (s *ToxicService) GetMultiplierForPod(ctx context.Context, clusterName, podUID string) (float64, error) {
+	return s.repo.GetMultiplier(ctx, clusterName, podUID)
+}

@@ -88,6 +88,7 @@ func newRouter(
 		// ── Final Score (작업 B-3) ──
 		api.POST("/scoring/final/compute", finalScoring.Compute)
 		api.GET("/scoring/final/pods/:pod_uid", finalScoring.GetByPod)
+		api.POST("/scoring/final/pods/:pod_uid", finalScoring.ComputeForPod)
 		api.GET("/scoring/final/clusters/:cluster_name", finalScoring.GetByCluster)
 
 		// ── Toxic Combination (작업 B-4) ──
