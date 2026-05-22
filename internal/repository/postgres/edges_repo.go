@@ -442,7 +442,7 @@ func (r *EdgesRepo) ListNodes(ctx context.Context, clusterName string) ([]edge.N
 	}
 	defer rows.Close()
 
-	var out []edge.NodeView
+	out := []edge.NodeView{}
 	for rows.Next() {
 		var n edge.NodeView
 		if err := rows.Scan(
@@ -534,7 +534,7 @@ func (r *EdgesRepo) ListToxicCombinations(ctx context.Context, clusterName strin
 	}
 	defer rows.Close()
 
-	var out []edge.ToxicCombination
+	out := []edge.ToxicCombination{}
 	for rows.Next() {
 		var (
 			ruleID, name, description, severity, conditions string
