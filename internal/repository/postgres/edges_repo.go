@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sort"    // layers 정렬용
+	"strings" // conditions 파싱용
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -42,22 +44,24 @@ type AggregatedEdge struct {
 // AggregateFromEBPFFlows — ebpf_network_flows를 GROUP BY로 집계
 //
 // 처리 단계:
-//   1. ebpf_network_flows에서 최근 windowMinutes 분 데이터 가져옴
-//   2. src_pod_id → cluster_pods로 source Pod uid/name/namespace 매핑
-//   3. dst_ip → cluster_pods.pod_ip로 target Pod uid/name/namespace 매핑
-//   4. 매칭 실패 (외부 IP 등)는 제외
-//   5. excludePatterns에 해당하는 Pod 제외 (자기 자신)
-//   6. GROUP BY (src_pod_uid, target_pod_uid) → weight 집계
+//  1. ebpf_network_flows에서 최근 windowMinutes 분 데이터 가져옴
+//  2. src_pod_id → cluster_pods로 source Pod uid/name/namespace 매핑
+//  3. dst_ip → cluster_pods.pod_ip로 target Pod uid/name/namespace 매핑
+//  4. 매칭 실패 (외부 IP 등)는 제외
+//  5. excludePatterns에 해당하는 Pod 제외 (자기 자신)
+//  6. GROUP BY (src_pod_uid, target_pod_uid) → weight 집계
 //
 // 입력:
-//   clusterName        : 분석 대상 클러스터
-//   windowMinutes      : 시간 윈도우 (분)
-//   excludePatterns    : 제외할 src_pod_id prefix (예: "default/vara-ebpf-agent-")
+//
+//	clusterName        : 분석 대상 클러스터
+//	windowMinutes      : 시간 윈도우 (분)
+//	excludePatterns    : 제외할 src_pod_id prefix (예: "default/vara-ebpf-agent-")
 //
 // 반환:
-//   집계된 edges (Pod-to-Pod 쌍별로 1개)
-//   처리한 raw flow 수
-//   매칭/제외로 스킵된 flow 수
+//
+//	집계된 edges (Pod-to-Pod 쌍별로 1개)
+//	처리한 raw flow 수
+//	매칭/제외로 스킵된 flow 수
 func (r *EdgesRepo) AggregateFromEBPFFlows(
 	ctx context.Context,
 	clusterName string,
@@ -392,4 +396,215 @@ func (r *EdgesRepo) ListByPod(ctx context.Context, clusterName, podUID string) (
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// ────────────────────────────────────────────────────
+// 응답 보강용 조회 함수 (Blast Radius PDF 5.1~5.4)
+// ────────────────────────────────────────────────────
+
+// ListNodes는 클러스터의 모든 Pod를 NodeView로 반환합니다.
+// cluster_pods + final_scores + exposure_scores LATERAL JOIN으로 최신 데이터 조회.
+func (r *EdgesRepo) ListNodes(ctx context.Context, clusterName string) ([]edge.NodeView, error) {
+	const q = `
+		WITH latest_pods AS (
+			SELECT MAX(snapshot_at) AS snap
+			FROM cluster_pods
+			WHERE cluster_name = $1
+		)
+		SELECT
+			p.pod_uid,
+			p.name,
+			p.namespace,
+			COALESCE(p.service_account, '') AS service_account,
+			COALESCE(fs.final_score::float8, 0.0) AS risk_score,
+			COALESCE(fs.risk_level, 'safe') AS risk_level,
+			COALESCE(es.exposed, false) AS is_exposed
+		FROM cluster_pods p
+		LEFT JOIN LATERAL (
+			SELECT final_score, risk_level
+			FROM final_scores
+			WHERE cluster_name = $1 AND pod_uid = p.pod_uid
+			ORDER BY snapshot_at DESC LIMIT 1
+		) fs ON TRUE
+		LEFT JOIN LATERAL (
+			SELECT exposed
+			FROM exposure_scores
+			WHERE cluster_name = $1 AND pod_uid = p.pod_uid
+			ORDER BY snapshot_at DESC LIMIT 1
+		) es ON TRUE
+		WHERE p.cluster_name = $1 AND p.snapshot_at = (SELECT snap FROM latest_pods)
+		ORDER BY fs.final_score DESC NULLS LAST
+	`
+
+	rows, err := r.pool.Query(ctx, q, clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []edge.NodeView
+	for rows.Next() {
+		var n edge.NodeView
+		if err := rows.Scan(
+			&n.ID, &n.Name, &n.Namespace, &n.ServiceAccount,
+			&n.RiskScore, &n.RiskLevel, &n.IsExposed,
+		); err != nil {
+			return nil, fmt.Errorf("scan node: %w", err)
+		}
+		n.Type = "Pod"
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// ComputeSummary는 클러스터의 risk_level별 카운트를 반환합니다.
+// 각 Pod의 가장 최근 final_scores row를 기준으로 카운트.
+func (r *EdgesRepo) ComputeSummary(ctx context.Context, clusterName string) (*edge.EdgesSummary, error) {
+	const q = `
+		WITH latest AS (
+			SELECT DISTINCT ON (pod_uid) pod_uid, risk_level
+			FROM final_scores
+			WHERE cluster_name = $1
+			ORDER BY pod_uid, snapshot_at DESC
+		)
+		SELECT
+			COUNT(*) FILTER (WHERE risk_level = 'emergency') AS emergency,
+			COUNT(*) FILTER (WHERE risk_level = 'warning')   AS warning,
+			COUNT(*) FILTER (WHERE risk_level = 'caution')   AS caution,
+			COUNT(*) FILTER (WHERE risk_level = 'safe')      AS safe,
+			COUNT(*) AS total
+		FROM latest
+	`
+
+	var s edge.EdgesSummary
+	err := r.pool.QueryRow(ctx, q, clusterName).Scan(
+		&s.Emergency, &s.Warning, &s.Caution, &s.Safe, &s.Total,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("compute summary: %w", err)
+	}
+	return &s, nil
+}
+
+// ListToxicCombinations는 매칭된 toxic 룰을 layer 조합 형식으로 반환합니다.
+// toxic_results.matched_rules를 펼친 후 toxic_rules JOIN.
+// rule_id별로 그룹핑 → 매칭된 Pod들이 묶임.
+func (r *EdgesRepo) ListToxicCombinations(ctx context.Context, clusterName string) ([]edge.ToxicCombination, error) {
+	const q = `
+		WITH latest_results AS (
+			SELECT DISTINCT ON (pod_uid) pod_uid, matched_rules
+			FROM toxic_results
+			WHERE cluster_name = $1
+			ORDER BY pod_uid, snapshot_at DESC
+		),
+		exploded AS (
+			SELECT pod_uid, jsonb_array_elements_text(matched_rules) AS rule_id
+			FROM latest_results
+		)
+		SELECT
+			r.rule_id,
+			r.name,
+			r.description,
+			r.severity,
+			r.conditions,
+			array_agg(DISTINCT e.pod_uid) AS pod_uids
+		FROM exploded e
+		JOIN toxic_rules r ON r.rule_id = e.rule_id
+		WHERE r.enabled = TRUE
+		GROUP BY r.rule_id, r.name, r.description, r.severity, r.conditions
+		ORDER BY 
+			CASE r.severity
+				WHEN 'Critical' THEN 1
+				WHEN 'High'     THEN 2
+				WHEN 'Medium'   THEN 3
+				ELSE 4
+			END,
+			r.rule_id
+	`
+
+	rows, err := r.pool.Query(ctx, q, clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("list toxic combinations: %w", err)
+	}
+	defer rows.Close()
+
+	var out []edge.ToxicCombination
+	for rows.Next() {
+		var (
+			ruleID, name, description, severity, conditions string
+			podUIDs                                         []string
+		)
+		if err := rows.Scan(&ruleID, &name, &description, &severity, &conditions, &podUIDs); err != nil {
+			return nil, fmt.Errorf("scan toxic: %w", err)
+		}
+
+		layers := parseToxicConditionsToLayers(conditions)
+
+		// severity 매핑: Critical→emergency, High→warning, Medium→caution
+		severityLower := "caution"
+		switch strings.ToLower(severity) {
+		case "critical":
+			severityLower = "emergency"
+		case "high":
+			severityLower = "warning"
+		case "medium":
+			severityLower = "caution"
+		}
+
+		// ID: tc_{rule_id 소문자 + 언더스코어}
+		id := "tc_" + strings.ToLower(strings.ReplaceAll(ruleID, "-", "_"))
+
+		out = append(out, edge.ToxicCombination{
+			ID:       id,
+			RuleID:   ruleID,
+			Title:    name,
+			PodIDs:   podUIDs,
+			Severity: severityLower,
+			Reason:   description,
+			Layers:   layers,
+		})
+	}
+	return out, rows.Err()
+}
+
+// signalToLayer는 toxic signal 이름을 layer 이름으로 매핑합니다.
+func signalToLayer(signal string) string {
+	switch signal {
+	case "externally_exposed", "no_network_policy":
+		return "network"
+	case "cluster_admin", "secret_access":
+		return "identity"
+	case "has_kev_cve", "has_critical_cve", "has_high_cve", "has_active_or_poc":
+		return "supply_chain"
+	case "privileged", "host_network", "host_pid", "host_ipc", "no_resource_limits":
+		return "host"
+	}
+	return ""
+}
+
+// parseToxicConditionsToLayers는 conditions 문자열에서 layer 목록을 추출합니다.
+// 예: "externally_exposed AND cluster_admin" → ["identity", "network"] (정렬됨)
+func parseToxicConditionsToLayers(conditions string) []string {
+	layerSet := make(map[string]bool)
+
+	for _, token := range strings.Fields(conditions) {
+		token = strings.TrimSpace(token)
+		// 논리 연산자 제외
+		if token == "AND" || token == "OR" || token == "NOT" || token == "" {
+			continue
+		}
+		// 괄호 제거
+		token = strings.Trim(token, "()")
+
+		if layer := signalToLayer(token); layer != "" {
+			layerSet[layer] = true
+		}
+	}
+
+	layers := make([]string, 0, len(layerSet))
+	for l := range layerSet {
+		layers = append(layers, l)
+	}
+	sort.Strings(layers)
+	return layers
 }

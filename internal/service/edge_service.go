@@ -38,10 +38,10 @@ func NewEdgeService(repo *postgres.EdgesRepo) *EdgeService {
 // ComputeForCluster — 클러스터의 network layer edges 계산
 //
 // 진행:
-//   1. snapshot_at 결정 = 현재 시각
-//   2. AggregateFromEBPFFlows로 ebpf 데이터 집계
-//   3. UpsertEdges로 결과 저장
-//   4. ComputeResponse 반환
+//  1. snapshot_at 결정 = 현재 시각
+//  2. AggregateFromEBPFFlows로 ebpf 데이터 집계
+//  3. UpsertEdges로 결과 저장
+//  4. ComputeResponse 반환
 //
 // 데이터 없을 때 (network_flows 0건):
 //   - aggregated 빈 slice
@@ -81,15 +81,58 @@ func (s *EdgeService) ComputeForCluster(
 	}, nil
 }
 
-// ListByCluster — 클러스터의 모든 edges 조회 (최신 snapshot)
+// ListByCluster는 클러스터의 edges + nodes + meta + summary + toxicCombinations를 반환합니다.
+// 보강된 응답 형식 (Blast Radius PDF 5.1~5.4 반영).
 func (s *EdgeService) ListByCluster(ctx context.Context, clusterName string) (*edge.EdgeListResponse, error) {
+	start := time.Now()
+
+	// 1. edges (기존)
 	edges, err := s.repo.ListByCluster(ctx, clusterName)
 	if err != nil {
 		return nil, fmt.Errorf("list edges: %w", err)
 	}
+
+	// 2. nodes (보강) — 실패해도 응답 계속, 빈 배열로 처리
+	nodes, err := s.repo.ListNodes(ctx, clusterName)
+	if err != nil {
+		fmt.Printf("warn: list nodes failed: %v\n", err)
+		nodes = []edge.NodeView{}
+	}
+
+	// 3. summary (보강)
+	summary, err := s.repo.ComputeSummary(ctx, clusterName)
+	if err != nil {
+		fmt.Printf("warn: compute summary failed: %v\n", err)
+		summary = &edge.EdgesSummary{}
+	}
+
+	// 4. toxic combinations (보강)
+	toxics, err := s.repo.ListToxicCombinations(ctx, clusterName)
+	if err != nil {
+		fmt.Printf("warn: list toxic combinations failed: %v\n", err)
+		toxics = []edge.ToxicCombination{}
+	}
+
+	// snapshot_at: 가장 최근 edge 또는 현재 시간
+	snapAt := time.Now()
+	if len(edges) > 0 {
+		snapAt = edges[0].SnapshotAt
+	}
+
 	return &edge.EdgeListResponse{
 		Total: len(edges),
 		Edges: edges,
+		Nodes: nodes,
+		Meta: &edge.EdgesMeta{
+			Cluster:         clusterName,
+			SnapshotAt:      snapAt,
+			ComputedAt:      time.Now(),
+			BuildDurationMs: time.Since(start).Milliseconds(),
+			NodeCount:       len(nodes),
+			EdgeCount:       len(edges),
+		},
+		Summary:           summary,
+		ToxicCombinations: toxics,
 	}, nil
 }
 

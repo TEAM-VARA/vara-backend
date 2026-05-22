@@ -46,25 +46,25 @@ func LayerWeight(layer string) float64 {
 
 // Edge — Pod-to-Pod 통신 관계
 type Edge struct {
-	ID          int64  `json:"-"`            // DB ID (내부용)
-	DisplayID   string `json:"id"`           // API 응답용 ("e_001" 형식)
-	ClusterName string `json:"-"`            // 내부용 (FE 응답에 보통 X)
-	
+	ID          int64  `json:"-"`  // DB ID (내부용)
+	DisplayID   string `json:"id"` // API 응답용 ("e_001" 형식)
+	ClusterName string `json:"-"`  // 내부용 (FE 응답에 보통 X)
+
 	// 식별 (source/target Pod uid)
 	Source string `json:"source"` // pod_uid
 	Target string `json:"target"`
 	Layer  string `json:"layer"`
-	
+
 	// 통신 메타
 	Weight        int     `json:"weight"`        // 통신 횟수
 	TrafficWeight float64 `json:"trafficWeight"` // layer 가중치
-	
+
 	// 표시용
 	SourceName      string `json:"sourceName,omitempty"`
 	SourceNamespace string `json:"sourceNamespace,omitempty"`
 	TargetName      string `json:"targetName,omitempty"`
 	TargetNamespace string `json:"targetNamespace,omitempty"`
-	
+
 	// 시점
 	FirstSeenAt *time.Time `json:"firstSeenAt,omitempty"`
 	LastSeenAt  *time.Time `json:"lastSeenAt,omitempty"`
@@ -116,8 +116,59 @@ type ComputeResponse struct {
 	ComputedAt     time.Time `json:"computed_at"`
 }
 
-// EdgeListResponse — 클러스터 edges 응답
+// ────────────────────────────────────────────────────
+// 응답 보강 타입 (Blast Radius PDF 5.1~5.4)
+// ────────────────────────────────────────────────────
+
+// NodeView — 그래프 노드 (Pod 단위 risk 정보 포함) [P0 5.1]
+type NodeView struct {
+	ID             string  `json:"id"`   // pod_uid
+	Type           string  `json:"type"` // "Pod" (v1.0은 Pod만)
+	Name           string  `json:"name"`
+	Namespace      string  `json:"namespace"`
+	RiskScore      float64 `json:"riskScore"` // final_scores.final_score
+	RiskLevel      string  `json:"riskLevel"` // safe / caution / warning / emergency
+	IsExposed      bool    `json:"isExposed"` // exposure_scores.exposed
+	ServiceAccount string  `json:"serviceAccount"`
+}
+
+// EdgesMeta — 응답 메타데이터 [P0 5.2]
+type EdgesMeta struct {
+	Cluster         string    `json:"cluster"`
+	SnapshotAt      time.Time `json:"snapshotAt"`
+	ComputedAt      time.Time `json:"computedAt"`
+	BuildDurationMs int64     `json:"buildDurationMs"`
+	NodeCount       int       `json:"nodeCount"`
+	EdgeCount       int       `json:"edgeCount"`
+}
+
+// EdgesSummary — 4단계 risk_level 카운트 [P0 5.3]
+type EdgesSummary struct {
+	Emergency int `json:"emergency"`
+	Warning   int `json:"warning"`
+	Caution   int `json:"caution"`
+	Safe      int `json:"safe"`
+	Total     int `json:"total"`
+}
+
+// ToxicCombination — Toxic Combination (layer 조합 분석) [P1 5.4]
+// PM 정의: 여러 layer가 조합된 위험 시나리오 (단일 Pod의 시그널이 아님)
+type ToxicCombination struct {
+	ID       string   `json:"id"`       // 예: "tc_toxic_001"
+	RuleID   string   `json:"ruleId"`   // 예: "TOXIC-001"
+	Title    string   `json:"title"`    // toxic_rules.name (한국어 제목)
+	PodIDs   []string `json:"podIds"`   // 매칭된 Pod uid 배열
+	Severity string   `json:"severity"` // emergency/warning/caution
+	Reason   string   `json:"reason"`   // toxic_rules.description
+	Layers   []string `json:"layers"`   // ["network", "identity"] 등 자동 추출
+}
+
+// EdgeListResponse — 클러스터 edges 응답 (보강된 버전)
 type EdgeListResponse struct {
-	Total int    `json:"total"`
-	Edges []Edge `json:"edges"`
+	Total             int                `json:"total"`
+	Edges             []Edge             `json:"edges"`
+	Nodes             []NodeView         `json:"nodes,omitempty"`             // [P0 5.1]
+	Meta              *EdgesMeta         `json:"meta,omitempty"`              // [P0 5.2]
+	Summary           *EdgesSummary      `json:"summary,omitempty"`           // [P0 5.3]
+	ToxicCombinations []ToxicCombination `json:"toxicCombinations,omitempty"` // [P1 5.4]
 }
