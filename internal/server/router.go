@@ -76,6 +76,7 @@ func newRouter(
 		// ── Attack Path (작업 B-2c) ──
 		api.POST("/scoring/attack-path/compute", attackPath.Compute)
 		api.GET("/scoring/attack-path/pods/:pod_uid", attackPath.GetByPod)
+		api.POST("/scoring/attack-path/pods/:pod_uid", attackPath.ComputeForPod)
 		api.GET("/scoring/attack-path/clusters/:cluster_name", attackPath.GetByCluster)
 
 		// ── Local Score (작업 B-2) ──

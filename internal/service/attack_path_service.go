@@ -115,6 +115,62 @@ func (s *AttackPathService) ComputeForCluster(ctx context.Context, clusterName s
 	}, nil
 }
 
+// ComputeForPod는 단일 Pod의 attack path를 계산합니다.
+// 대시보드에서 Pod 클릭 시 호출되는 빠른 재계산 API.
+func (s *AttackPathService) ComputeForPod(ctx context.Context, clusterName, podUID string) (*scoring.AttackPathResult, error) {
+	if clusterName == "" {
+		return nil, fmt.Errorf("cluster_name is required")
+	}
+	if podUID == "" {
+		return nil, fmt.Errorf("pod_uid is required")
+	}
+
+	// 1. 각 테이블의 최신 snapshot 조회 (cluster compute와 동일)
+	podsSnapshot, err := s.repo.GetLatestPodsSnapshot(ctx, clusterName)
+	if err != nil {
+		return nil, fmt.Errorf("find pods snapshot: %w", err)
+	}
+	crbSnapshot, _ := s.repo.GetLatestClusterRoleBindingsSnapshot(ctx, clusterName)
+	rbSnapshot, _ := s.repo.GetLatestRoleBindingsSnapshot(ctx, clusterName)
+	crSnapshot, _ := s.repo.GetLatestClusterRolesSnapshot(ctx, clusterName)
+	rSnapshot, _ := s.repo.GetLatestRolesSnapshot(ctx, clusterName)
+	npSnapshot, _ := s.repo.GetLatestNetworkPoliciesSnapshot(ctx, clusterName)
+
+	// 2. 단일 Pod 로드
+	pod, err := s.repo.GetPodForAttackPathByUID(ctx, clusterName, podsSnapshot, podUID)
+	if err != nil {
+		return nil, fmt.Errorf("load pod: %w", err)
+	}
+	if pod == nil {
+		return nil, fmt.Errorf("pod not found: cluster=%s pod_uid=%s", clusterName, podUID)
+	}
+
+	fmt.Printf("info: attack-path compute pod cluster=%s pod_uid=%s name=%s\n",
+		clusterName, podUID, pod.Name)
+
+	// 3. 단일 Pod 평가 (기존 evaluatePod 재활용)
+	now := time.Now()
+	result := s.evaluatePod(ctx, *pod, clusterName,
+		crbSnapshot, rbSnapshot, crSnapshot, rSnapshot, npSnapshot,
+		podsSnapshot, now)
+	results := []scoring.AttackPathResult{result}
+
+	// 4. runtime 분석 (RBAC 수집 → enrich)
+	pods := []postgres.PodForAttackPath{*pod}
+	rbacRulesByPod, rbacBindingCountByPod := s.collectAllRBACRules(
+		ctx, pods, clusterName,
+		crbSnapshot, rbSnapshot, crSnapshot, rSnapshot,
+	)
+	s.enrichAttackPathWithRuntime(ctx, clusterName, pods, rbacRulesByPod, rbacBindingCountByPod, results)
+
+	// 5. 저장
+	if err := s.repo.UpsertBatch(ctx, results); err != nil {
+		return nil, fmt.Errorf("save result: %w", err)
+	}
+
+	return &results[0], nil
+}
+
 // GetByPodUID는 단일 Pod의 결과를 조회합니다.
 func (s *AttackPathService) GetByPodUID(ctx context.Context, clusterName, podUID string) (*scoring.AttackPathResult, error) {
 	return s.repo.GetByPodUID(ctx, clusterName, podUID)
