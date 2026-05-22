@@ -167,8 +167,8 @@ type ToxicCombination struct {
 type EdgeListResponse struct {
 	Total             int                `json:"total"`
 	Edges             []Edge             `json:"edges"`
-	Nodes             []NodeView         `json:"nodes,omitempty"`             // [P0 5.1]
-	Meta              *EdgesMeta         `json:"meta,omitempty"`              // [P0 5.2]
-	Summary           *EdgesSummary      `json:"summary,omitempty"`           // [P0 5.3]
-	ToxicCombinations []ToxicCombination `json:"toxicCombinations,omitempty"` // [P1 5.4]
+	Nodes             []NodeView         `json:"nodes"`             // [P0 5.1]
+	Meta              *EdgesMeta         `json:"meta"`              // [P0 5.2]
+	Summary           *EdgesSummary      `json:"summary"`           // [P0 5.3]
+	ToxicCombinations []ToxicCombination `json:"toxicCombinations"` // [P1 5.4]
 }
