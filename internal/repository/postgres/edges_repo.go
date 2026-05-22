@@ -461,20 +461,26 @@ func (r *EdgesRepo) ListNodes(ctx context.Context, clusterName string) ([]edge.N
 // 각 Pod의 가장 최근 final_scores row를 기준으로 카운트.
 func (r *EdgesRepo) ComputeSummary(ctx context.Context, clusterName string) (*edge.EdgesSummary, error) {
 	const q = `
-		WITH latest AS (
-			SELECT DISTINCT ON (pod_uid) pod_uid, risk_level
-			FROM final_scores
-			WHERE cluster_name = $1
-			ORDER BY pod_uid, snapshot_at DESC
-		)
-		SELECT
-			COUNT(*) FILTER (WHERE risk_level = 'emergency') AS emergency,
-			COUNT(*) FILTER (WHERE risk_level = 'warning')   AS warning,
-			COUNT(*) FILTER (WHERE risk_level = 'caution')   AS caution,
-			COUNT(*) FILTER (WHERE risk_level = 'safe')      AS safe,
-			COUNT(*) AS total
-		FROM latest
-	`
+    WITH latest_pods AS (
+        SELECT pod_uid FROM cluster_pods
+        WHERE cluster_name = $1
+          AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+    ),
+    latest_final AS (
+        SELECT DISTINCT ON (fs.pod_uid) fs.pod_uid, fs.risk_level
+        FROM final_scores fs
+        JOIN latest_pods lp ON lp.pod_uid = fs.pod_uid
+        WHERE fs.cluster_name = $1
+        ORDER BY fs.pod_uid, fs.snapshot_at DESC
+    )
+    SELECT
+        COUNT(*) FILTER (WHERE risk_level = 'emergency') AS emergency,
+        COUNT(*) FILTER (WHERE risk_level = 'warning')   AS warning,
+        COUNT(*) FILTER (WHERE risk_level = 'caution')   AS caution,
+        COUNT(*) FILTER (WHERE risk_level = 'safe')      AS safe,
+        COUNT(*) AS total
+    FROM latest_final
+`
 
 	var s edge.EdgesSummary
 	err := r.pool.QueryRow(ctx, q, clusterName).Scan(

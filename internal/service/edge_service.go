@@ -119,6 +119,13 @@ func (s *EdgeService) ListByCluster(ctx context.Context, clusterName string) (*e
 		snapAt = edges[0].SnapshotAt
 	}
 
+	if nodes == nil {
+		nodes = []edge.NodeView{}
+	}
+	if toxics == nil {
+		toxics = []edge.ToxicCombination{}
+	}
+
 	return &edge.EdgeListResponse{
 		Total: len(edges),
 		Edges: edges,
