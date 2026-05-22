@@ -13,15 +13,16 @@ import (
 // LocalScoringHandler는 Local Score API를 담당합니다.
 //
 // 엔드포인트:
-//   POST /api/v1/scoring/local/compute
-//     Body: { "cluster_name": "..." }
-//     → 클러스터 전체 Pod의 Local Score 계산 + 저장
-//     사전 조건:
-//       - POST /scoring/exposure/compute      먼저 호출
-//       - POST /scoring/attack-path/compute   먼저 호출
 //
-//   GET /api/v1/scoring/local/pods/:pod_uid?cluster=<name>
-//   GET /api/v1/scoring/local/clusters/:cluster_name
+//	POST /api/v1/scoring/local/compute
+//	  Body: { "cluster_name": "..." }
+//	  → 클러스터 전체 Pod의 Local Score 계산 + 저장
+//	  사전 조건:
+//	    - POST /scoring/exposure/compute      먼저 호출
+//	    - POST /scoring/attack-path/compute   먼저 호출
+//
+//	GET /api/v1/scoring/local/pods/:pod_uid?cluster=<name>
+//	GET /api/v1/scoring/local/clusters/:cluster_name
 type LocalScoringHandler struct {
 	service *service.LocalScoringService
 }
@@ -48,6 +49,31 @@ func (h *LocalScoringHandler) Compute(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// ComputeForPod는 단일 Pod의 local score를 즉시 재계산합니다.
+func (h *LocalScoringHandler) ComputeForPod(c *gin.Context) {
+	podUID := c.Param("pod_uid")
+	if podUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pod_uid is required"})
+		return
+	}
+
+	var req scoring.ComputeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+	result, err := h.service.ComputeForPod(ctx, req.ClusterName, podUID)
+	if err != nil {
+		fmt.Printf("warn: local compute pod failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // GetByPod : GET /api/v1/scoring/local/pods/:pod_uid?cluster=<name>

@@ -12,11 +12,11 @@ import (
 // LocalScoringService는 Local Score 통합 계산을 담당합니다.
 //
 // 알고리즘:
-//   1. cluster_pods 최신 snapshot 기준으로 Pod 목록 로드
-//   2. 각 Pod에 exposure_scores + attack_path_scores 최신 점수 LEFT JOIN
-//   3. 두 점수를 가중 공식으로 통합
-//   4. 4단계 분류 (emergency/warning/caution/safe, 80/50/20)
-//   5. local_scores에 저장
+//  1. cluster_pods 최신 snapshot 기준으로 Pod 목록 로드
+//  2. 각 Pod에 exposure_scores + attack_path_scores 최신 점수 LEFT JOIN
+//  3. 두 점수를 가중 공식으로 통합
+//  4. 4단계 분류 (emergency/warning/caution/safe, 80/50/20)
+//  5. local_scores에 저장
 //
 // 누락 처리:
 //   - exposure 점수 없음 → exposure_contribution = 0
@@ -162,6 +162,90 @@ func (s *LocalScoringService) ComputeForCluster(ctx context.Context, clusterName
 		MissingExposure:   missingExposure,
 		MissingAttackPath: missingAttackPath,
 	}, nil
+}
+
+// ComputeForPod는 단일 Pod의 local score를 계산합니다.
+// 대시보드에서 Pod 클릭 시 호출되는 빠른 재계산 API.
+func (s *LocalScoringService) ComputeForPod(ctx context.Context, clusterName, podUID string) (*scoring.LocalScoreResult, error) {
+	if clusterName == "" {
+		return nil, fmt.Errorf("cluster_name is required")
+	}
+	if podUID == "" {
+		return nil, fmt.Errorf("pod_uid is required")
+	}
+
+	// 1. 단일 Pod의 두 원본 점수 조회
+	src, err := s.repo.LoadSourceScoresByPodUID(ctx, clusterName, podUID)
+	if err != nil {
+		return nil, fmt.Errorf("load source scores: %w", err)
+	}
+	if src == nil {
+		return nil, fmt.Errorf("pod not found: cluster=%s pod_uid=%s", clusterName, podUID)
+	}
+
+	// 2. 점수 합성 (cluster compute와 동일 로직)
+	exposureRaw := 0
+	exposed := false
+	if src.HasExposure {
+		exposureRaw = src.ExposureScoreRaw
+		exposed = src.Exposed
+	}
+
+	apRaw := 0
+	apLevel := "Minimal"
+	if src.HasAttackPath {
+		apRaw = src.AttackPathScoreRaw
+		apLevel = src.AttackPathLevel
+		if apLevel == "" {
+			apLevel = "Minimal"
+		}
+	}
+
+	localScore, expContrib, apContrib := scoring.ComputeLocalScore(exposureRaw, apRaw)
+	level := scoring.ClassifyLocalLevel(localScore)
+	label := scoring.LocalLevelLabel(level)
+
+	// 3. snapshot_at: 두 원본 중 가장 늦은 시점, 없으면 now
+	now := time.Now()
+	snapAt := now
+	if src.HasExposure && src.HasAttackPath {
+		snapAt = src.ExposureSnapshotAt
+		if src.AttackPathSnapshotAt.After(snapAt) {
+			snapAt = src.AttackPathSnapshotAt
+		}
+	} else if src.HasExposure {
+		snapAt = src.ExposureSnapshotAt
+	} else if src.HasAttackPath {
+		snapAt = src.AttackPathSnapshotAt
+	}
+
+	result := scoring.LocalScoreResult{
+		ClusterName:            clusterName,
+		PodUID:                 src.PodUID,
+		PodName:                src.PodName,
+		PodNamespace:           src.PodNamespace,
+		LocalScore:             localScore,
+		LocalLevel:             level,
+		LocalLabel:             label,
+		ExposureContribution:   expContrib,
+		AttackPathContribution: apContrib,
+		ExposureScoreRaw:       exposureRaw,
+		AttackPathScoreRaw:     apRaw,
+		Exposed:                exposed,
+		AttackPathLevel:        apLevel,
+		SnapshotAt:             snapAt,
+		ComputedAt:             now,
+	}
+
+	fmt.Printf("info: local compute pod cluster=%s pod_uid=%s name=%s local_score=%d level=%s\n",
+		clusterName, podUID, src.PodName, localScore, level)
+
+	// 4. 저장 (batch지만 단건도 그대로 호출 가능)
+	if err := s.repo.UpsertBatch(ctx, []scoring.LocalScoreResult{result}); err != nil {
+		return nil, fmt.Errorf("save result: %w", err)
+	}
+
+	return &result, nil
 }
 
 // GetByPodUID는 단일 Pod의 결과를 조회하고 라벨을 보강합니다.

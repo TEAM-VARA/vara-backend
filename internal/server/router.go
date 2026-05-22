@@ -82,6 +82,7 @@ func newRouter(
 		// ── Local Score (작업 B-2) ──
 		api.POST("/scoring/local/compute", localScoring.Compute)
 		api.GET("/scoring/local/pods/:pod_uid", localScoring.GetByPod)
+		api.POST("/scoring/local/pods/:pod_uid", localScoring.ComputeForPod)
 		api.GET("/scoring/local/clusters/:cluster_name", localScoring.GetByCluster)
 
 		// ── Final Score (작업 B-3) ──
