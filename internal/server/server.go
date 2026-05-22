@@ -107,9 +107,10 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	packageVulnH := handler.NewPackageVulnHandler(packageVulnSvc) // 신규 (B-6)
 	ebpfH := handler.NewEbpf(ebpfRepo)                            // 신규 (dev_v2 통합)
 	edgeH := handler.NewEdgeHandler(edgeSvc)
+	podRefreshH := handler.NewPodRefreshHandler(exposureSvc, attackPathSvc, localScoringSvc, toxicSvc, finalScoringSvc)
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
-		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH)
+		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH, podRefreshH)
 
 	return &Server{
 		cfg: cfg,

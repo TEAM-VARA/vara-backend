@@ -12,15 +12,15 @@ import (
 // FinalScoringService는 Final Score 통합 계산을 담당합니다.
 //
 // 알고리즘:
-//   1. FinalScoringRepo.LoadInputsForCluster로 모든 입력 한 번에 조회
-//   2. ToxicService.LoadMultipliersForCluster로 multiplier 맵 로드
-//   3. 각 Pod에 대해:
-//      a. 가장 위험한 컨테이너 이미지 채택
-//      b. Local Score 가져오기
-//      c. Toxic Multiplier 적용
-//      d. Final = (0.6 × Global + 0.4 × Local) × Toxic
-//      e. 4단계 분류 (emergency/warning/caution/safe)
-//   4. final_scores에 저장
+//  1. FinalScoringRepo.LoadInputsForCluster로 모든 입력 한 번에 조회
+//  2. ToxicService.LoadMultipliersForCluster로 multiplier 맵 로드
+//  3. 각 Pod에 대해:
+//     a. 가장 위험한 컨테이너 이미지 채택
+//     b. Local Score 가져오기
+//     c. Toxic Multiplier 적용
+//     d. Final = (0.6 × Global + 0.4 × Local) × Toxic
+//     e. 4단계 분류 (emergency/warning/caution/safe)
+//  4. final_scores에 저장
 type FinalScoringService struct {
 	repo         *postgres.FinalScoringRepo
 	toxicService *ToxicService
@@ -128,6 +128,51 @@ func (s *FinalScoringService) ComputeForCluster(ctx context.Context, clusterName
 		MissingSBOM:        missingSBOM,
 		Details:            results,
 	}, nil
+}
+
+// ComputeForPod는 단일 Pod의 final score를 계산합니다.
+// 대시보드에서 Pod 클릭 시 호출되는 빠른 재계산 API.
+func (s *FinalScoringService) ComputeForPod(ctx context.Context, clusterName, podUID string) (*scoring.FinalScoreResult, error) {
+	if clusterName == "" {
+		return nil, fmt.Errorf("cluster_name is required")
+	}
+	if podUID == "" {
+		return nil, fmt.Errorf("pod_uid is required")
+	}
+
+	// 1. 단일 Pod의 입력 조회
+	input, err := s.repo.LoadInputByPodUID(ctx, clusterName, podUID)
+	if err != nil {
+		return nil, fmt.Errorf("load input: %w", err)
+	}
+	if input == nil {
+		return nil, fmt.Errorf("pod not found: cluster=%s pod_uid=%s", clusterName, podUID)
+	}
+
+	// 2. Toxic multiplier 단건 조회 (없으면 기본값)
+	toxic := scoring.FinalDefaultToxicMultiplier
+	if s.toxicService != nil {
+		m, err := s.toxicService.GetMultiplierForPod(ctx, clusterName, podUID)
+		if err != nil {
+			fmt.Printf("warn: load toxic multiplier failed: %v (using default %.2f)\n", err, toxic)
+		} else if m > 0 {
+			toxic = m
+		}
+	}
+
+	// 3. 점수 계산 (기존 computePod 재활용)
+	now := time.Now()
+	result := s.computePod(*input, clusterName, now, toxic)
+
+	fmt.Printf("info: final compute pod cluster=%s pod_uid=%s name=%s final_score=%.2f toxic=%.2f\n",
+		clusterName, podUID, input.PodName, result.FinalScore, toxic)
+
+	// 4. 저장
+	if err := s.repo.UpsertBatch(ctx, []scoring.FinalScoreResult{result}); err != nil {
+		return nil, fmt.Errorf("save result: %w", err)
+	}
+
+	return &result, nil
 }
 
 func (s *FinalScoringService) computePod(input postgres.PodFinalInput, clusterName string, now time.Time, toxic float64) scoring.FinalScoreResult {

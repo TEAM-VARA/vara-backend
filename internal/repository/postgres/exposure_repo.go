@@ -161,6 +161,45 @@ func (r *ExposureRepo) ListPodsAtSnapshot(ctx context.Context, clusterName strin
 	return out, rows.Err()
 }
 
+// GetPodSnapshotByUID는 특정 snapshot의 단일 Pod를 반환합니다.
+// snapshot이 zero time이거나 Pod가 없으면 nil 반환.
+func (r *ExposureRepo) GetPodSnapshotByUID(
+	ctx context.Context,
+	clusterName string,
+	snapshotAt time.Time,
+	podUID string,
+) (*PodSnapshot, error) {
+	if snapshotAt.IsZero() {
+		return nil, nil
+	}
+
+	var p PodSnapshot
+	var labelsRaw []byte
+	err := r.pool.QueryRow(ctx,
+		`SELECT pod_uid, name, namespace,
+		        COALESCE(pod_ip, '') AS pod_ip,
+		        COALESCE(labels, '{}'::jsonb)
+		 FROM cluster_pods
+		 WHERE cluster_name = $1 AND snapshot_at = $2 AND pod_uid = $3`,
+		clusterName, snapshotAt, podUID,
+	).Scan(&p.PodUID, &p.Name, &p.Namespace, &p.PodIP, &labelsRaw)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query pod by uid: %w", err)
+	}
+
+	if len(labelsRaw) > 0 {
+		_ = json.Unmarshal(labelsRaw, &p.Labels)
+	}
+	if p.Labels == nil {
+		p.Labels = map[string]string{}
+	}
+	return &p, nil
+}
+
 // ListServicesAtSnapshot은 특정 snapshot의 모든 Service를 반환합니다.
 // snapshot이 zero time이면 빈 리스트 반환.
 func (r *ExposureRepo) ListServicesAtSnapshot(ctx context.Context, clusterName string, snapshotAt time.Time) ([]ServiceSnapshot, error) {

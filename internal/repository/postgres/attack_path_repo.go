@@ -198,6 +198,53 @@ func (r *AttackPathRepo) ListPodsForAttackPath(ctx context.Context, clusterName 
 	return out, rows.Err()
 }
 
+// GetPodForAttackPathByUID는 특정 snapshot의 단일 Pod를 attack-path 분석용으로 반환합니다.
+// snapshot이 zero time이거나 Pod가 없으면 nil 반환.
+func (r *AttackPathRepo) GetPodForAttackPathByUID(
+	ctx context.Context,
+	clusterName string,
+	snapshotAt time.Time,
+	podUID string,
+) (*PodForAttackPath, error) {
+	if snapshotAt.IsZero() {
+		return nil, nil
+	}
+
+	var p PodForAttackPath
+	var labelsRaw, containersRaw, volumesRaw []byte
+	err := r.pool.QueryRow(ctx,
+		`SELECT
+			pod_uid, name, namespace,
+			COALESCE(pod_ip, '') AS pod_ip,
+			COALESCE(service_account, '') AS service_account,
+			COALESCE(labels, '{}'::jsonb) AS labels,
+			COALESCE(containers, '[]'::jsonb) AS containers,
+			COALESCE(volumes, '[]'::jsonb) AS volumes
+		 FROM cluster_pods
+		 WHERE cluster_name = $1 AND snapshot_at = $2 AND pod_uid = $3`,
+		clusterName, snapshotAt, podUID,
+	).Scan(&p.PodUID, &p.Name, &p.Namespace, &p.PodIP, &p.ServiceAccount,
+		&labelsRaw, &containersRaw, &volumesRaw)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query pod for attack-path by uid: %w", err)
+	}
+
+	if len(labelsRaw) > 0 {
+		_ = json.Unmarshal(labelsRaw, &p.Labels)
+	}
+	if p.Labels == nil {
+		p.Labels = map[string]string{}
+	}
+	p.Containers = parseContainers(containersRaw)
+	p.Volumes = parseVolumes(volumesRaw)
+
+	return &p, nil
+}
+
 // parseContainers는 cluster_pods.containers JSONB를 ContainerInfo 슬라이스로 변환.
 //
 // 예상 구조:

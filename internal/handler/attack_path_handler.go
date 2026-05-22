@@ -13,15 +13,16 @@ import (
 // AttackPathHandler는 공격 경로 범위(Attack Path Scope) API를 담당합니다.
 //
 // 엔드포인트:
-//   POST /api/v1/scoring/attack-path/compute
-//     Body: { "cluster_name": "..." }
-//     → 클러스터 전체 Pod 평가 + DB 저장
 //
-//   GET  /api/v1/scoring/attack-path/pods/:pod_uid?cluster=...
-//     → 단일 Pod 결과 조회
+//	POST /api/v1/scoring/attack-path/compute
+//	  Body: { "cluster_name": "..." }
+//	  → 클러스터 전체 Pod 평가 + DB 저장
 //
-//   GET  /api/v1/scoring/attack-path/clusters/:cluster_name
-//     → 클러스터 전체 결과 조회 (위험도 정렬)
+//	GET  /api/v1/scoring/attack-path/pods/:pod_uid?cluster=...
+//	  → 단일 Pod 결과 조회
+//
+//	GET  /api/v1/scoring/attack-path/clusters/:cluster_name
+//	  → 클러스터 전체 결과 조회 (위험도 정렬)
 type AttackPathHandler struct {
 	service *service.AttackPathService
 }
@@ -48,6 +49,31 @@ func (h *AttackPathHandler) Compute(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// ComputeForPod는 단일 Pod의 attack path를 즉시 재계산합니다.
+func (h *AttackPathHandler) ComputeForPod(c *gin.Context) {
+	podUID := c.Param("pod_uid")
+	if podUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pod_uid is required"})
+		return
+	}
+
+	var req scoring.ComputeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+	result, err := h.service.ComputeForPod(ctx, req.ClusterName, podUID)
+	if err != nil {
+		fmt.Printf("warn: attack-path compute pod failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // GetByPod : GET /api/v1/scoring/attack-path/pods/:pod_uid?cluster=<name>

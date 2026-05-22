@@ -23,6 +23,7 @@ func newRouter(
 	packageVuln *handler.PackageVulnHandler,
 	ebpf *handler.EbpfHandler,
 	edge *handler.EdgeHandler,
+	podRefresh *handler.PodRefreshHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -61,6 +62,7 @@ func newRouter(
 		// ── 인터넷 노출 (작업 C-1) ──
 		api.POST("/scoring/exposure/compute", exposure.Compute)
 		api.GET("/scoring/exposure/pods/:pod_uid", exposure.GetByPod)
+		api.POST("/scoring/exposure/pods/:pod_uid", exposure.ComputeForPod)
 		api.GET("/scoring/exposure/clusters/:cluster_name", exposure.GetByCluster)
 
 		// ── Global CVE Score (작업 B-1) ──
@@ -75,21 +77,28 @@ func newRouter(
 		// ── Attack Path (작업 B-2c) ──
 		api.POST("/scoring/attack-path/compute", attackPath.Compute)
 		api.GET("/scoring/attack-path/pods/:pod_uid", attackPath.GetByPod)
+		api.POST("/scoring/attack-path/pods/:pod_uid", attackPath.ComputeForPod)
 		api.GET("/scoring/attack-path/clusters/:cluster_name", attackPath.GetByCluster)
 
 		// ── Local Score (작업 B-2) ──
 		api.POST("/scoring/local/compute", localScoring.Compute)
 		api.GET("/scoring/local/pods/:pod_uid", localScoring.GetByPod)
+		api.POST("/scoring/local/pods/:pod_uid", localScoring.ComputeForPod)
 		api.GET("/scoring/local/clusters/:cluster_name", localScoring.GetByCluster)
 
 		// ── Final Score (작업 B-3) ──
 		api.POST("/scoring/final/compute", finalScoring.Compute)
 		api.GET("/scoring/final/pods/:pod_uid", finalScoring.GetByPod)
+		api.POST("/scoring/final/pods/:pod_uid", finalScoring.ComputeForPod)
 		api.GET("/scoring/final/clusters/:cluster_name", finalScoring.GetByCluster)
+
+		// ── Pod Refresh: 단일 Pod의 5개 컴포넌트 통합 ──
+		api.POST("/scoring/pods/:pod_uid/refresh", podRefresh.Refresh)
 
 		// ── Toxic Combination (작업 B-4) ──
 		api.POST("/scoring/toxic/compute", toxic.Compute)
 		api.GET("/scoring/toxic/pods/:pod_uid", toxic.GetByPod)
+		api.POST("/scoring/toxic/pods/:pod_uid", toxic.ComputeForPod)
 		api.GET("/scoring/toxic/clusters/:cluster_name", toxic.GetByCluster)
 		api.GET("/scoring/toxic/rules", toxic.ListRules)
 

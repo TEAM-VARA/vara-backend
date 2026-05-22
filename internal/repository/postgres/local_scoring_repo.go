@@ -172,6 +172,109 @@ func (r *LocalScoringRepo) LoadSourceScores(ctx context.Context, clusterName str
 	return out, rows.Err()
 }
 
+// LoadSourceScoresByPodUID는 단일 Pod의 exposure + attack_path 점수를 조회합니다.
+// 대시보드에서 Pod 클릭 시 호출되는 단건 버전.
+// Pod가 cluster_pods에 없으면 nil 반환.
+func (r *LocalScoringRepo) LoadSourceScoresByPodUID(
+	ctx context.Context,
+	clusterName, podUID string,
+) (*PodSourceScores, error) {
+	// 1. cluster_pods 최신 snapshot 조회
+	var podsSnapshot *time.Time
+	err := r.pool.QueryRow(ctx,
+		`SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1`,
+		clusterName,
+	).Scan(&podsSnapshot)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("find pods snapshot: %w", err)
+	}
+	if podsSnapshot == nil {
+		return nil, fmt.Errorf("no pods found for cluster %s", clusterName)
+	}
+
+	// 2. 단일 Pod + exposure + attack_path LATERAL JOIN (LoadSourceScores와 동일 SQL + pod_uid 필터)
+	query := `
+		SELECT
+			p.pod_uid,
+			p.name AS pod_name,
+			p.namespace AS pod_namespace,
+
+			es.exposed,
+			es.score,
+			es.snapshot_at AS exposure_snapshot_at,
+
+			aps.total_score,
+			aps.snapshot_at AS attack_path_snapshot_at,
+			CASE
+				WHEN aps.total_score >= 70 THEN 'High'
+				WHEN aps.total_score >= 40 THEN 'Medium'
+				WHEN aps.total_score > 0 THEN 'Low'
+				WHEN aps.total_score = 0 THEN 'Minimal'
+				ELSE NULL
+			END AS attack_path_level
+
+		FROM cluster_pods p
+
+		LEFT JOIN LATERAL (
+			SELECT exposed, score, snapshot_at
+			FROM exposure_scores
+			WHERE cluster_name = $1 AND pod_uid = p.pod_uid
+			ORDER BY snapshot_at DESC LIMIT 1
+		) es ON TRUE
+
+		LEFT JOIN LATERAL (
+			SELECT total_score, snapshot_at
+			FROM attack_path_scores
+			WHERE cluster_name = $1 AND pod_uid = p.pod_uid
+			ORDER BY snapshot_at DESC LIMIT 1
+		) aps ON TRUE
+
+		WHERE p.cluster_name = $1 AND p.snapshot_at = $2 AND p.pod_uid = $3
+	`
+
+	var s PodSourceScores
+	var exposed *bool
+	var exposureRaw *int
+	var exposureSnap *time.Time
+	var apRaw *int
+	var apSnap *time.Time
+	var apLevel *string
+
+	err = r.pool.QueryRow(ctx, query, clusterName, *podsSnapshot, podUID).Scan(
+		&s.PodUID, &s.PodName, &s.PodNamespace,
+		&exposed, &exposureRaw, &exposureSnap,
+		&apRaw, &apSnap, &apLevel,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("scan source by pod uid: %w", err)
+	}
+
+	if exposed != nil && exposureRaw != nil {
+		s.HasExposure = true
+		s.Exposed = *exposed
+		s.ExposureScoreRaw = *exposureRaw
+		if exposureSnap != nil {
+			s.ExposureSnapshotAt = *exposureSnap
+		}
+	}
+
+	if apRaw != nil {
+		s.HasAttackPath = true
+		s.AttackPathScoreRaw = *apRaw
+		if apLevel != nil {
+			s.AttackPathLevel = *apLevel
+		}
+		if apSnap != nil {
+			s.AttackPathSnapshotAt = *apSnap
+		}
+	}
+
+	return &s, nil
+}
+
 // ─────────────────────────────────────────
 // 결과 저장
 // ─────────────────────────────────────────

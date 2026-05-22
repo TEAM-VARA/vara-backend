@@ -13,13 +13,14 @@ import (
 // ToxicHandler는 Toxic Combination 평가 API를 담당합니다.
 //
 // 엔드포인트:
-//   POST /api/v1/scoring/toxic/compute
-//     Body: { "cluster_name": "..." }
-//     → 클러스터 전체 Pod에 대해 룰 평가 + 저장
 //
-//   GET  /api/v1/scoring/toxic/pods/:pod_uid?cluster=<name>
-//   GET  /api/v1/scoring/toxic/clusters/:cluster_name
-//   GET  /api/v1/scoring/toxic/rules    (정적 룰 목록)
+//	POST /api/v1/scoring/toxic/compute
+//	  Body: { "cluster_name": "..." }
+//	  → 클러스터 전체 Pod에 대해 룰 평가 + 저장
+//
+//	GET  /api/v1/scoring/toxic/pods/:pod_uid?cluster=<name>
+//	GET  /api/v1/scoring/toxic/clusters/:cluster_name
+//	GET  /api/v1/scoring/toxic/rules    (정적 룰 목록)
 type ToxicHandler struct {
 	service *service.ToxicService
 }
@@ -46,6 +47,31 @@ func (h *ToxicHandler) Compute(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// ComputeForPod는 단일 Pod의 toxic combination을 즉시 재계산합니다.
+func (h *ToxicHandler) ComputeForPod(c *gin.Context) {
+	podUID := c.Param("pod_uid")
+	if podUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pod_uid is required"})
+		return
+	}
+
+	var req scoring.ComputeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+	result, err := h.service.ComputeForPod(ctx, req.ClusterName, podUID)
+	if err != nil {
+		fmt.Printf("warn: toxic compute pod failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // GetByPod : GET /api/v1/scoring/toxic/pods/:pod_uid?cluster=<name>

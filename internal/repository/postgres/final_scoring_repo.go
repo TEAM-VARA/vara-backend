@@ -16,11 +16,11 @@ import (
 // 결과를 final_scores 테이블에 저장합니다.
 //
 // 조회 흐름 (한 Pod 단위):
-//   1. cluster_pods.containers[].image → tag 목록 추출
-//   2. sboms.image = tag로 image_digest 추출
-//   3. image_global_scores.image_digest로 max_score 조회
-//   4. local_scores.pod_uid로 local_score 조회
-//   5. 가장 위험한 컨테이너 이미지 채택 → 통합
+//  1. cluster_pods.containers[].image → tag 목록 추출
+//  2. sboms.image = tag로 image_digest 추출
+//  3. image_global_scores.image_digest로 max_score 조회
+//  4. local_scores.pod_uid로 local_score 조회
+//  5. 가장 위험한 컨테이너 이미지 채택 → 통합
 type FinalScoringRepo struct {
 	pool *pgxpool.Pool
 }
@@ -43,10 +43,10 @@ type PodFinalInput struct {
 	Containers []ContainerImageScore
 
 	// Local Score (없으면 nil)
-	HasLocal           bool
-	LocalScore         float64
-	LocalSnapshotAt    time.Time
-	PodSnapshotAt      time.Time
+	HasLocal        bool
+	LocalScore      float64
+	LocalSnapshotAt time.Time
+	PodSnapshotAt   time.Time
 }
 
 // ContainerImageScore는 한 컨테이너의 image + global score 매핑입니다.
@@ -68,11 +68,11 @@ type ContainerImageScore struct {
 // LoadInputsForCluster는 클러스터의 모든 Pod에 대해 Final Score 계산 입력을 로드합니다.
 //
 // 단일 쿼리에서 모두 처리:
-//   1. cluster_pods 최신 snapshot
-//   2. jsonb_array_elements로 컨테이너 펼침
-//   3. sboms LEFT JOIN으로 image_digest 추출
-//   4. image_global_scores LEFT JOIN으로 max_score
-//   5. local_scores LEFT JOIN (LATERAL, 최신 snapshot)
+//  1. cluster_pods 최신 snapshot
+//  2. jsonb_array_elements로 컨테이너 펼침
+//  3. sboms LEFT JOIN으로 image_digest 추출
+//  4. image_global_scores LEFT JOIN으로 max_score
+//  5. local_scores LEFT JOIN (LATERAL, 최신 snapshot)
 //
 // 결과를 Pod 단위로 집계.
 func (r *FinalScoringRepo) LoadInputsForCluster(ctx context.Context, clusterName string) ([]PodFinalInput, error) {
@@ -206,6 +206,125 @@ func (r *FinalScoringRepo) LoadInputsForCluster(ctx context.Context, clusterName
 	}
 
 	return out, nil
+}
+
+// LoadInputByPodUID는 단일 Pod의 final score 입력을 조회합니다.
+// 컨테이너 펼치기로 row가 여러 개 나올 수 있어 집계 필요.
+// Pod가 없으면 nil 반환.
+func (r *FinalScoringRepo) LoadInputByPodUID(
+	ctx context.Context,
+	clusterName, podUID string,
+) (*PodFinalInput, error) {
+	var podsSnapshot *time.Time
+	err := r.pool.QueryRow(ctx,
+		`SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1`,
+		clusterName,
+	).Scan(&podsSnapshot)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("find pods snapshot: %w", err)
+	}
+	if podsSnapshot == nil {
+		return nil, fmt.Errorf("no pods found for cluster %s", clusterName)
+	}
+
+	// LoadInputsForCluster와 동일 SQL + pod_uid 필터
+	query := `
+		SELECT
+			p.pod_uid,
+			p.name AS pod_name,
+			p.namespace AS pod_namespace,
+			p.snapshot_at AS pod_snapshot_at,
+
+			c.value->>'image' AS container_image_tag,
+			s.image_digest,
+			igs.max_score AS image_max_score,
+			igs.top_cve AS image_top_cve,
+
+			ls.local_score,
+			ls.snapshot_at AS local_snapshot_at
+		FROM cluster_pods p
+		LEFT JOIN LATERAL jsonb_array_elements(p.containers) AS c ON TRUE
+		LEFT JOIN sboms s ON s.image = c.value->>'image'
+		LEFT JOIN image_global_scores igs ON igs.image_digest = s.image_digest
+		LEFT JOIN LATERAL (
+			SELECT local_score, snapshot_at
+			FROM local_scores
+			WHERE cluster_name = $1 AND pod_uid = p.pod_uid
+			ORDER BY snapshot_at DESC LIMIT 1
+		) ls ON TRUE
+		WHERE p.cluster_name = $1 AND p.snapshot_at = $2 AND p.pod_uid = $3
+	`
+
+	rows, err := r.pool.Query(ctx, query, clusterName, *podsSnapshot, podUID)
+	if err != nil {
+		return nil, fmt.Errorf("load final input by uid: %w", err)
+	}
+	defer rows.Close()
+
+	var input *PodFinalInput
+
+	for rows.Next() {
+		var (
+			retPodUID, podName, podNamespace string
+			podSnap                          time.Time
+			containerImageTag                *string
+			imageDigest                      *string
+			imageMaxScore                    *float64
+			imageTopCVE                      *string
+			localScore                       *float64
+			localSnap                        *time.Time
+		)
+
+		err := rows.Scan(
+			&retPodUID, &podName, &podNamespace, &podSnap,
+			&containerImageTag, &imageDigest, &imageMaxScore, &imageTopCVE,
+			&localScore, &localSnap,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan final input row: %w", err)
+		}
+
+		// 첫 row에서만 Pod 초기화 (이후 row는 컨테이너만 추가)
+		if input == nil {
+			input = &PodFinalInput{
+				PodUID:        retPodUID,
+				PodName:       podName,
+				PodNamespace:  podNamespace,
+				PodSnapshotAt: podSnap,
+			}
+			if localScore != nil {
+				input.HasLocal = true
+				input.LocalScore = *localScore
+				if localSnap != nil {
+					input.LocalSnapshotAt = *localSnap
+				}
+			}
+		}
+
+		// 컨테이너 정보 추가
+		if containerImageTag != nil {
+			c := ContainerImageScore{
+				ImageTag: *containerImageTag,
+			}
+			if imageDigest != nil {
+				c.ImageDigest = *imageDigest
+				c.HasSBOM = true
+			}
+			if imageMaxScore != nil {
+				c.MaxScore = *imageMaxScore
+				c.HasGlobal = true
+			}
+			if imageTopCVE != nil {
+				c.TopCVE = *imageTopCVE
+			}
+			input.Containers = append(input.Containers, c)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return input, nil
 }
 
 // ─────────────────────────────────────────
