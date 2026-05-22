@@ -43,7 +43,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	sbomPackageRepo := postgres.NewSBOMPackageRepo(pg)
 	packageVulnRepo := postgres.NewPackageVulnerabilityRepo(pg) // 신규 (작업 B-6)
 	ebpfRepo := postgres.NewEbpfRepo(pg)                        // 신규 (dev_v2 통합)
-	clusterNodesRepo := postgres.NewClusterNodesRepo(pg)        // 신규 (runtime 분석)                     // 신규 (dev_v2 통합)
+	clusterNodesRepo := postgres.NewClusterNodesRepo(pg)
+	edgesRepo := postgres.NewEdgesRepo(pg) // 신규 (runtime 분석)                     // 신규 (dev_v2 통합)
 
 	// ── 외부 API 클라이언트 ──
 	nvdAPIKey := os.Getenv("NVD_API_KEY")
@@ -87,6 +88,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	finalScoringSvc := service.NewFinalScoringService(finalScoringRepo, toxicSvc)
 	sbomPackageSvc := service.NewSBOMPackageService(pg, sbomPackageRepo)
 	packageVulnSvc := service.NewPackageVulnService(osvClient, packageVulnRepo, sbomPackageRepo) // 신규 (B-6)
+	edgeSvc := service.NewEdgeService(edgesRepo)                                                 // 신규 (blast radius)  ← 추가
 
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)
@@ -104,10 +106,10 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	sbomPackageH := handler.NewSBOMPackageHandler(sbomPackageSvc)
 	packageVulnH := handler.NewPackageVulnHandler(packageVulnSvc) // 신규 (B-6)
 	ebpfH := handler.NewEbpf(ebpfRepo)                            // 신규 (dev_v2 통합)
-
+	edgeH := handler.NewEdgeHandler(edgeSvc)
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
-		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH)
+		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH)
 
 	return &Server{
 		cfg: cfg,

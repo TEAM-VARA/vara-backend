@@ -59,6 +59,7 @@ type ClusterPod struct {
 	Phase          string                   `json:"phase"`
 	RestartCount   int                      `json:"restart_count"`
 	ServiceAccount string                   `json:"service_account"`
+	HostNetwork    bool                     `json:"host_network"`
 	Labels         map[string]string        `json:"labels"`
 	Annotations    map[string]string        `json:"annotations"`
 	Containers     []map[string]interface{} `json:"containers"`

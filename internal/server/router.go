@@ -22,6 +22,7 @@ func newRouter(
 	sbomPackage *handler.SBOMPackageHandler,
 	packageVuln *handler.PackageVulnHandler,
 	ebpf *handler.EbpfHandler,
+	edge *handler.EdgeHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -47,6 +48,11 @@ func newRouter(
 		api.POST("/agents/ebpf/network-flows", ebpf.NetworkFlows)
 		api.POST("/agents/ebpf/dns-queries", ebpf.DNSQueries)
 		api.POST("/agents/ebpf/process-events", ebpf.ProcessEvents)
+
+		// ── Edges (Blast Radius 그래프) ──         ← 이 4줄 추가
+		api.POST("/edges/compute", edge.Compute)
+		api.GET("/edges/clusters/:cluster_name", edge.GetByCluster)
+		api.GET("/edges/pods/:pod_uid", edge.GetByPod)
 
 		// ── 기존 Risk Scoring ──
 		api.POST("/pods/:pod_id/risk", scoring.ComputeRisk)
