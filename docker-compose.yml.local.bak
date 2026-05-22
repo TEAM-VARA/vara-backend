@@ -44,8 +44,6 @@ services:
         condition: service_started
       embedding:
         condition: service_started
-    env_file:
-      - .env
     environment:
       SERVER_PORT: "8080"
       POSTGRES_HOST: postgres
@@ -58,9 +56,7 @@ services:
       EMBEDDING_SERVER_URL: http://embedding:9000/embed
     ports:
       - "8080:8080"
-    volumes:
-      - trivy-cache:/var/cache/trivy
+
 volumes:
   vara-pg-data:
   hf-cache:
-  trivy-cache:
