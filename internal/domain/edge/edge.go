@@ -45,25 +45,35 @@ func LayerWeight(layer string) float64 {
 }
 
 // Edge — Pod-to-Pod 통신 관계
+// Edge — Pod-to-Pod 또는 Pod-to-SA/Role/Service 등 관계
 type Edge struct {
 	ID          int64  `json:"-"`  // DB ID (내부용)
 	DisplayID   string `json:"id"` // API 응답용 ("e_001" 형식)
-	ClusterName string `json:"-"`  // 내부용 (FE 응답에 보통 X)
+	ClusterName string `json:"-"`  // 내부용
 
-	// 식별 (source/target Pod uid)
-	Source string `json:"source"` // pod_uid
-	Target string `json:"target"`
+	// 식별 (source/target uid 또는 가상 ID)
+	Source string `json:"source"` // pod_uid 또는 "sa:ns/name", "role:ns/name", "crole:name"
+	Target string `json:"target"` // 동일. NULL이면 빈 문자열
 	Layer  string `json:"layer"`
 
 	// 통신 메타
-	Weight        int     `json:"weight"`        // 통신 횟수
-	TrafficWeight float64 `json:"trafficWeight"` // layer 가중치
+	Weight        int     `json:"weight"`
+	TrafficWeight float64 `json:"trafficWeight"`
 
 	// 표시용
 	SourceName      string `json:"sourceName,omitempty"`
 	SourceNamespace string `json:"sourceNamespace,omitempty"`
 	TargetName      string `json:"targetName,omitempty"`
 	TargetNamespace string `json:"targetNamespace,omitempty"`
+
+	// Migration 017로 추가된 새 필드들
+	SourceKind        string `json:"sourceKind,omitempty"` // pod / service_account / role / cluster_role
+	TargetKind        string `json:"targetKind,omitempty"`
+	TargetType        string `json:"targetType,omitempty"`        // pod / external_ip / service / service_account
+	TargetServiceName string `json:"targetServiceName,omitempty"` // 가상 ID (sa:..., crole:..., role:...)
+	EdgeType          string `json:"edgeType,omitempty"`          // can_reach / assumes / binds / shares_image 등
+	Mode              string `json:"mode,omitempty"`              // declared / observed / anomaly
+	TotalBytes        int64  `json:"totalBytes,omitempty"`        // 트래픽 양 (network observed 전용)
 
 	// 시점
 	FirstSeenAt *time.Time `json:"firstSeenAt,omitempty"`

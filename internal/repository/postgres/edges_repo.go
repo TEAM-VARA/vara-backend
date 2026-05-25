@@ -311,18 +311,27 @@ func (r *EdgesRepo) ListByCluster(ctx context.Context, clusterName string) ([]ed
 		WITH latest AS (
 			SELECT MAX(snapshot_at) AS snap FROM edges WHERE cluster_name = $1
 		)
-		SELECT 
+		SELECT
 			id, cluster_name,
-			source_pod_uid, target_pod_uid, layer,
+			source_pod_uid,
+			COALESCE(target_pod_uid, '')                         AS target_pod_uid,
+			layer,
 			weight, traffic_weight,
 			COALESCE(source_name, ''), COALESCE(source_namespace, ''),
 			COALESCE(target_name, ''), COALESCE(target_namespace, ''),
 			first_seen_at, last_seen_at,
-			snapshot_at, computed_at
+			snapshot_at, computed_at,
+			COALESCE(source_kind, 'pod')                          AS source_kind,
+			COALESCE(target_kind, 'pod')                          AS target_kind,
+			COALESCE(target_type, 'pod')                          AS target_type,
+			COALESCE(target_service_name, '')                     AS target_service_name,
+			COALESCE(edge_type, 'can_reach')                      AS edge_type,
+			COALESCE(mode, 'observed')                            AS mode,
+			COALESCE(total_bytes, 0)                              AS total_bytes
 		FROM edges, latest
 		WHERE cluster_name = $1
 		  AND snapshot_at = latest.snap
-		ORDER BY weight DESC
+		ORDER BY layer, edge_type, weight DESC
 	`
 
 	rows, err := r.pool.Query(ctx, q, clusterName)
@@ -331,7 +340,7 @@ func (r *EdgesRepo) ListByCluster(ctx context.Context, clusterName string) ([]ed
 	}
 	defer rows.Close()
 
-	var out []edge.Edge
+	out := []edge.Edge{}
 	for rows.Next() {
 		var e edge.Edge
 		if err := rows.Scan(
@@ -342,6 +351,9 @@ func (r *EdgesRepo) ListByCluster(ctx context.Context, clusterName string) ([]ed
 			&e.TargetName, &e.TargetNamespace,
 			&e.FirstSeenAt, &e.LastSeenAt,
 			&e.SnapshotAt, &e.ComputedAt,
+			&e.SourceKind, &e.TargetKind,
+			&e.TargetType, &e.TargetServiceName,
+			&e.EdgeType, &e.Mode, &e.TotalBytes,
 		); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
@@ -357,19 +369,28 @@ func (r *EdgesRepo) ListByPod(ctx context.Context, clusterName, podUID string) (
 		WITH latest AS (
 			SELECT MAX(snapshot_at) AS snap FROM edges WHERE cluster_name = $1
 		)
-		SELECT 
+		SELECT
 			id, cluster_name,
-			source_pod_uid, target_pod_uid, layer,
+			source_pod_uid,
+			COALESCE(target_pod_uid, '')                         AS target_pod_uid,
+			layer,
 			weight, traffic_weight,
 			COALESCE(source_name, ''), COALESCE(source_namespace, ''),
 			COALESCE(target_name, ''), COALESCE(target_namespace, ''),
 			first_seen_at, last_seen_at,
-			snapshot_at, computed_at
+			snapshot_at, computed_at,
+			COALESCE(source_kind, 'pod')                          AS source_kind,
+			COALESCE(target_kind, 'pod')                          AS target_kind,
+			COALESCE(target_type, 'pod')                          AS target_type,
+			COALESCE(target_service_name, '')                     AS target_service_name,
+			COALESCE(edge_type, 'can_reach')                      AS edge_type,
+			COALESCE(mode, 'observed')                            AS mode,
+			COALESCE(total_bytes, 0)                              AS total_bytes
 		FROM edges, latest
 		WHERE cluster_name = $1
 		  AND snapshot_at = latest.snap
 		  AND (source_pod_uid = $2 OR target_pod_uid = $2)
-		ORDER BY weight DESC
+		ORDER BY layer, edge_type, weight DESC
 	`
 
 	rows, err := r.pool.Query(ctx, q, clusterName, podUID)
@@ -378,7 +399,7 @@ func (r *EdgesRepo) ListByPod(ctx context.Context, clusterName, podUID string) (
 	}
 	defer rows.Close()
 
-	var out []edge.Edge
+	out := []edge.Edge{}
 	for rows.Next() {
 		var e edge.Edge
 		if err := rows.Scan(
@@ -389,6 +410,9 @@ func (r *EdgesRepo) ListByPod(ctx context.Context, clusterName, podUID string) (
 			&e.TargetName, &e.TargetNamespace,
 			&e.FirstSeenAt, &e.LastSeenAt,
 			&e.SnapshotAt, &e.ComputedAt,
+			&e.SourceKind, &e.TargetKind,
+			&e.TargetType, &e.TargetServiceName,
+			&e.EdgeType, &e.Mode, &e.TotalBytes,
 		); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
