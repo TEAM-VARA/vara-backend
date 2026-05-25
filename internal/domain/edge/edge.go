@@ -222,3 +222,48 @@ type NetworkComputeResult struct {
 	ComputedAt  time.Time `json:"computedAt"`
 	DurationMs  int64     `json:"durationMs"`
 }
+
+// ────────────────────────────────────────────────────
+// Topology API 응답 (PM 명세서 v1.0 호환)
+// ────────────────────────────────────────────────────
+
+type TopologyResponse struct {
+	Cluster string         `json:"cluster"`
+	Nodes   []TopologyNode `json:"nodes"`
+	Edges   []TopologyEdge `json:"edges"`
+	Meta    TopologyMeta   `json:"meta"`
+}
+
+type TopologyNode struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Label     string `json:"label"`
+	Namespace string `json:"namespace,omitempty"`
+
+	// Pod 전용
+	ServiceAccount string  `json:"serviceAccount,omitempty"`
+	ImageTag       string  `json:"imageTag,omitempty"`
+	ImageDigest    string  `json:"imageDigest,omitempty"`
+	RiskScore      float64 `json:"riskScore,omitempty"`
+	RiskLevel      string  `json:"riskLevel,omitempty"`
+	TopCVE         string  `json:"topCve,omitempty"`
+	IsExposed      bool    `json:"isExposed,omitempty"`
+}
+
+type TopologyEdge struct {
+	ID            string  `json:"id"`
+	Source        string  `json:"source"`
+	Target        string  `json:"target"`
+	Layer         string  `json:"layer"`
+	EdgeType      string  `json:"edgeType"`
+	Mode          string  `json:"mode"`
+	Weight        float64 `json:"weight"`
+	TrafficWeight float64 `json:"trafficWeight,omitempty"`
+}
+
+type TopologyMeta struct {
+	NodeCount  int       `json:"nodeCount"`
+	EdgeCount  int       `json:"edgeCount"`
+	SnapshotAt time.Time `json:"snapshotAt,omitempty"`
+	BuildMs    int64     `json:"buildMs"`
+}

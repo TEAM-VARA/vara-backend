@@ -1114,3 +1114,187 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 		DurationMs:  time.Since(start).Milliseconds(),
 	}, nil
 }
+
+// BuildTopology — PM 명세서 B-1의 /api/v1/topology 응답 데이터
+func (r *EdgesRepo) BuildTopology(ctx context.Context, cluster string) (*edge.TopologyResponse, error) {
+	start := time.Now()
+
+	podNodes, err := r.fetchPodNodes(ctx, cluster)
+	if err != nil {
+		return nil, fmt.Errorf("fetch pod nodes: %w", err)
+	}
+
+	otherNodes, err := r.fetchOtherNodes(ctx, cluster)
+	if err != nil {
+		return nil, fmt.Errorf("fetch other nodes: %w", err)
+	}
+
+	topoEdges, snapAt, err := r.fetchTopologyEdges(ctx, cluster)
+	if err != nil {
+		return nil, fmt.Errorf("fetch topology edges: %w", err)
+	}
+
+	nodes := append(podNodes, otherNodes...)
+
+	return &edge.TopologyResponse{
+		Cluster: cluster,
+		Nodes:   nodes,
+		Edges:   topoEdges,
+		Meta: edge.TopologyMeta{
+			NodeCount:  len(nodes),
+			EdgeCount:  len(topoEdges),
+			SnapshotAt: snapAt,
+			BuildMs:    time.Since(start).Milliseconds(),
+		},
+	}, nil
+}
+
+// fetchPodNodes — Pod 노드를 cluster_pods + final_scores JOIN으로 추출
+func (r *EdgesRepo) fetchPodNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT 
+			cp.pod_uid::text AS id,
+			cp.name AS label,
+			cp.namespace,
+			COALESCE(cp.service_account, '') AS service_account,
+			COALESCE(cp.containers->0->>'image', '') AS image_tag,
+			COALESCE(cp.containers->0->>'image_digest', '') AS image_digest,
+			COALESCE(fs.final_score, 0) AS risk_score,
+			COALESCE(fs.risk_level, 'safe') AS risk_level,
+			COALESCE(fs.used_top_cve, '') AS top_cve
+		FROM cluster_pods cp
+		LEFT JOIN final_scores fs 
+		  ON fs.pod_uid = cp.pod_uid 
+		 AND fs.cluster_name = cp.cluster_name
+		 AND fs.snapshot_at = (
+		     SELECT MAX(snapshot_at) FROM final_scores 
+		     WHERE cluster_name = cp.cluster_name AND pod_uid = cp.pod_uid
+		 )
+		WHERE cp.cluster_name = $1
+		  AND cp.snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+		ORDER BY cp.namespace, cp.name
+	`
+	rows, err := r.pool.Query(ctx, q, cluster)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []edge.TopologyNode
+	for rows.Next() {
+		var n edge.TopologyNode
+		n.Kind = "pod"
+		if err := rows.Scan(
+			&n.ID, &n.Label, &n.Namespace,
+			&n.ServiceAccount, &n.ImageTag, &n.ImageDigest,
+			&n.RiskScore, &n.RiskLevel, &n.TopCVE,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, n)
+	}
+	return result, nil
+}
+
+// fetchOtherNodes — SA, Role, ClusterRole, Service, Image, CVE 노드 unique 추출
+func (r *EdgesRepo) fetchOtherNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		WITH non_pod_nodes AS (
+			-- source 측 (sa, service, ingress 등)
+			SELECT DISTINCT
+				source_pod_uid AS id,
+				source_kind AS kind,
+				source_name AS label,
+				source_namespace AS ns
+			FROM edges
+			WHERE cluster_name = $1
+			  AND source_kind IN ('sa', 'service', 'ingress', 'role', 'crole')
+			  AND source_pod_uid IS NOT NULL
+			
+			UNION
+			
+			-- target 측 (sa, role, crole, image, cve, service)
+			SELECT DISTINCT
+				target_service_name AS id,
+				target_kind AS kind,
+				target_name AS label,
+				target_namespace AS ns
+			FROM edges
+			WHERE cluster_name = $1
+			  AND target_kind IN ('sa', 'role', 'crole', 'service', 'image', 'cve')
+			  AND target_service_name IS NOT NULL
+			  AND target_service_name != ''
+			  AND target_pod_uid IS NULL
+		)
+		SELECT id, kind, label, COALESCE(ns, '') AS ns
+		FROM non_pod_nodes
+		WHERE id IS NOT NULL
+	`
+	rows, err := r.pool.Query(ctx, q, cluster)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []edge.TopologyNode
+	for rows.Next() {
+		var n edge.TopologyNode
+		if err := rows.Scan(&n.ID, &n.Kind, &n.Label, &n.Namespace); err != nil {
+			return nil, err
+		}
+		result = append(result, n)
+	}
+	return result, nil
+}
+
+// fetchTopologyEdges — edges 테이블에서 layer/edge_type별 latest snapshot edge들
+func (r *EdgesRepo) fetchTopologyEdges(ctx context.Context, cluster string) ([]edge.TopologyEdge, time.Time, error) {
+	const q = `
+		WITH latest_per_combo AS (
+			SELECT DISTINCT ON (layer, edge_type) 
+				layer, edge_type, snapshot_at AS snap
+			FROM edges 
+			WHERE cluster_name = $1
+			ORDER BY layer, edge_type, snapshot_at DESC
+		)
+		SELECT
+			'e_' || e.id::text AS edge_id,
+			e.source_pod_uid AS source,
+			COALESCE(e.target_pod_uid::text, e.target_service_name, '') AS target,
+			e.layer, e.edge_type, e.mode,
+			e.weight, e.traffic_weight,
+			e.snapshot_at
+		FROM edges e
+		JOIN latest_per_combo lpc 
+		  ON e.layer = lpc.layer 
+		 AND e.edge_type = lpc.edge_type 
+		 AND e.snapshot_at = lpc.snap
+		WHERE e.cluster_name = $1
+		ORDER BY e.layer, e.edge_type
+	`
+	rows, err := r.pool.Query(ctx, q, cluster)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	defer rows.Close()
+
+	var result []edge.TopologyEdge
+	var latestSnap time.Time
+	for rows.Next() {
+		var e edge.TopologyEdge
+		var snapAt time.Time
+		if err := rows.Scan(
+			&e.ID, &e.Source, &e.Target,
+			&e.Layer, &e.EdgeType, &e.Mode,
+			&e.Weight, &e.TrafficWeight,
+			&snapAt,
+		); err != nil {
+			return nil, time.Time{}, err
+		}
+		result = append(result, e)
+		if snapAt.After(latestSnap) {
+			latestSnap = snapAt
+		}
+	}
+	return result, latestSnap, nil
+}

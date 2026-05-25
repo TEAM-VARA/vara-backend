@@ -172,3 +172,8 @@ func (s *EdgeService) ComputeSupplyChain(ctx context.Context, clusterName string
 func (s *EdgeService) ComputeNetwork(ctx context.Context, clusterName string) (*edge.NetworkComputeResult, error) {
 	return s.repo.ComputeNetworkEdges(ctx, clusterName)
 }
+
+// BuildTopology — PM 명세서 B-1 (/api/v1/topology)
+func (s *EdgeService) BuildTopology(ctx context.Context, cluster string) (*edge.TopologyResponse, error) {
+	return s.repo.BuildTopology(ctx, cluster)
+}

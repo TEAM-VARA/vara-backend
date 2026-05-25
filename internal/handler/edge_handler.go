@@ -148,3 +148,19 @@ func (h *EdgeHandler) ComputeNetwork(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, result)
 }
+
+// GetTopology — PM 명세서 B-1
+// GET /api/v1/topology?cluster=<name>
+func (h *EdgeHandler) GetTopology(c *gin.Context) {
+	cluster := c.Query("cluster")
+	if cluster == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster query param required"})
+		return
+	}
+	result, err := h.svc.BuildTopology(c.Request.Context(), cluster)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
