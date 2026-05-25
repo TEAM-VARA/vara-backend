@@ -330,3 +330,132 @@ func (s *EdgeService) BuildBlastRadius(ctx context.Context, cluster, source stri
 		BuildMs:    time.Since(start).Milliseconds(),
 	}, nil
 }
+
+// ────────────────────────────────────────────────────
+// Yen's K-Shortest Paths (PM 명세서 B-4)
+// ────────────────────────────────────────────────────
+
+// bfsShortestPath: BFS로 최단 경로 1개 (excluded edge는 건너뜀)
+func bfsShortestPath(adj map[string][]adjEdge, source, target string, excluded map[string]bool) (nodes []string, layers []string, cost float64) {
+	type pathInfo struct {
+		parent string
+		layer  string
+	}
+	visited := map[string]pathInfo{source: {parent: "", layer: ""}}
+	queue := []string{source}
+
+	found := false
+	for len(queue) > 0 && !found {
+		current := queue[0]
+		queue = queue[1:]
+
+		if current == target {
+			found = true
+			break
+		}
+
+		for _, e := range adj[current] {
+			edgeKey := current + "->" + e.target
+			if excluded[edgeKey] {
+				continue
+			}
+			if _, ok := visited[e.target]; !ok {
+				visited[e.target] = pathInfo{parent: current, layer: e.layer}
+				queue = append(queue, e.target)
+			}
+		}
+	}
+
+	if !found {
+		return nil, nil, 0
+	}
+
+	// reconstruct path
+	var path []string
+	var pathLayers []string
+	current := target
+	for current != "" {
+		path = append([]string{current}, path...)
+		info := visited[current]
+		if info.layer != "" {
+			pathLayers = append([]string{info.layer}, pathLayers...)
+		}
+		current = info.parent
+	}
+
+	// cost: Σ (1 / layerWeight)
+	for _, l := range pathLayers {
+		lw, ok := layerWeight[l]
+		if !ok {
+			lw = 0.5
+		}
+		cost += 1.0 / lw
+	}
+
+	return path, pathLayers, cost
+}
+
+// kShortestPaths: K개의 최단 경로 (이전 경로의 edge 제외하면서)
+func kShortestPaths(adj map[string][]adjEdge, source, target string, k int) []edge.PathResult {
+	excluded := make(map[string]bool)
+	var results []edge.PathResult
+
+	for i := 0; i < k; i++ {
+		path, layers, cost := bfsShortestPath(adj, source, target, excluded)
+		if path == nil {
+			break
+		}
+
+		results = append(results, edge.PathResult{
+			Rank:   i + 1,
+			Hops:   len(path) - 1,
+			Nodes:  path,
+			Layers: layers,
+			Cost:   cost,
+		})
+
+		// 이전 경로의 모든 edge 제외 (다음 경로는 우회)
+		for j := 0; j < len(path)-1; j++ {
+			edgeKey := path[j] + "->" + path[j+1]
+			excluded[edgeKey] = true
+		}
+	}
+	return results
+}
+
+// BuildAttackPaths: PM 명세서 B-4 (/api/v1/topology/top-paths)
+func (s *EdgeService) BuildAttackPaths(ctx context.Context, cluster, source, target string, k int) (*edge.AttackPathsResponse, error) {
+	start := time.Now()
+
+	topo, err := s.repo.BuildTopology(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	adj := buildAdjacency(topo.Edges)
+	paths := kShortestPaths(adj, source, target, k)
+
+	// 노드 라벨 매핑
+	nameMap := make(map[string]string, len(topo.Nodes))
+	for _, n := range topo.Nodes {
+		nameMap[n.ID] = n.Label
+	}
+	for i := range paths {
+		paths[i].Labels = make([]string, len(paths[i].Nodes))
+		for j, nodeID := range paths[i].Nodes {
+			if name, ok := nameMap[nodeID]; ok {
+				paths[i].Labels[j] = name
+			} else {
+				paths[i].Labels[j] = nodeID
+			}
+		}
+	}
+
+	return &edge.AttackPathsResponse{
+		Source:  source,
+		Target:  target,
+		K:       k,
+		Paths:   paths,
+		BuildMs: time.Since(start).Milliseconds(),
+	}, nil
+}

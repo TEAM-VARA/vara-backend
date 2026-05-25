@@ -290,3 +290,24 @@ type ReachableNode struct {
 	Hop      int    `json:"hop"`
 	Layer    string `json:"layer"`
 }
+
+// ────────────────────────────────────────────────────
+// Attack Paths API 응답 (PM 명세서 B-3/B-4)
+// ────────────────────────────────────────────────────
+
+type AttackPathsResponse struct {
+	Source  string       `json:"source"`
+	Target  string       `json:"target"`
+	K       int          `json:"k"`
+	Paths   []PathResult `json:"paths"`
+	BuildMs int64        `json:"buildMs"`
+}
+
+type PathResult struct {
+	Rank   int      `json:"rank"`
+	Hops   int      `json:"hops"`
+	Nodes  []string `json:"nodes"`  // 노드 ID 시퀀스
+	Labels []string `json:"labels"` // 사용자 친화 이름
+	Layers []string `json:"layers"` // 각 hop의 layer
+	Cost   float64  `json:"cost"`
+}
