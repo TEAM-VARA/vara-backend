@@ -79,14 +79,14 @@ func (h *EdgeHandler) GetByCluster(c *gin.Context) {
 // 특정 Pod이 source 또는 target인 edges (최신 snapshot).
 func (h *EdgeHandler) GetByPod(c *gin.Context) {
 	podUID := c.Param("pod_uid")
-	clusterName := c.Query("cluster_name")
+	clusterName := c.Param("cluster_name")
 
 	if podUID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "pod_uid required"})
 		return
 	}
 	if clusterName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster_name query param required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster_name required"})
 		return
 	}
 
