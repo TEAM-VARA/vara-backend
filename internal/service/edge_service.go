@@ -618,3 +618,166 @@ func (s *EdgeService) BuildCriticality(ctx context.Context, cluster string, topN
 		BuildMs:   time.Since(start).Milliseconds(),
 	}, nil
 }
+
+// ────────────────────────────────────────────────────
+// Union-Find (자체 구현, path compression + union by rank)
+// ────────────────────────────────────────────────────
+
+type UnionFind struct {
+	parent map[string]string
+	rank   map[string]int
+}
+
+func NewUnionFind() *UnionFind {
+	return &UnionFind{
+		parent: make(map[string]string),
+		rank:   make(map[string]int),
+	}
+}
+
+// MakeSet: 새 요소 추가
+func (uf *UnionFind) MakeSet(x string) {
+	if _, exists := uf.parent[x]; exists {
+		return
+	}
+	uf.parent[x] = x
+	uf.rank[x] = 0
+}
+
+// Find: 루트 찾기 (path compression)
+func (uf *UnionFind) Find(x string) string {
+	if uf.parent[x] != x {
+		uf.parent[x] = uf.Find(uf.parent[x]) // 경로 압축
+	}
+	return uf.parent[x]
+}
+
+// Union: 두 집합 합치기 (union by rank)
+func (uf *UnionFind) Union(x, y string) {
+	rootX := uf.Find(x)
+	rootY := uf.Find(y)
+	if rootX == rootY {
+		return
+	}
+
+	if uf.rank[rootX] < uf.rank[rootY] {
+		uf.parent[rootX] = rootY
+	} else if uf.rank[rootX] > uf.rank[rootY] {
+		uf.parent[rootY] = rootX
+	} else {
+		uf.parent[rootY] = rootX
+		uf.rank[rootX]++
+	}
+}
+
+// Groups: 모든 그룹 반환 (root → members)
+func (uf *UnionFind) Groups() map[string][]string {
+	groups := make(map[string][]string)
+	for x := range uf.parent {
+		root := uf.Find(x)
+		groups[root] = append(groups[root], x)
+	}
+	return groups
+}
+
+// BuildPodClusters: Union-Find로 Pod 그룹화
+func (s *EdgeService) BuildPodClusters(ctx context.Context, cluster, groupBy string) (*edge.ClustersResponse, error) {
+	start := time.Now()
+
+	topo, err := s.repo.BuildTopology(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	uf := NewUnionFind()
+
+	// Pod 노드만 MakeSet
+	podLabels := make(map[string]string)
+	for _, n := range topo.Nodes {
+		if n.Kind == "pod" {
+			uf.MakeSet(n.ID)
+			podLabels[n.ID] = n.Label
+		}
+	}
+
+	// 지정된 edge_type으로 Union
+	var targetEdgeType string
+	switch groupBy {
+	case "image":
+		targetEdgeType = "shares_image"
+	case "cve":
+		targetEdgeType = "shares_cve"
+	default:
+		targetEdgeType = "shares_image"
+	}
+
+	for _, e := range topo.Edges {
+		if e.EdgeType != targetEdgeType {
+			continue
+		}
+		// 양쪽 다 Pod인지 확인
+		if _, ok := podLabels[e.Source]; !ok {
+			continue
+		}
+		if _, ok := podLabels[e.Target]; !ok {
+			continue
+		}
+		uf.Union(e.Source, e.Target)
+	}
+
+	// 그룹화 결과 정리
+	rawGroups := uf.Groups()
+
+	groups := make([]edge.PodGroup, 0, len(rawGroups))
+	groupID := 1
+	totalPods := 0
+	largestGroup := 0
+	singletonCount := 0
+
+	for _, members := range rawGroups {
+		if len(members) == 1 {
+			singletonCount++
+			continue // 1개짜리는 제외 (선택)
+		}
+		labels := make([]string, len(members))
+		for i, podID := range members {
+			labels[i] = podLabels[podID]
+		}
+		// 라벨 정렬
+		sort.Strings(labels)
+		sort.Strings(members)
+
+		groups = append(groups, edge.PodGroup{
+			GroupID:   groupID,
+			Size:      len(members),
+			PodIDs:    members,
+			PodLabels: labels,
+		})
+		totalPods += len(members)
+		if len(members) > largestGroup {
+			largestGroup = len(members)
+		}
+		groupID++
+	}
+
+	// size 큰 순으로 정렬
+	sort.Slice(groups, func(i, j int) bool {
+		return groups[i].Size > groups[j].Size
+	})
+
+	// 재번호화
+	for i := range groups {
+		groups[i].GroupID = i + 1
+	}
+
+	return &edge.ClustersResponse{
+		Cluster:        cluster,
+		GroupBy:        groupBy,
+		TotalGroups:    len(groups),
+		TotalPods:      totalPods,
+		LargestGroup:   largestGroup,
+		SingletonCount: singletonCount,
+		Groups:         groups,
+		BuildMs:        time.Since(start).Milliseconds(),
+	}, nil
+}

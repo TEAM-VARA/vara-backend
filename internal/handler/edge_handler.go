@@ -277,3 +277,26 @@ func (h *EdgeHandler) GetCriticality(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, result)
 }
+
+// GetClusters — Union-Find Pod grouping
+// GET /api/v1/topology/clusters?cluster=<>&groupBy=image|cve
+func (h *EdgeHandler) GetClusters(c *gin.Context) {
+	cluster := c.Query("cluster")
+	groupBy := c.DefaultQuery("groupBy", "image")
+
+	if cluster == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster query param required"})
+		return
+	}
+	if groupBy != "image" && groupBy != "cve" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "groupBy must be 'image' or 'cve'"})
+		return
+	}
+
+	result, err := h.svc.BuildPodClusters(c.Request.Context(), cluster, groupBy)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}

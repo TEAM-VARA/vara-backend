@@ -345,3 +345,26 @@ type NodeCriticality struct {
 	Score     float64 `json:"score"`
 	Rank      int     `json:"rank"`
 }
+
+// ────────────────────────────────────────────────────
+// Image/CVE Clusters API (Union-Find)
+// ────────────────────────────────────────────────────
+
+type ClustersResponse struct {
+	Cluster        string         `json:"cluster"`
+	GroupBy        string         `json:"groupBy"` // "image" 또는 "cve"
+	TotalGroups    int            `json:"totalGroups"`
+	TotalPods      int            `json:"totalPods"`
+	LargestGroup   int            `json:"largestGroup"`
+	SingletonCount int            `json:"singletonCount"`
+	Groups         []PodGroup     `json:"groups"`
+	BuildMs        int64          `json:"buildMs"`
+}
+
+type PodGroup struct {
+	GroupID   int      `json:"groupId"`
+	Size      int      `json:"size"`
+	PodIDs    []string `json:"podIds"`
+	PodLabels []string `json:"podLabels"`
+	SharedKey string   `json:"sharedKey,omitempty"` // 공유 이미지 digest 또는 CVE ID
+}

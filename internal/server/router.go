@@ -62,6 +62,7 @@ func newRouter(
 		api.GET("/topology/top-paths", edge.GetAttackPaths)
 		api.GET("/topology/layer-paths", edge.GetLayerPaths)
 		api.GET("/topology/criticality", edge.GetCriticality)
+		api.GET("/topology/clusters", edge.GetClusters)
 
 		// ── 기존 Risk Scoring ──
 		api.POST("/pods/:pod_id/risk", scoring.ComputeRisk)
