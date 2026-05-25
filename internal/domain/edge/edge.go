@@ -311,3 +311,16 @@ type PathResult struct {
 	Layers []string `json:"layers"` // 각 hop의 layer
 	Cost   float64  `json:"cost"`
 }
+
+// ────────────────────────────────────────────────────
+// Layer-Constrained Paths API
+// ────────────────────────────────────────────────────
+
+type LayerPathsResponse struct {
+	Source     string       `json:"source"`
+	Target     string       `json:"target"`
+	AllowedLayers []string  `json:"allowedLayers"`
+	MaxDepth   int          `json:"maxDepth"`
+	Paths      []PathResult `json:"paths"`
+	BuildMs    int64        `json:"buildMs"`
+}

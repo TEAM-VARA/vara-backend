@@ -410,3 +410,137 @@ func (s *EdgeService) BuildAttackPaths(ctx context.Context, cluster, source, tar
 		BuildMs: time.Since(start).Milliseconds(),
 	}, nil
 }
+
+// ────────────────────────────────────────────────────
+// DFS Constrained — Layer 필터 경로 탐색
+// ────────────────────────────────────────────────────
+
+// dfsLayerConstrained: DFS로 layer 필터링된 모든 경로 찾기 (최대 depth 제한)
+func dfsLayerConstrained(
+	bg *BlastGraph,
+	current, target string,
+	allowedLayers map[string]bool,
+	visited map[string]bool,
+	currentPath []string,
+	currentLayers []string,
+	maxDepth int,
+	results *[]edge.PathResult,
+	maxResults int,
+) {
+	if len(*results) >= maxResults {
+		return
+	}
+	if current == target {
+		// 경로 완성
+		pathCopy := make([]string, len(currentPath))
+		copy(pathCopy, currentPath)
+		layersCopy := make([]string, len(currentLayers))
+		copy(layersCopy, currentLayers)
+
+		labels := make([]string, len(pathCopy))
+		cost := 0.0
+		for i, id := range pathCopy {
+			lbl := bg.Label(id)
+			if lbl == "" {
+				lbl = id
+			}
+			labels[i] = lbl
+		}
+		for _, l := range layersCopy {
+			lw, ok := GraphLayerWeight[l]
+			if !ok {
+				lw = 0.5
+			}
+			cost += 1.0 / lw
+		}
+
+		*results = append(*results, edge.PathResult{
+			Rank:   len(*results) + 1,
+			Hops:   len(pathCopy) - 1,
+			Nodes:  pathCopy,
+			Labels: labels,
+			Layers: layersCopy,
+			Cost:   cost,
+		})
+		return
+	}
+	if len(currentPath) > maxDepth {
+		return
+	}
+
+	// 현재 노드의 이웃들 탐색
+	currentNode := bg.NodeByID(current)
+	if currentNode == nil {
+		return
+	}
+	g := bg.GonumGraph()
+	iter := g.From(currentNode.ID())
+	for iter.Next() {
+		nbr := iter.Node()
+		nbrID := bg.IDByNode(nbr)
+		if visited[nbrID] {
+			continue
+		}
+
+		// layer 필터
+		layer := bg.EdgeLayer(current, nbrID)
+		if !allowedLayers[layer] {
+			continue
+		}
+
+		visited[nbrID] = true
+		dfsLayerConstrained(
+			bg, nbrID, target, allowedLayers, visited,
+			append(currentPath, nbrID),
+			append(currentLayers, layer),
+			maxDepth, results, maxResults,
+		)
+		delete(visited, nbrID)
+	}
+}
+
+// BuildLayerPaths: 특정 layer만 사용해서 경로 찾기
+func (s *EdgeService) BuildLayerPaths(
+	ctx context.Context, cluster, source, target string,
+	allowedLayers []string, maxDepth int,
+) (*edge.LayerPathsResponse, error) {
+	start := time.Now()
+
+	topo, err := s.repo.BuildTopology(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	bg := BuildBlastGraph(topo)
+
+	allowedMap := make(map[string]bool)
+	for _, l := range allowedLayers {
+		allowedMap[l] = true
+	}
+
+	results := []edge.PathResult{}
+	visited := map[string]bool{source: true}
+	dfsLayerConstrained(
+		bg, source, target, allowedMap, visited,
+		[]string{source}, []string{},
+		maxDepth, &results, 10, // 최대 10개 경로
+	)
+
+	// cost 순으로 정렬
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Cost < results[j].Cost
+	})
+	// rank 재설정
+	for i := range results {
+		results[i].Rank = i + 1
+	}
+
+	return &edge.LayerPathsResponse{
+		Source:        source,
+		Target:        target,
+		AllowedLayers: allowedLayers,
+		MaxDepth:      maxDepth,
+		Paths:         results,
+		BuildMs:       time.Since(start).Milliseconds(),
+	}, nil
+}
