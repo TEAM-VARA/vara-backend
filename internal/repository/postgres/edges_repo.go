@@ -1149,7 +1149,6 @@ func (r *EdgesRepo) BuildTopology(ctx context.Context, cluster string) (*edge.To
 	}, nil
 }
 
-// fetchPodNodes — Pod 노드를 cluster_pods + final_scores JOIN으로 추출
 func (r *EdgesRepo) fetchPodNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
 	const q = `
 		SELECT 
@@ -1163,13 +1162,16 @@ func (r *EdgesRepo) fetchPodNodes(ctx context.Context, cluster string) ([]edge.T
 			COALESCE(fs.risk_level, 'safe') AS risk_level,
 			COALESCE(fs.used_top_cve, '') AS top_cve
 		FROM cluster_pods cp
-		LEFT JOIN final_scores fs 
-		  ON fs.pod_uid = cp.pod_uid 
-		 AND fs.cluster_name = cp.cluster_name
-		 AND fs.snapshot_at = (
-		     SELECT MAX(snapshot_at) FROM final_scores 
-		     WHERE cluster_name = cp.cluster_name AND pod_uid = cp.pod_uid
-		 )
+		LEFT JOIN LATERAL (
+			SELECT final_score, risk_level, used_top_cve
+			FROM final_scores
+			WHERE cluster_name = cp.cluster_name
+			  AND used_image_digest IS NOT NULL
+			  AND used_image_digest != ''
+			  AND used_image_digest = cp.containers->0->>'image_digest'
+			ORDER BY snapshot_at DESC, final_score DESC NULLS LAST
+			LIMIT 1
+		) fs ON true
 		WHERE cp.cluster_name = $1
 		  AND cp.snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
 		ORDER BY cp.namespace, cp.name
