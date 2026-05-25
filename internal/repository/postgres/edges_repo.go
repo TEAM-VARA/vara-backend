@@ -991,8 +991,8 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			1, 0.6,
 			$2::timestamptz, NOW()
 		FROM latest_services s
-		JOIN latest_pods p ON p.namespace = s.svc_namespace
-		                  AND p.labels @> s.selector
+		JOIN latest_pods p ON p.pod_namespace = s.svc_namespace
+                  AND p.labels @> s.selector
 		ON CONFLICT DO NOTHING
 	`
 	tag1, err := r.pool.Exec(ctx, qSelectedBy, clusterName, snapAt)
