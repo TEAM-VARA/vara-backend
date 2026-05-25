@@ -396,31 +396,87 @@ func bfsShortestPath(adj map[string][]adjEdge, source, target string, excluded m
 }
 
 // kShortestPaths: K개의 최단 경로 (이전 경로의 edge 제외하면서)
+// kShortestPaths: 첫 경로 = BFS shortest, 이후는 각 edge를 하나씩 제외하면서 새 경로 찾기
 func kShortestPaths(adj map[string][]adjEdge, source, target string, k int) []edge.PathResult {
-	excluded := make(map[string]bool)
 	var results []edge.PathResult
 
-	for i := 0; i < k; i++ {
-		path, layers, cost := bfsShortestPath(adj, source, target, excluded)
-		if path == nil {
+	// 첫 경로
+	firstPath, firstLayers, firstCost := bfsShortestPath(adj, source, target, nil)
+	if firstPath == nil {
+		return results
+	}
+
+	results = append(results, edge.PathResult{
+		Rank:   1,
+		Hops:   len(firstPath) - 1,
+		Nodes:  firstPath,
+		Layers: firstLayers,
+		Cost:   firstCost,
+	})
+
+	// 이후 경로: 이전 발견된 경로들의 각 edge를 하나씩 제외하면서 새 경로 시도
+	for len(results) < k {
+		var bestNewPath []string
+		var bestNewLayers []string
+		bestCost := math.MaxFloat64
+		found := false
+
+		// 각 발견된 경로의 각 edge를 하나씩 제외해보기
+		for _, existing := range results {
+			for j := 0; j < len(existing.Nodes)-1; j++ {
+				excluded := map[string]bool{
+					existing.Nodes[j] + "->" + existing.Nodes[j+1]: true,
+				}
+
+				path, layers, cost := bfsShortestPath(adj, source, target, excluded)
+				if path == nil {
+					continue
+				}
+
+				// 중복 체크
+				if !pathAlreadyExists(results, path) && cost < bestCost {
+					bestNewPath = path
+					bestNewLayers = layers
+					bestCost = cost
+					found = true
+				}
+			}
+		}
+
+		if !found {
 			break
 		}
 
 		results = append(results, edge.PathResult{
-			Rank:   i + 1,
-			Hops:   len(path) - 1,
-			Nodes:  path,
-			Layers: layers,
-			Cost:   cost,
+			Rank:   len(results) + 1,
+			Hops:   len(bestNewPath) - 1,
+			Nodes:  bestNewPath,
+			Layers: bestNewLayers,
+			Cost:   bestCost,
 		})
+	}
 
-		// 이전 경로의 모든 edge 제외 (다음 경로는 우회)
-		for j := 0; j < len(path)-1; j++ {
-			edgeKey := path[j] + "->" + path[j+1]
-			excluded[edgeKey] = true
+	return results
+}
+
+// pathAlreadyExists: 같은 노드 시퀀스의 경로가 이미 있는지
+func pathAlreadyExists(results []edge.PathResult, newPath []string) bool {
+	for _, r := range results {
+		if len(r.Nodes) != len(newPath) {
+			continue
+		}
+		match := true
+		for i := range r.Nodes {
+			if r.Nodes[i] != newPath[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
 		}
 	}
-	return results
+	return false
 }
 
 // BuildAttackPaths: PM 명세서 B-4 (/api/v1/topology/top-paths)
