@@ -1200,28 +1200,36 @@ func (r *EdgesRepo) fetchPodNodes(ctx context.Context, cluster string) ([]edge.T
 func (r *EdgesRepo) fetchOtherNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
 	const q = `
 		WITH non_pod_nodes AS (
-			-- source 측 (sa, service, ingress 등)
+			-- source 측: service_account, service, ingress, role, cluster_role
 			SELECT DISTINCT
 				source_pod_uid AS id,
-				source_kind AS kind,
+				CASE source_kind 
+					WHEN 'service_account' THEN 'sa'
+					WHEN 'cluster_role' THEN 'crole'
+					ELSE source_kind
+				END AS kind,
 				source_name AS label,
 				source_namespace AS ns
 			FROM edges
 			WHERE cluster_name = $1
-			  AND source_kind IN ('sa', 'service', 'ingress', 'role', 'crole')
+			  AND source_kind IN ('service_account', 'service', 'ingress', 'role', 'cluster_role')
 			  AND source_pod_uid IS NOT NULL
 			
 			UNION
 			
-			-- target 측 (sa, role, crole, image, cve, service)
+			-- target 측: SA/Role 가상 노드
 			SELECT DISTINCT
 				target_service_name AS id,
-				target_kind AS kind,
+				CASE target_kind 
+					WHEN 'service_account' THEN 'sa'
+					WHEN 'cluster_role' THEN 'crole'
+					ELSE target_kind
+				END AS kind,
 				target_name AS label,
 				target_namespace AS ns
 			FROM edges
 			WHERE cluster_name = $1
-			  AND target_kind IN ('sa', 'role', 'crole', 'service', 'image', 'cve')
+			  AND target_kind IN ('service_account', 'role', 'cluster_role', 'service', 'image', 'cve')
 			  AND target_service_name IS NOT NULL
 			  AND target_service_name != ''
 			  AND target_pod_uid IS NULL

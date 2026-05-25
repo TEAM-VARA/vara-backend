@@ -244,7 +244,7 @@ type TopologyNode struct {
 	ServiceAccount string  `json:"serviceAccount,omitempty"`
 	ImageTag       string  `json:"imageTag,omitempty"`
 	ImageDigest    string  `json:"imageDigest,omitempty"`
-	RiskScore      float64 `json:"riskScore,omitempty"`
+	RiskScore      float64 `json:"riskScore"`
 	RiskLevel      string  `json:"riskLevel,omitempty"`
 	TopCVE         string  `json:"topCve,omitempty"`
 	IsExposed      bool    `json:"isExposed,omitempty"`
