@@ -656,7 +656,7 @@ func (r *EdgesRepo) ComputeIdentityEdges(ctx context.Context, clusterName string
 			'sa:' || namespace || '/' || service_account,
 			'identity', 'assumes', 'declared',
 			1, 0.7,
-			$2, NOW()
+			$2::timestamptz, NOW()
 		FROM latest_pods
 		ON CONFLICT DO NOTHING
 	`
@@ -702,7 +702,7 @@ func (r *EdgesRepo) ComputeIdentityEdges(ctx context.Context, clusterName string
 			END,
 			'identity', 'binds', 'declared',
 			1, 0.7,
-			$2, NOW()
+			$2::timestamptz, NOW()
 		FROM latest_rb rb,
 		     jsonb_array_elements(rb.subjects) subj
 		WHERE subj->>'kind' = 'ServiceAccount'
@@ -746,7 +746,7 @@ func (r *EdgesRepo) ComputeIdentityEdges(ctx context.Context, clusterName string
 			'crole:' || (crb.role_ref->>'name'),
 			'identity', 'binds', 'declared',
 			1, 0.7,
-			$2, NOW()
+			$2::timestamptz, NOW()
 		FROM latest_crb crb,
 		     jsonb_array_elements(crb.subjects) subj
 		WHERE subj->>'kind' = 'ServiceAccount'
