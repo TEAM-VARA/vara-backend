@@ -6,6 +6,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/vara/backend/internal/service"
+
+	 "strconv"
 )
 
 // ────────────────────────────────────────────────────
@@ -158,6 +160,33 @@ func (h *EdgeHandler) GetTopology(c *gin.Context) {
 		return
 	}
 	result, err := h.svc.BuildTopology(c.Request.Context(), cluster)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// GetBlastRadius — PM 명세서 B-2
+// GET /api/v1/topology/blast-radius?cluster=<name>&source=<pod_uid>&hops=<1|2|3>
+func (h *EdgeHandler) GetBlastRadius(c *gin.Context) {
+	cluster := c.Query("cluster")
+	source := c.Query("source")
+	hopsStr := c.DefaultQuery("hops", "3")
+
+	if cluster == "" || source == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "cluster and source query params required",
+		})
+		return
+	}
+
+	hops, err := strconv.Atoi(hopsStr)
+	if err != nil || hops < 1 || hops > 5 {
+		hops = 3
+	}
+
+	result, err := h.svc.BuildBlastRadius(c.Request.Context(), cluster, source, hops)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

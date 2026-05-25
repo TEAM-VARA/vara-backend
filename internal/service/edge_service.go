@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"math"
+	"sort"
 
 	"github.com/vara/backend/internal/domain/edge"
 	"github.com/vara/backend/internal/repository/postgres"
@@ -176,4 +178,155 @@ func (s *EdgeService) ComputeNetwork(ctx context.Context, clusterName string) (*
 // BuildTopology — PM 명세서 B-1 (/api/v1/topology)
 func (s *EdgeService) BuildTopology(ctx context.Context, cluster string) (*edge.TopologyResponse, error) {
 	return s.repo.BuildTopology(ctx, cluster)
+}
+
+// ────────────────────────────────────────────────────
+// Blast Radius (BFS K-Hop) — PM 명세서 B-2
+// ────────────────────────────────────────────────────
+
+// 레이어별 가중치 (PM 명세서)
+var layerWeight = map[string]float64{
+	"network":      1.0,
+	"identity":     0.85,
+	"supply_chain": 0.7,
+	"host":         0.5,
+}
+
+// 인접 리스트 edge
+type adjEdge struct {
+	target string
+	layer  string
+}
+
+// buildAdjacency: topology edges로부터 인접 리스트 구축
+func buildAdjacency(edges []edge.TopologyEdge) map[string][]adjEdge {
+	adj := make(map[string][]adjEdge)
+	for _, e := range edges {
+		adj[e.Source] = append(adj[e.Source], adjEdge{
+			target: e.Target,
+			layer:  e.Layer,
+		})
+		// 양방향 traversal (supply_chain 같은 양방향 edge 고려)
+		adj[e.Target] = append(adj[e.Target], adjEdge{
+			target: e.Source,
+			layer:  e.Layer,
+		})
+	}
+	return adj
+}
+
+// bfsKHop: source에서 maxHops 내 도달 가능한 모든 노드 + 첫 hop의 layer
+func bfsKHop(adj map[string][]adjEdge, source string, maxHops int) []edge.ReachableNode {
+	type visitInfo struct {
+		hop   int
+		layer string
+	}
+	visited := map[string]visitInfo{source: {hop: 0, layer: ""}}
+	queue := []string{source}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		currentHop := visited[current].hop
+		if currentHop >= maxHops {
+			continue
+		}
+
+		for _, e := range adj[current] {
+			if _, ok := visited[e.target]; !ok {
+				visited[e.target] = visitInfo{
+					hop:   currentHop + 1,
+					layer: e.layer,
+				}
+				queue = append(queue, e.target)
+			}
+		}
+	}
+
+	reachable := make([]edge.ReachableNode, 0, len(visited)-1)
+	for nodeID, info := range visited {
+		if info.hop == 0 {
+			continue // source 자기 자신 제외
+		}
+		reachable = append(reachable, edge.ReachableNode{
+			NodeID: nodeID,
+			Hop:    info.hop,
+			Layer:  info.layer,
+		})
+	}
+
+	// hop 오름차순, 같은 hop이면 layer 알파벳순
+	sort.Slice(reachable, func(i, j int) bool {
+		if reachable[i].Hop != reachable[j].Hop {
+			return reachable[i].Hop < reachable[j].Hop
+		}
+		return reachable[i].Layer < reachable[j].Layer
+	})
+
+	return reachable
+}
+
+// computeBlastScore: Σ (0.6^(hop-1) × layerWeight × criticality)
+func computeBlastScore(reachable []edge.ReachableNode) float64 {
+	score := 0.0
+	for _, r := range reachable {
+		decay := math.Pow(0.6, float64(r.Hop-1))
+		lw, ok := layerWeight[r.Layer]
+		if !ok {
+			lw = 0.5 // 미지정 layer 기본값
+		}
+		crit := 1.0 // 기본 criticality (현재 데이터에 criticality 없음)
+		score += decay * lw * crit
+	}
+	return math.Min(25.0, score)
+}
+
+// BuildBlastRadius: source Pod에서 maxHops 내 영향 범위 계산
+func (s *EdgeService) BuildBlastRadius(ctx context.Context, cluster, source string, hops int) (*edge.BlastRadiusResponse, error) {
+	start := time.Now()
+
+	// 1. topology 데이터 가져오기
+	topo, err := s.repo.BuildTopology(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. 인접 리스트 빌드
+	adj := buildAdjacency(topo.Edges)
+
+	// 3. BFS K-hop
+	reachable := bfsKHop(adj, source, hops)
+
+	// 4. 노드 이름/종류 매핑
+	nameMap := make(map[string]string, len(topo.Nodes))
+	kindMap := make(map[string]string, len(topo.Nodes))
+	for _, n := range topo.Nodes {
+		nameMap[n.ID] = n.Label
+		kindMap[n.ID] = n.Kind
+	}
+	for i := range reachable {
+		reachable[i].NodeName = nameMap[reachable[i].NodeID]
+		reachable[i].NodeKind = kindMap[reachable[i].NodeID]
+	}
+
+	// 5. Blast score
+	score := computeBlastScore(reachable)
+
+	// 6. by_layer 카운트
+	byLayer := make(map[string]int)
+	for _, r := range reachable {
+		byLayer[r.Layer]++
+	}
+
+	return &edge.BlastRadiusResponse{
+		Source:     source,
+		Hops:       hops,
+		BlastScore: score,
+		OutOf:      25.0,
+		Reachable:  reachable,
+		TotalCount: len(reachable),
+		ByLayer:    byLayer,
+		BuildMs:    time.Since(start).Milliseconds(),
+	}, nil
 }

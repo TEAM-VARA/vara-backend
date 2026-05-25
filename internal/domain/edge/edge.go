@@ -267,3 +267,26 @@ type TopologyMeta struct {
 	SnapshotAt time.Time `json:"snapshotAt,omitempty"`
 	BuildMs    int64     `json:"buildMs"`
 }
+
+// ────────────────────────────────────────────────────
+// Blast Radius API 응답 (PM 명세서 B-2)
+// ────────────────────────────────────────────────────
+
+type BlastRadiusResponse struct {
+	Source     string          `json:"source"`
+	Hops       int             `json:"hops"`
+	BlastScore float64         `json:"blastScore"`
+	OutOf      float64         `json:"outOf"`
+	Reachable  []ReachableNode `json:"reachable"`
+	TotalCount int             `json:"totalCount"`
+	ByLayer    map[string]int  `json:"byLayer"`
+	BuildMs    int64           `json:"buildMs"`
+}
+
+type ReachableNode struct {
+	NodeID   string `json:"nodeId"`
+	NodeKind string `json:"nodeKind"`
+	NodeName string `json:"nodeName"`
+	Hop      int    `json:"hop"`
+	Layer    string `json:"layer"`
+}
