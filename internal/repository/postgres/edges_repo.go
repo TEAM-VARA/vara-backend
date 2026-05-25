@@ -308,38 +308,38 @@ func (r *EdgesRepo) UpsertEdges(
 // ListByCluster — 클러스터의 모든 edges (최신 snapshot)
 func (r *EdgesRepo) ListByCluster(ctx context.Context, clusterName string) ([]edge.Edge, error) {
 	const q = `
-		WITH latest_per_combo AS (
-    SELECT DISTINCT ON (layer, edge_type) 
-        layer, edge_type, snapshot_at AS snap
-    FROM edges 
-    WHERE cluster_name = $1
-    ORDER BY layer, edge_type, snapshot_at DESC
-)
-SELECT
-    id, cluster_name,
-    source_pod_uid,
-    COALESCE(target_pod_uid, '')                         AS target_pod_uid,
-    layer,
-    weight, traffic_weight,
-    COALESCE(source_name, ''), COALESCE(source_namespace, ''),
-    COALESCE(target_name, ''), COALESCE(target_namespace, ''),
-    first_seen_at, last_seen_at,
-    snapshot_at, computed_at,
-    COALESCE(source_kind, 'pod')                          AS source_kind,
-    COALESCE(target_kind, 'pod')                          AS target_kind,
-    COALESCE(target_type, 'pod')                          AS target_type,
-    COALESCE(target_service_name, '')                     AS target_service_name,
-    COALESCE(edge_type, 'can_reach')                      AS edge_type,
-    COALESCE(mode, 'observed')                            AS mode,
-    COALESCE(total_bytes, 0)                              AS total_bytes
-FROM edges e
-JOIN latest_per_combo lpc 
-  ON e.layer = lpc.layer 
- AND e.edge_type = lpc.edge_type 
- AND e.snapshot_at = lpc.snap
-WHERE e.cluster_name = $1
-ORDER BY layer, edge_type, weight DESC
-	`
+    WITH latest_per_combo AS (
+        SELECT DISTINCT ON (layer, edge_type) 
+            layer, edge_type, snapshot_at AS snap
+        FROM edges 
+        WHERE cluster_name = $1
+        ORDER BY layer, edge_type, snapshot_at DESC
+    )
+    SELECT
+        e.id, e.cluster_name,
+        e.source_pod_uid,
+        COALESCE(e.target_pod_uid, '')                         AS target_pod_uid,
+        e.layer,
+        e.weight, e.traffic_weight,
+        COALESCE(e.source_name, ''), COALESCE(e.source_namespace, ''),
+        COALESCE(e.target_name, ''), COALESCE(e.target_namespace, ''),
+        e.first_seen_at, e.last_seen_at,
+        e.snapshot_at, e.computed_at,
+        COALESCE(e.source_kind, 'pod')                          AS source_kind,
+        COALESCE(e.target_kind, 'pod')                          AS target_kind,
+        COALESCE(e.target_type, 'pod')                          AS target_type,
+        COALESCE(e.target_service_name, '')                     AS target_service_name,
+        COALESCE(e.edge_type, 'can_reach')                      AS edge_type,
+        COALESCE(e.mode, 'observed')                            AS mode,
+        COALESCE(e.total_bytes, 0)                              AS total_bytes
+    FROM edges e
+    JOIN latest_per_combo lpc 
+      ON e.layer = lpc.layer 
+     AND e.edge_type = lpc.edge_type 
+     AND e.snapshot_at = lpc.snap
+    WHERE e.cluster_name = $1
+    ORDER BY e.layer, e.edge_type, e.weight DESC
+`
 
 	rows, err := r.pool.Query(ctx, q, clusterName)
 	if err != nil {
@@ -373,40 +373,39 @@ ORDER BY layer, edge_type, weight DESC
 // ListByPod — 특정 Pod이 source 또는 target인 edges
 func (r *EdgesRepo) ListByPod(ctx context.Context, clusterName, podUID string) ([]edge.Edge, error) {
 	const q = `
-		WITH latest_per_combo AS (
-    	SELECT DISTINCT ON (layer, edge_type) 
-        layer, edge_type, snapshot_at AS snap
-    	FROM edges 
-    	WHERE cluster_name = $1
-    	ORDER BY layer, edge_type, snapshot_at DESC
-		)
-
-		SELECT
-			id, cluster_name,
-			source_pod_uid,
-			COALESCE(target_pod_uid, '')                         AS target_pod_uid,
-			layer,
-			weight, traffic_weight,
-			COALESCE(source_name, ''), COALESCE(source_namespace, ''),
-			COALESCE(target_name, ''), COALESCE(target_namespace, ''),
-			first_seen_at, last_seen_at,
-			snapshot_at, computed_at,
-			COALESCE(source_kind, 'pod')                          AS source_kind,
-			COALESCE(target_kind, 'pod')                          AS target_kind,
-			COALESCE(target_type, 'pod')                          AS target_type,
-			COALESCE(target_service_name, '')                     AS target_service_name,
-			COALESCE(edge_type, 'can_reach')                      AS edge_type,
-			COALESCE(mode, 'observed')                            AS mode,
-			COALESCE(total_bytes, 0)                              AS total_bytes
-		FROM edges e
-		JOIN latest_per_combo lpc 
-  		ON e.layer = lpc.layer 
- 		AND e.edge_type = lpc.edge_type 
- 		AND e.snapshot_at = lpc.snap
-		WHERE e.cluster_name = $1
-  		AND (e.source_pod_uid = $2 OR e.target_pod_uid = $2)
-		ORDER BY layer, edge_type, weight DESC
-	`
+    WITH latest_per_combo AS (
+        SELECT DISTINCT ON (layer, edge_type) 
+            layer, edge_type, snapshot_at AS snap
+        FROM edges 
+        WHERE cluster_name = $1
+        ORDER BY layer, edge_type, snapshot_at DESC
+    )
+    SELECT
+        e.id, e.cluster_name,
+        e.source_pod_uid,
+        COALESCE(e.target_pod_uid, '')                         AS target_pod_uid,
+        e.layer,
+        e.weight, e.traffic_weight,
+        COALESCE(e.source_name, ''), COALESCE(e.source_namespace, ''),
+        COALESCE(e.target_name, ''), COALESCE(e.target_namespace, ''),
+        e.first_seen_at, e.last_seen_at,
+        e.snapshot_at, e.computed_at,
+        COALESCE(e.source_kind, 'pod')                          AS source_kind,
+        COALESCE(e.target_kind, 'pod')                          AS target_kind,
+        COALESCE(e.target_type, 'pod')                          AS target_type,
+        COALESCE(e.target_service_name, '')                     AS target_service_name,
+        COALESCE(e.edge_type, 'can_reach')                      AS edge_type,
+        COALESCE(e.mode, 'observed')                            AS mode,
+        COALESCE(e.total_bytes, 0)                              AS total_bytes
+    FROM edges e
+    JOIN latest_per_combo lpc 
+      ON e.layer = lpc.layer 
+     AND e.edge_type = lpc.edge_type 
+     AND e.snapshot_at = lpc.snap
+    WHERE e.cluster_name = $1
+      AND (e.source_pod_uid = $2 OR e.target_pod_uid = $2)
+    ORDER BY e.layer, e.edge_type, e.weight DESC
+`
 
 	rows, err := r.pool.Query(ctx, q, clusterName, podUID)
 	if err != nil {
