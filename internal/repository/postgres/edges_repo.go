@@ -794,3 +794,137 @@ func (r *EdgesRepo) ComputeIdentityEdges(ctx context.Context, clusterName string
 		DurationMs:  time.Since(start).Milliseconds(),
 	}, nil
 }
+
+// ComputeSupplyChainEdges는 SBOM/CVE 정보로부터 supply_chain layer edges를 적재합니다.
+// 2개 INSERT 실행:
+//  1. shares_image: 같은 image_digest 공유하는 Pod 쌍
+//  2. shares_cve: 다른 image지만 같은 KEV CVE 공유 (cross-image)
+func (r *EdgesRepo) ComputeSupplyChainEdges(ctx context.Context, clusterName string) (*edge.SupplyChainComputeResult, error) {
+	start := time.Now()
+	snapAt := time.Now()
+
+	// ─────────────────────────────────────────────
+	// Step 1: shares_image (같은 이미지)
+	// sboms 테이블로 cluster_pods.containers[].image → image_digest 매핑
+	// ─────────────────────────────────────────────
+	qSharesImage := `
+		WITH pod_digests AS (
+			SELECT DISTINCT cp.pod_uid, cp.pod_name, cp.pod_namespace, s.image_digest
+			FROM (
+				SELECT pod_uid, name AS pod_name, namespace AS pod_namespace,
+				       jsonb_array_elements(containers)->>'image' AS pod_image
+				FROM cluster_pods 
+				WHERE cluster_name = $1
+				  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+			) cp
+			JOIN sboms s ON s.image = cp.pod_image
+		)
+		INSERT INTO edges (
+			cluster_name,
+			source_pod_uid, target_pod_uid,
+			source_name, source_namespace,
+			target_name, target_namespace,
+			source_kind, target_kind,
+			target_type, target_service_name,
+			layer, edge_type, mode,
+			weight, traffic_weight,
+			snapshot_at, computed_at
+		)
+		SELECT
+			$1,
+			a.pod_uid, b.pod_uid,
+			a.pod_name, a.pod_namespace,
+			b.pod_name, b.pod_namespace,
+			'pod', 'pod',
+			'pod',
+			'img:' || LEFT(a.image_digest, 19),
+			'supply_chain', 'shares_image', 'declared',
+			1, 0.6,
+			$2::timestamptz, NOW()
+		FROM pod_digests a 
+		JOIN pod_digests b ON a.image_digest = b.image_digest 
+		                  AND a.pod_uid < b.pod_uid
+		ON CONFLICT DO NOTHING
+	`
+	tag1, err := r.pool.Exec(ctx, qSharesImage, clusterName, snapAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert shares_image: %w", err)
+	}
+	sharesImageInserted := tag1.RowsAffected()
+
+	// ─────────────────────────────────────────────
+	// Step 2: shares_cve (KEV + cross-image)
+	// 각 Pod 쌍당 1개 edge, 대표 CVE를 target_service_name에 라벨
+	// ─────────────────────────────────────────────
+	qSharesCVE := `
+		WITH pod_digests AS (
+			SELECT DISTINCT cp.pod_uid, cp.pod_name, cp.pod_namespace, s.image_digest
+			FROM (
+				SELECT pod_uid, name AS pod_name, namespace AS pod_namespace,
+				       jsonb_array_elements(containers)->>'image' AS pod_image
+				FROM cluster_pods 
+				WHERE cluster_name = $1
+				  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+			) cp
+			JOIN sboms s ON s.image = cp.pod_image
+		),
+		pod_cves AS (
+			SELECT pd.pod_uid, pd.pod_name, pd.pod_namespace, pd.image_digest, cgs.cve_id
+			FROM pod_digests pd
+			JOIN sbom_packages sp ON sp.image_digest = pd.image_digest
+			JOIN package_vulnerabilities pv ON pv.purl = sp.purl
+			JOIN cve_global_scores cgs ON cgs.cve_id = ANY(pv.aliases)
+			WHERE cgs.in_kev = TRUE
+		),
+		pod_pairs AS (
+			SELECT 
+				a.pod_uid AS pod_a, a.pod_name AS name_a, a.pod_namespace AS ns_a,
+				b.pod_uid AS pod_b, b.pod_name AS name_b, b.pod_namespace AS ns_b,
+				MIN(a.cve_id) AS representative_cve
+			FROM pod_cves a 
+			JOIN pod_cves b 
+			  ON a.cve_id = b.cve_id 
+			 AND a.pod_uid < b.pod_uid
+			 AND a.image_digest != b.image_digest
+			GROUP BY a.pod_uid, a.pod_name, a.pod_namespace, 
+			         b.pod_uid, b.pod_name, b.pod_namespace
+		)
+		INSERT INTO edges (
+			cluster_name,
+			source_pod_uid, target_pod_uid,
+			source_name, source_namespace,
+			target_name, target_namespace,
+			source_kind, target_kind,
+			target_type, target_service_name,
+			layer, edge_type, mode,
+			weight, traffic_weight,
+			snapshot_at, computed_at
+		)
+		SELECT 
+			$1,
+			pod_a, pod_b,
+			name_a, ns_a, name_b, ns_b,
+			'pod', 'pod', 'pod',
+			'cve:' || representative_cve,
+			'supply_chain', 'shares_cve', 'declared',
+			1, 0.6,
+			$2::timestamptz, NOW()
+		FROM pod_pairs
+		ON CONFLICT DO NOTHING
+	`
+	tag2, err := r.pool.Exec(ctx, qSharesCVE, clusterName, snapAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert shares_cve: %w", err)
+	}
+	sharesCVEInserted := tag2.RowsAffected()
+
+	return &edge.SupplyChainComputeResult{
+		ClusterName: clusterName,
+		SharesImage: int(sharesImageInserted),
+		SharesCVE:   int(sharesCVEInserted),
+		Total:       int(sharesImageInserted + sharesCVEInserted),
+		SnapshotAt:  snapAt,
+		ComputedAt:  time.Now(),
+		DurationMs:  time.Since(start).Milliseconds(),
+	}, nil
+}

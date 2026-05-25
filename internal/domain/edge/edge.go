@@ -193,3 +193,17 @@ type IdentityComputeResult struct {
 	ComputedAt  time.Time `json:"computedAt"`
 	DurationMs  int64     `json:"durationMs"`
 }
+
+// ────────────────────────────────────────────────────
+// Supply Chain Layer 적재 응답 (Day 3)
+// ────────────────────────────────────────────────────
+
+type SupplyChainComputeResult struct {
+	ClusterName string    `json:"clusterName"`
+	SharesImage int       `json:"sharesImage"` // 같은 image_digest edges
+	SharesCVE   int       `json:"sharesCve"`   // 같은 CVE (KEV, cross-image) edges
+	Total       int       `json:"total"`
+	SnapshotAt  time.Time `json:"snapshotAt"`
+	ComputedAt  time.Time `json:"computedAt"`
+	DurationMs  int64     `json:"durationMs"`
+}

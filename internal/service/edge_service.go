@@ -162,3 +162,8 @@ func (s *EdgeService) ListByPod(ctx context.Context, clusterName, podUID string)
 func (s *EdgeService) ComputeIdentity(ctx context.Context, clusterName string) (*edge.IdentityComputeResult, error) {
 	return s.repo.ComputeIdentityEdges(ctx, clusterName)
 }
+
+// ComputeSupplyChain은 SBOM/CVE 정보로 supply_chain layer edges를 적재합니다.
+func (s *EdgeService) ComputeSupplyChain(ctx context.Context, clusterName string) (*edge.SupplyChainComputeResult, error) {
+	return s.repo.ComputeSupplyChainEdges(ctx, clusterName)
+}

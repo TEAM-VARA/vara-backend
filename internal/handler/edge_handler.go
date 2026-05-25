@@ -115,3 +115,20 @@ func (h *EdgeHandler) ComputeIdentity(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, result)
 }
+
+// ComputeSupplyChain — SBOM/CVE 정보로 supply_chain layer edges 적재
+//
+// POST /api/v1/edges/clusters/:cluster_name/supply-chain/compute
+func (h *EdgeHandler) ComputeSupplyChain(c *gin.Context) {
+	clusterName := c.Param("cluster_name")
+	if clusterName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster_name required"})
+		return
+	}
+	result, err := h.svc.ComputeSupplyChain(c.Request.Context(), clusterName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
