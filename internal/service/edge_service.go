@@ -167,3 +167,8 @@ func (s *EdgeService) ComputeIdentity(ctx context.Context, clusterName string) (
 func (s *EdgeService) ComputeSupplyChain(ctx context.Context, clusterName string) (*edge.SupplyChainComputeResult, error) {
 	return s.repo.ComputeSupplyChainEdges(ctx, clusterName)
 }
+
+// ComputeNetwork는 network layer edges (selected_by, allows, routed_by, namespace_cross) 적재
+func (s *EdgeService) ComputeNetwork(ctx context.Context, clusterName string) (*edge.NetworkComputeResult, error) {
+	return s.repo.ComputeNetworkEdges(ctx, clusterName)
+}

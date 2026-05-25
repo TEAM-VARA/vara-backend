@@ -207,3 +207,18 @@ type SupplyChainComputeResult struct {
 	ComputedAt  time.Time `json:"computedAt"`
 	DurationMs  int64     `json:"durationMs"`
 }
+
+// ────────────────────────────────────────────────────
+// Network Layer 적재 응답 (Day 4)
+// ────────────────────────────────────────────────────
+
+type NetworkComputeResult struct {
+	ClusterName string    `json:"clusterName"`
+	SelectedBy  int       `json:"selectedBy"`
+	Allows      int       `json:"allows"`
+	RoutedBy    int       `json:"routedBy"`
+	Total       int       `json:"total"`
+	SnapshotAt  time.Time `json:"snapshotAt"`
+	ComputedAt  time.Time `json:"computedAt"`
+	DurationMs  int64     `json:"durationMs"`
+}

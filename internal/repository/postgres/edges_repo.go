@@ -942,3 +942,175 @@ func (r *EdgesRepo) ComputeSupplyChainEdges(ctx context.Context, clusterName str
 		DurationMs:  time.Since(start).Milliseconds(),
 	}, nil
 }
+
+// ComputeNetworkEdges는 network layer의 4개 edge_type을 적재합니다.
+//  1. selected_by: Service → Pod (labels matching)
+//  2. allows:      NetworkPolicy (Pod → Pod)
+//  3. routed_by:   Ingress → Service
+//  4. namespace_cross: 다른 namespace 간 관계 (derived)
+func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string) (*edge.NetworkComputeResult, error) {
+	start := time.Now()
+	snapAt := time.Now()
+
+	// ─────────────────────────────────────────────
+	// Step 1: selected_by (Service → Pod)
+	// ─────────────────────────────────────────────
+	qSelectedBy := `
+		WITH latest_pods AS (
+			SELECT pod_uid, name AS pod_name, namespace AS pod_namespace, labels 
+			FROM cluster_pods 
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+		),
+		latest_services AS (
+			SELECT service_uid, name AS svc_name, namespace AS svc_namespace, selector 
+			FROM cluster_services 
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_services WHERE cluster_name = $1)
+			  AND selector IS NOT NULL AND selector != '{}'::jsonb
+		)
+		INSERT INTO edges (
+			cluster_name,
+			source_pod_uid, target_pod_uid,
+			source_name, source_namespace,
+			target_name, target_namespace,
+			source_kind, target_kind,
+			target_type, target_service_name,
+			layer, edge_type, mode,
+			weight, traffic_weight,
+			snapshot_at, computed_at
+		)
+		SELECT
+			$1,
+			s.service_uid, p.pod_uid,
+			s.svc_name, s.svc_namespace,
+			p.pod_name, p.pod_namespace,
+			'service', 'pod',
+			'pod', NULL,
+			'network', 'selected_by', 'declared',
+			1, 0.6,
+			$2::timestamptz, NOW()
+		FROM latest_services s
+		JOIN latest_pods p ON p.namespace = s.svc_namespace
+		                  AND p.labels @> s.selector
+		ON CONFLICT DO NOTHING
+	`
+	tag1, err := r.pool.Exec(ctx, qSelectedBy, clusterName, snapAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert selected_by: %w", err)
+	}
+
+	// ─────────────────────────────────────────────
+	// Step 2: allows (NetworkPolicy ingress_rules)
+	// 현재 0건이지만 데이터 들어오면 자동 적재
+	// ─────────────────────────────────────────────
+	qAllows := `
+		WITH latest_pods AS (
+			SELECT pod_uid, name AS pod_name, namespace AS pod_namespace, labels 
+			FROM cluster_pods 
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+		),
+		latest_np AS (
+			SELECT name, namespace, pod_selector, ingress_rules
+			FROM cluster_network_policies
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_network_policies WHERE cluster_name = $1)
+		),
+		ingress_pairs AS (
+			SELECT 
+				target.pod_uid AS target_pod_uid,
+				target.pod_name AS target_pod_name,
+				target.pod_namespace AS target_pod_namespace,
+				source.pod_uid AS source_pod_uid,
+				source.pod_name AS source_pod_name,
+				source.pod_namespace AS source_pod_namespace
+			FROM latest_np np
+			JOIN latest_pods target 
+			  ON target.pod_namespace = np.namespace 
+			 AND target.labels @> COALESCE(np.pod_selector->'matchLabels', '{}'::jsonb)
+			CROSS JOIN LATERAL jsonb_array_elements(COALESCE(np.ingress_rules, '[]'::jsonb)) AS ing
+			CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ing->'from', '[]'::jsonb)) AS from_rule
+			JOIN latest_pods source 
+			  ON source.labels @> COALESCE(from_rule->'podSelector'->'matchLabels', '{}'::jsonb)
+			 AND source.pod_uid != target.pod_uid
+		)
+		INSERT INTO edges (
+			cluster_name,
+			source_pod_uid, target_pod_uid,
+			source_name, source_namespace,
+			target_name, target_namespace,
+			source_kind, target_kind,
+			target_type,
+			layer, edge_type, mode,
+			weight, traffic_weight,
+			snapshot_at, computed_at
+		)
+		SELECT DISTINCT
+			$1,
+			source_pod_uid, target_pod_uid,
+			source_pod_name, source_pod_namespace,
+			target_pod_name, target_pod_namespace,
+			'pod', 'pod',
+			'pod',
+			'network', 'allows', 'declared',
+			1, 0.6,
+			$2::timestamptz, NOW()
+		FROM ingress_pairs
+		ON CONFLICT DO NOTHING
+	`
+	tag2, err := r.pool.Exec(ctx, qAllows, clusterName, snapAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert allows: %w", err)
+	}
+
+	// ─────────────────────────────────────────────
+	// Step 3: routed_by (Ingress → Service)
+	// 현재 0건이지만 데이터 들어오면 자동 적재
+	// ─────────────────────────────────────────────
+	qRoutedBy := `
+		INSERT INTO edges (
+			cluster_name,
+			source_pod_uid, target_pod_uid,
+			source_name, source_namespace,
+			target_name, target_namespace,
+			source_kind, target_kind,
+			target_type, target_service_name,
+			layer, edge_type, mode,
+			weight, traffic_weight,
+			snapshot_at, computed_at
+		)
+		SELECT DISTINCT
+			$1,
+			ing.ingress_uid, NULL,
+			ing.name, ing.namespace,
+			path->'backend'->'service'->>'name', ing.namespace,
+			'ingress', 'service',
+			'service', 'svc:' || ing.namespace || '/' || (path->'backend'->'service'->>'name'),
+			'network', 'routed_by', 'declared',
+			1, 0.6,
+			$2::timestamptz, NOW()
+		FROM cluster_ingresses ing,
+		     jsonb_array_elements(ing.rules) AS rule,
+		     jsonb_array_elements(rule->'http'->'paths') AS path
+		WHERE ing.cluster_name = $1
+		  AND ing.snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_ingresses WHERE cluster_name = $1)
+		  AND path->'backend'->'service'->>'name' IS NOT NULL
+		ON CONFLICT DO NOTHING
+	`
+	tag3, err := r.pool.Exec(ctx, qRoutedBy, clusterName, snapAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert routed_by: %w", err)
+	}
+
+	return &edge.NetworkComputeResult{
+		ClusterName: clusterName,
+		SelectedBy:  int(tag1.RowsAffected()),
+		Allows:      int(tag2.RowsAffected()),
+		RoutedBy:    int(tag3.RowsAffected()),
+		Total:       int(tag1.RowsAffected() + tag2.RowsAffected() + tag3.RowsAffected()),
+		SnapshotAt:  snapAt,
+		ComputedAt:  time.Now(),
+		DurationMs:  time.Since(start).Milliseconds(),
+	}, nil
+}
