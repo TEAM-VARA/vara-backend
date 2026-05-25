@@ -614,3 +614,159 @@ func parseToxicConditionsToLayers(conditions string) []string {
 	sort.Strings(layers)
 	return layers
 }
+
+// ComputeIdentityEdges는 RBAC 정보로부터 identity layer edges를 적재합니다.
+// 3개 INSERT 실행:
+//  1. Pod → SA (assumes)
+//  2. SA → Role (binds, namespace-level)
+//  3. SA → ClusterRole (binds, cluster-level)
+func (r *EdgesRepo) ComputeIdentityEdges(ctx context.Context, clusterName string) (*edge.IdentityComputeResult, error) {
+	start := time.Now()
+	snapAt := time.Now()
+
+	// ─────────────────────────────────────────────
+	// Step 1: Pod → SA (assumes)
+	// ─────────────────────────────────────────────
+	qAssumes := `
+		WITH latest_pods AS (
+			SELECT pod_uid, name, namespace, service_account
+			FROM cluster_pods
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+			  AND service_account IS NOT NULL AND service_account != ''
+		)
+		INSERT INTO edges (
+			cluster_name,
+			source_pod_uid, target_pod_uid,
+			source_name, source_namespace,
+			target_name, target_namespace,
+			source_kind, target_kind,
+			target_type, target_service_name,
+			layer, edge_type, mode,
+			weight, traffic_weight,
+			snapshot_at, computed_at
+		)
+		SELECT
+			$1,
+			pod_uid, NULL,
+			name, namespace,
+			service_account, namespace,
+			'pod', 'service_account',
+			'service_account',
+			'sa:' || namespace || '/' || service_account,
+			'identity', 'assumes', 'declared',
+			1, 0.7,
+			$2, NOW()
+		FROM latest_pods
+		ON CONFLICT DO NOTHING
+	`
+	tag1, err := r.pool.Exec(ctx, qAssumes, clusterName, snapAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert assumes: %w", err)
+	}
+	assumesInserted := tag1.RowsAffected()
+
+	// ─────────────────────────────────────────────
+	// Step 2: SA → Role (binds, Namespace-level RoleBinding)
+	// ─────────────────────────────────────────────
+	qBindsRole := `
+		WITH latest_rb AS (
+			SELECT name, namespace, role_ref, subjects
+			FROM cluster_role_bindings
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_role_bindings WHERE cluster_name = $1)
+		)
+		INSERT INTO edges (
+			cluster_name,
+			source_pod_uid, target_pod_uid,
+			source_name, source_namespace,
+			target_name, target_namespace,
+			source_kind, target_kind,
+			target_type, target_service_name,
+			layer, edge_type, mode,
+			weight, traffic_weight,
+			snapshot_at, computed_at
+		)
+		SELECT DISTINCT
+			$1,
+			'sa:' || COALESCE(subj->>'namespace', rb.namespace) || '/' || (subj->>'name'),
+			NULL,
+			subj->>'name', COALESCE(subj->>'namespace', rb.namespace),
+			rb.role_ref->>'name', rb.namespace,
+			'service_account',
+			CASE rb.role_ref->>'kind' WHEN 'ClusterRole' THEN 'cluster_role' ELSE 'role' END,
+			CASE rb.role_ref->>'kind' WHEN 'ClusterRole' THEN 'cluster_role' ELSE 'role' END,
+			CASE rb.role_ref->>'kind'
+				WHEN 'ClusterRole' THEN 'crole:' || (rb.role_ref->>'name')
+				ELSE 'role:' || rb.namespace || '/' || (rb.role_ref->>'name')
+			END,
+			'identity', 'binds', 'declared',
+			1, 0.7,
+			$2, NOW()
+		FROM latest_rb rb,
+		     jsonb_array_elements(rb.subjects) subj
+		WHERE subj->>'kind' = 'ServiceAccount'
+		ON CONFLICT DO NOTHING
+	`
+	tag2, err := r.pool.Exec(ctx, qBindsRole, clusterName, snapAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert binds(role): %w", err)
+	}
+	bindsRoleInserted := tag2.RowsAffected()
+
+	// ─────────────────────────────────────────────
+	// Step 3: SA → ClusterRole (binds, Cluster-level ClusterRoleBinding)
+	// ─────────────────────────────────────────────
+	qBindsCRole := `
+		WITH latest_crb AS (
+			SELECT name, role_ref, subjects
+			FROM cluster_cluster_role_bindings
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_cluster_role_bindings WHERE cluster_name = $1)
+		)
+		INSERT INTO edges (
+			cluster_name,
+			source_pod_uid, target_pod_uid,
+			source_name, source_namespace,
+			target_name, target_namespace,
+			source_kind, target_kind,
+			target_type, target_service_name,
+			layer, edge_type, mode,
+			weight, traffic_weight,
+			snapshot_at, computed_at
+		)
+		SELECT DISTINCT
+			$1,
+			'sa:' || (subj->>'namespace') || '/' || (subj->>'name'),
+			NULL,
+			subj->>'name', subj->>'namespace',
+			crb.role_ref->>'name', '',
+			'service_account', 'cluster_role',
+			'cluster_role',
+			'crole:' || (crb.role_ref->>'name'),
+			'identity', 'binds', 'declared',
+			1, 0.7,
+			$2, NOW()
+		FROM latest_crb crb,
+		     jsonb_array_elements(crb.subjects) subj
+		WHERE subj->>'kind' = 'ServiceAccount'
+		  AND subj->>'namespace' IS NOT NULL
+		ON CONFLICT DO NOTHING
+	`
+	tag3, err := r.pool.Exec(ctx, qBindsCRole, clusterName, snapAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert binds(crole): %w", err)
+	}
+	bindsCRoleInserted := tag3.RowsAffected()
+
+	return &edge.IdentityComputeResult{
+		ClusterName: clusterName,
+		Assumes:     int(assumesInserted),
+		BindsRole:   int(bindsRoleInserted),
+		BindsCRole:  int(bindsCRoleInserted),
+		Total:       int(assumesInserted + bindsRoleInserted + bindsCRoleInserted),
+		SnapshotAt:  snapAt,
+		ComputedAt:  time.Now(),
+		DurationMs:  time.Since(start).Milliseconds(),
+	}, nil
+}

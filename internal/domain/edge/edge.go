@@ -172,3 +172,14 @@ type EdgeListResponse struct {
 	Summary           *EdgesSummary      `json:"summary"`           // [P0 5.3]
 	ToxicCombinations []ToxicCombination `json:"toxicCombinations"` // [P1 5.4]
 }
+
+type IdentityComputeResult struct {
+	ClusterName string    `json:"clusterName"`
+	Assumes     int       `json:"assumes"`    // Pod → SA edges 수
+	BindsRole   int       `json:"bindsRole"`  // SA → Role edges 수
+	BindsCRole  int       `json:"bindsCRole"` // SA → ClusterRole edges 수
+	Total       int       `json:"total"`
+	SnapshotAt  time.Time `json:"snapshotAt"`
+	ComputedAt  time.Time `json:"computedAt"`
+	DurationMs  int64     `json:"durationMs"`
+}

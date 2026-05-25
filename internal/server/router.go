@@ -54,6 +54,7 @@ func newRouter(
 		api.POST("/edges/compute", edge.Compute)
 		api.GET("/edges/clusters/:cluster_name", edge.GetByCluster)
 		api.GET("/edges/pods/:pod_uid", edge.GetByPod)
+		api.POST("/edges/clusters/:cluster_name/identity/compute", edge.ComputeIdentity)
 
 		// ── 기존 Risk Scoring ──
 		api.POST("/pods/:pod_id/risk", scoring.ComputeRisk)

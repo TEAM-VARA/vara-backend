@@ -157,3 +157,8 @@ func (s *EdgeService) ListByPod(ctx context.Context, clusterName, podUID string)
 		Edges: edges,
 	}, nil
 }
+
+// ComputeIdentity는 클러스터의 RBAC 정보로 identity layer edges를 적재합니다.
+func (s *EdgeService) ComputeIdentity(ctx context.Context, clusterName string) (*edge.IdentityComputeResult, error) {
+	return s.repo.ComputeIdentityEdges(ctx, clusterName)
+}

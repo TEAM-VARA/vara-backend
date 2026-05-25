@@ -73,7 +73,8 @@ func (h *EdgeHandler) GetByCluster(c *gin.Context) {
 // GetByPod — GET /api/v1/edges/pods/:pod_uid
 //
 // Query params:
-//   cluster_name (required)
+//
+//	cluster_name (required)
 //
 // 특정 Pod이 source 또는 target인 edges (최신 snapshot).
 func (h *EdgeHandler) GetByPod(c *gin.Context) {
@@ -96,4 +97,21 @@ func (h *EdgeHandler) GetByPod(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
+}
+
+// ComputeIdentity — RBAC 정보로부터 identity layer edges 적재
+//
+// POST /api/v1/edges/clusters/:cluster_name/identity/compute
+func (h *EdgeHandler) ComputeIdentity(c *gin.Context) {
+	clusterName := c.Param("cluster_name")
+	if clusterName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster_name required"})
+		return
+	}
+	result, err := h.svc.ComputeIdentity(c.Request.Context(), clusterName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }
