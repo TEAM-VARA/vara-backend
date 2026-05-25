@@ -6,6 +6,8 @@ import (
 	"time"
 	"math"
 	"sort"
+	
+	"gonum.org/v1/gonum/graph/path"
 
 	"github.com/vara/backend/internal/domain/edge"
 	"github.com/vara/backend/internal/repository/postgres"
@@ -331,155 +333,64 @@ func (s *EdgeService) BuildBlastRadius(ctx context.Context, cluster, source stri
 	}, nil
 }
 
-// ────────────────────────────────────────────────────
-// Yen's K-Shortest Paths (PM 명세서 B-4)
-// ────────────────────────────────────────────────────
-
-// bfsShortestPath: BFS로 최단 경로 1개 (excluded edge는 건너뜀)
-func bfsShortestPath(adj map[string][]adjEdge, source, target string, excluded map[string]bool) (nodes []string, layers []string, cost float64) {
-	type pathInfo struct {
-		parent string
-		layer  string
+// kShortestPathsGonum — 진짜 Yen's K-Shortest Paths (gonum)
+func kShortestPathsGonum(bg *BlastGraph, sourceID, targetID string, k int) []edge.PathResult {
+	source := bg.NodeByID(sourceID)
+	target := bg.NodeByID(targetID)
+	if source == nil || target == nil {
+		return nil
 	}
-	visited := map[string]pathInfo{source: {parent: "", layer: ""}}
-	queue := []string{source}
 
-	found := false
-	for len(queue) > 0 && !found {
-		current := queue[0]
-		queue = queue[1:]
+	// 진짜 Yen's 알고리즘 (gonum) — Jin Y. Yen, 1971
+	// cost=math.Inf(1)으로 cost limit 없이 K개까지 모두 찾기
+	paths := path.YenKShortestPaths(bg.GonumGraph(), k, math.Inf(1), source, target)
 
-		if current == target {
-			found = true
-			break
+	results := make([]edge.PathResult, 0, len(paths))
+	for i, p := range paths {
+		if len(p) < 2 {
+			continue
 		}
 
-		for _, e := range adj[current] {
-			edgeKey := current + "->" + e.target
-			if excluded[edgeKey] {
-				continue
+		// gonum node → 우리 ID 변환
+		nodes := make([]string, len(p))
+		labels := make([]string, len(p))
+		for j, n := range p {
+			id := bg.IDByNode(n)
+			nodes[j] = id
+			lbl := bg.Label(id)
+			if lbl == "" {
+				lbl = id
 			}
-			if _, ok := visited[e.target]; !ok {
-				visited[e.target] = pathInfo{parent: current, layer: e.layer}
-				queue = append(queue, e.target)
+			labels[j] = lbl
+		}
+
+		// 각 hop의 layer 추출 + cost 합산
+		layers := make([]string, len(p)-1)
+		cost := 0.0
+		for j := 0; j < len(nodes)-1; j++ {
+			layer := bg.EdgeLayer(nodes[j], nodes[j+1])
+			layers[j] = layer
+			lw, ok := GraphLayerWeight[layer]
+			if !ok {
+				lw = 0.5
 			}
-		}
-	}
-
-	if !found {
-		return nil, nil, 0
-	}
-
-	// reconstruct path
-	var path []string
-	var pathLayers []string
-	current := target
-	for current != "" {
-		path = append([]string{current}, path...)
-		info := visited[current]
-		if info.layer != "" {
-			pathLayers = append([]string{info.layer}, pathLayers...)
-		}
-		current = info.parent
-	}
-
-	// cost: Σ (1 / layerWeight)
-	for _, l := range pathLayers {
-		lw, ok := layerWeight[l]
-		if !ok {
-			lw = 0.5
-		}
-		cost += 1.0 / lw
-	}
-
-	return path, pathLayers, cost
-}
-
-// kShortestPaths: K개의 최단 경로 (이전 경로의 edge 제외하면서)
-// kShortestPaths: 첫 경로 = BFS shortest, 이후는 각 edge를 하나씩 제외하면서 새 경로 찾기
-func kShortestPaths(adj map[string][]adjEdge, source, target string, k int) []edge.PathResult {
-	var results []edge.PathResult
-
-	// 첫 경로
-	firstPath, firstLayers, firstCost := bfsShortestPath(adj, source, target, nil)
-	if firstPath == nil {
-		return results
-	}
-
-	results = append(results, edge.PathResult{
-		Rank:   1,
-		Hops:   len(firstPath) - 1,
-		Nodes:  firstPath,
-		Layers: firstLayers,
-		Cost:   firstCost,
-	})
-
-	// 이후 경로: 이전 발견된 경로들의 각 edge를 하나씩 제외하면서 새 경로 시도
-	for len(results) < k {
-		var bestNewPath []string
-		var bestNewLayers []string
-		bestCost := math.MaxFloat64
-		found := false
-
-		// 각 발견된 경로의 각 edge를 하나씩 제외해보기
-		for _, existing := range results {
-			for j := 0; j < len(existing.Nodes)-1; j++ {
-				excluded := map[string]bool{
-					existing.Nodes[j] + "->" + existing.Nodes[j+1]: true,
-				}
-
-				path, layers, cost := bfsShortestPath(adj, source, target, excluded)
-				if path == nil {
-					continue
-				}
-
-				// 중복 체크
-				if !pathAlreadyExists(results, path) && cost < bestCost {
-					bestNewPath = path
-					bestNewLayers = layers
-					bestCost = cost
-					found = true
-				}
-			}
-		}
-
-		if !found {
-			break
+			cost += 1.0 / lw
 		}
 
 		results = append(results, edge.PathResult{
-			Rank:   len(results) + 1,
-			Hops:   len(bestNewPath) - 1,
-			Nodes:  bestNewPath,
-			Layers: bestNewLayers,
-			Cost:   bestCost,
+			Rank:   i + 1,
+			Hops:   len(p) - 1,
+			Nodes:  nodes,
+			Labels: labels,
+			Layers: layers,
+			Cost:   cost,
 		})
 	}
 
 	return results
 }
 
-// pathAlreadyExists: 같은 노드 시퀀스의 경로가 이미 있는지
-func pathAlreadyExists(results []edge.PathResult, newPath []string) bool {
-	for _, r := range results {
-		if len(r.Nodes) != len(newPath) {
-			continue
-		}
-		match := true
-		for i := range r.Nodes {
-			if r.Nodes[i] != newPath[i] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
-}
-
-// BuildAttackPaths: PM 명세서 B-4 (/api/v1/topology/top-paths)
+// BuildAttackPaths — 진짜 Yen's 사용
 func (s *EdgeService) BuildAttackPaths(ctx context.Context, cluster, source, target string, k int) (*edge.AttackPathsResponse, error) {
 	start := time.Now()
 
@@ -488,24 +399,8 @@ func (s *EdgeService) BuildAttackPaths(ctx context.Context, cluster, source, tar
 		return nil, err
 	}
 
-	adj := buildAdjacency(topo.Edges)
-	paths := kShortestPaths(adj, source, target, k)
-
-	// 노드 라벨 매핑
-	nameMap := make(map[string]string, len(topo.Nodes))
-	for _, n := range topo.Nodes {
-		nameMap[n.ID] = n.Label
-	}
-	for i := range paths {
-		paths[i].Labels = make([]string, len(paths[i].Nodes))
-		for j, nodeID := range paths[i].Nodes {
-			if name, ok := nameMap[nodeID]; ok {
-				paths[i].Labels[j] = name
-			} else {
-				paths[i].Labels[j] = nodeID
-			}
-		}
-	}
+	bg := BuildBlastGraph(topo)
+	paths := kShortestPathsGonum(bg, source, target, k)
 
 	return &edge.AttackPathsResponse{
 		Source:  source,

@@ -73,37 +73,42 @@ func BuildBlastGraph(topo *edge.TopologyResponse) *BlastGraph {
 		}
 	}
 
-	// edges 등록 (simple graph: 같은 src-dst 쌍은 최저 cost edge만 유지)
-	for _, e := range topo.Edges {
-		from := nodes[e.Source]
-		to := nodes[e.Target]
+// edges 등록 (bidirectional: shares_cve/shares_image 등 양방향 의미 edge 처리)
+for _, e := range topo.Edges {
+    from := nodes[e.Source]
+    to := nodes[e.Target]
 
-		lw, ok := GraphLayerWeight[e.Layer]
-		if !ok {
-			lw = 0.5
-		}
-		cost := 1.0 / lw // cost가 낮을수록 좋은 경로
+    lw, ok := GraphLayerWeight[e.Layer]
+    if !ok {
+        lw = 0.5
+    }
+    cost := 1.0 / lw
 
-		// 기존 edge가 있으면 더 낮은 cost로 갱신
-		if existing := g.WeightedEdge(from.ID(), to.ID()); existing != nil {
-			if existing.Weight() <= cost {
-				continue
-			}
-			g.RemoveEdge(from.ID(), to.ID())
-		}
+    // 양방향 등록 (supply_chain.shares_* 같은 대칭 edge)
+    // identity.assumes 같은 방향성 edge도 traversal 위해 양방향 처리
+    addOrUpdateEdge := func(src, dst graph.Node, c float64) {
+        if existing := g.WeightedEdge(src.ID(), dst.ID()); existing != nil {
+            if existing.Weight() <= c {
+                return
+            }
+            g.RemoveEdge(src.ID(), dst.ID())
+        }
+        wedge := g.NewWeightedEdge(src, dst, c)
+        g.SetWeightedEdge(wedge)
+    }
 
-		wedge := g.NewWeightedEdge(from, to, cost)
-		g.SetWeightedEdge(wedge)
+    addOrUpdateEdge(from, to, cost)
+    addOrUpdateEdge(to, from, cost)
 
-		edgeKey := e.Source + "->" + e.Target
-		edgeMeta[edgeKey] = EdgeMetadata{
-			Layer:    e.Layer,
-			EdgeType: e.EdgeType,
-			Mode:     e.Mode,
-			Source:   e.Source,
-			Target:   e.Target,
-		}
-	}
+    edgeMeta[e.Source+"->"+e.Target] = EdgeMetadata{
+        Layer: e.Layer, EdgeType: e.EdgeType, Mode: e.Mode,
+        Source: e.Source, Target: e.Target,
+    }
+    edgeMeta[e.Target+"->"+e.Source] = EdgeMetadata{
+        Layer: e.Layer, EdgeType: e.EdgeType, Mode: e.Mode,
+        Source: e.Target, Target: e.Source,
+    }
+}
 
 	return &BlastGraph{
 		g:              g,
