@@ -1166,16 +1166,25 @@ func (r *EdgesRepo) fetchPodNodes(ctx context.Context, cluster string) ([]edge.T
 			SELECT final_score, risk_level, used_top_cve
 			FROM final_scores
 			WHERE cluster_name = cp.cluster_name
-			  AND used_image_digest IS NOT NULL
-			  AND used_image_digest != ''
-			  AND used_image_digest = cp.containers->0->>'image_digest'
-			ORDER BY snapshot_at DESC, final_score DESC NULLS LAST
+			  AND (
+			      pod_uid = cp.pod_uid
+			      OR (
+			          used_image_digest IS NOT NULL 
+			          AND used_image_digest != ''
+			          AND used_image_digest = cp.containers->0->>'image_digest'
+			      )
+			  )
+			ORDER BY 
+			    CASE WHEN pod_uid = cp.pod_uid THEN 1 ELSE 2 END,  -- pod_uid 우선
+			    snapshot_at DESC,
+			    final_score DESC NULLS LAST
 			LIMIT 1
 		) fs ON true
 		WHERE cp.cluster_name = $1
 		  AND cp.snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
 		ORDER BY cp.namespace, cp.name
 	`
+	// 기존 Scan 그대로
 	rows, err := r.pool.Query(ctx, q, cluster)
 	if err != nil {
 		return nil, err
