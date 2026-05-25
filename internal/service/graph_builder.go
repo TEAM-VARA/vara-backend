@@ -154,3 +154,8 @@ func (bg *BlastGraph) GonumGraph() *simple.WeightedDirectedGraph {
 func (bg *BlastGraph) NodeCount() int {
 	return len(bg.nodes)
 }
+
+// graph_builder.go 끝에 추가
+func (bg *BlastGraph) ReverseNodeMap() map[int64]string {
+	return bg.reverseNodeMap
+}

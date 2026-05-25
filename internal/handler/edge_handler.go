@@ -253,3 +253,27 @@ func (h *EdgeHandler) GetLayerPaths(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, result)
 }
+
+// GetCriticality — PageRank
+// GET /api/v1/topology/criticality?cluster=<>&topN=20
+func (h *EdgeHandler) GetCriticality(c *gin.Context) {
+	cluster := c.Query("cluster")
+	topNStr := c.DefaultQuery("topN", "20")
+
+	if cluster == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster query param required"})
+		return
+	}
+
+	topN, err := strconv.Atoi(topNStr)
+	if err != nil || topN < 1 || topN > 200 {
+		topN = 20
+	}
+
+	result, err := h.svc.BuildCriticality(c.Request.Context(), cluster, topN)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}

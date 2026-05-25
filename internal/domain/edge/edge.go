@@ -324,3 +324,24 @@ type LayerPathsResponse struct {
 	Paths      []PathResult `json:"paths"`
 	BuildMs    int64        `json:"buildMs"`
 }
+
+// ────────────────────────────────────────────────────
+// Criticality API (PageRank)
+// ────────────────────────────────────────────────────
+
+type CriticalityResponse struct {
+	Cluster  string             `json:"cluster"`
+	TopN     int                `json:"topN"`
+	Nodes    []NodeCriticality  `json:"nodes"`
+	Algorithm string            `json:"algorithm"`
+	BuildMs  int64              `json:"buildMs"`
+}
+
+type NodeCriticality struct {
+	NodeID    string  `json:"nodeId"`
+	NodeKind  string  `json:"nodeKind"`
+	NodeName  string  `json:"nodeName"`
+	Namespace string  `json:"namespace,omitempty"`
+	Score     float64 `json:"score"`
+	Rank      int     `json:"rank"`
+}

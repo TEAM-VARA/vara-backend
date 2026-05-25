@@ -9,6 +9,8 @@ import (
 	
 	"gonum.org/v1/gonum/graph/path"
 
+	"gonum.org/v1/gonum/graph/network"
+
 	"github.com/vara/backend/internal/domain/edge"
 	"github.com/vara/backend/internal/repository/postgres"
 )
@@ -542,5 +544,77 @@ func (s *EdgeService) BuildLayerPaths(
 		MaxDepth:      maxDepth,
 		Paths:         results,
 		BuildMs:       time.Since(start).Milliseconds(),
+	}, nil
+}
+
+// computePageRank: gonum의 진짜 PageRank 알고리즘 사용
+func computePageRank(bg *BlastGraph) map[string]float64 {
+	g := bg.GonumGraph()
+
+	// 표준 PageRank: damp=0.85, tol=1e-6
+	scores := network.PageRank(g, 0.85, 1e-6)
+
+	// gonum int64 nodeID → 우리 string ID
+	results := make(map[string]float64, len(scores))
+	for nodeID, score := range scores {
+		results[bg.reverseNodeMap[nodeID]] = score
+	}
+	return results
+}
+
+// BuildCriticality: PageRank로 노드 중요도 계산 + Top N 반환
+func (s *EdgeService) BuildCriticality(ctx context.Context, cluster string, topN int) (*edge.CriticalityResponse, error) {
+	start := time.Now()
+
+	topo, err := s.repo.BuildTopology(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	bg := BuildBlastGraph(topo)
+	scores := computePageRank(bg)
+
+	// 노드별 메타데이터 매핑
+	namespaceMap := make(map[string]string, len(topo.Nodes))
+	for _, n := range topo.Nodes {
+		namespaceMap[n.ID] = n.Namespace
+	}
+
+	// 점수 순으로 정렬
+	criticalities := make([]edge.NodeCriticality, 0, len(scores))
+	for nodeID, score := range scores {
+		label := bg.Label(nodeID)
+		if label == "" {
+			label = nodeID
+		}
+		criticalities = append(criticalities, edge.NodeCriticality{
+			NodeID:    nodeID,
+			NodeKind:  bg.Kind(nodeID),
+			NodeName:  label,
+			Namespace: namespaceMap[nodeID],
+			Score:     score,
+		})
+	}
+
+	sort.Slice(criticalities, func(i, j int) bool {
+		return criticalities[i].Score > criticalities[j].Score
+	})
+
+	// Rank 부여
+	for i := range criticalities {
+		criticalities[i].Rank = i + 1
+	}
+
+	// Top N만 반환
+	if topN > 0 && topN < len(criticalities) {
+		criticalities = criticalities[:topN]
+	}
+
+	return &edge.CriticalityResponse{
+		Cluster:   cluster,
+		TopN:      topN,
+		Nodes:     criticalities,
+		Algorithm: "pagerank (damp=0.85, tol=1e-6)",
+		BuildMs:   time.Since(start).Milliseconds(),
 	}, nil
 }
