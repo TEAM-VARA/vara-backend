@@ -31,7 +31,7 @@ type NetworkFlowsRequest struct {
 }
 
 type NetworkFlowEvent struct {
-	EventType string         `json:"event_type" binding:"required,oneof=tcp_connect tcp_close udp_send"`
+	EventType string 		 `json:"event_type" binding:"oneof=tcp_connect tcp_set_state tcp_close udp_send"`
 	Timestamp time.Time      `json:"timestamp" binding:"required"`
 	Src       NetworkFlowSrc `json:"src" binding:"required"`
 	Dst       NetworkFlowDst `json:"dst" binding:"required"`
