@@ -36,11 +36,10 @@ CREATE INDEX IF NOT EXISTS idx_notifications_unread
 CREATE INDEX IF NOT EXISTS idx_notifications_severity 
     ON notifications(severity, created_at DESC);
 
--- 중복 알림 방지: 같은 cluster + category + vuln_id 조합은 24시간 내 중복 안 생성
-CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_dedup 
-    ON notifications(cluster_name, category, (metadata->>'vuln_id'))
-    WHERE (metadata->>'vuln_id') IS NOT NULL 
-      AND created_at > NOW() - INTERVAL '24 hours';
+-- vuln_id 조회용 인덱스 (중복 체크는 애플리케이션 레벨)
+CREATE INDEX IF NOT EXISTS idx_notifications_vuln_lookup 
+    ON notifications(cluster_name, category, (metadata->>'vuln_id'), created_at DESC)
+    WHERE (metadata->>'vuln_id') IS NOT NULL;
 
 -- 주석
 COMMENT ON TABLE notifications IS 'vara 대시보드 알림';
