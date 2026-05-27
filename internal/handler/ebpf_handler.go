@@ -106,12 +106,14 @@ func (h *EbpfHandler) lookupPodIP(
     err := h.pg.QueryRow(ctx, `
         SELECT name, namespace, phase
         FROM cluster_pods 
-        WHERE cluster_name = $1 AND pod_ip = $2 
+        WHERE cluster_name = $1 
+			AND pod_ip = $2 
+			AND host_network = false
         ORDER BY snapshot_at DESC LIMIT 1
     `, clusterName, podIP).Scan(&name, &namespace, &phase)
     
     if errors.Is(err, pgx.ErrNoRows) {
-        return "", "", "vpc_internal"  // Pod 아님 (Node IP, ENI 등)
+        return "", "", "node_ip"  // Pod 아님 (Node IP, ENI 등)
     }
     if err != nil {
         return "", "", "db_error"
