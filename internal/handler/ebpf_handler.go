@@ -50,7 +50,7 @@ func (h *EbpfHandler) resolveDestination(
         return "", "", "backend_vpc"  // vara 백엔드 VPC
     
     case strings.HasPrefix(cleanIP, "10.1."):
-        return "", "", "vpc_internal"  // Pod IP 또는 Node IP
+        return h.lookupPodIP(ctx, clusterName, cleanIP)  // Pod IP 또는 Node IP
     
     default:
         return "", "", "external"  // 외부 인터넷
@@ -95,6 +95,33 @@ func (h *EbpfHandler) lookupServiceEndpoint(
     }
     
     return "", "", "no_ready_endpoint"
+}
+
+// lookupPodIP : cluster_pods에서 Pod IP로 Pod 찾기
+func (h *EbpfHandler) lookupPodIP(
+    ctx context.Context, clusterName, podIP string,
+) (podID, podIPOut, status string) {
+    var name, namespace, phase string
+    
+    err := h.pg.QueryRow(ctx, `
+        SELECT name, namespace, phase
+        FROM cluster_pods 
+        WHERE cluster_name = $1 AND pod_ip = $2 
+        ORDER BY snapshot_at DESC LIMIT 1
+    `, clusterName, podIP).Scan(&name, &namespace, &phase)
+    
+    if errors.Is(err, pgx.ErrNoRows) {
+        return "", "", "vpc_internal"  // Pod 아님 (Node IP, ENI 등)
+    }
+    if err != nil {
+        return "", "", "db_error"
+    }
+    
+    if phase != "Running" {
+        return "", "", "pod_not_running"
+    }
+    
+    return namespace + "/" + name, podIP, "mapped"
 }
 
 // extractEbpfHeaders : 공통 헤더 추출 + 검증
