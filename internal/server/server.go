@@ -45,6 +45,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	ebpfRepo := postgres.NewEbpfRepo(pg)                        // 신규 (dev_v2 통합)
 	clusterNodesRepo := postgres.NewClusterNodesRepo(pg)
 	edgesRepo := postgres.NewEdgesRepo(pg) // 신규 (runtime 분석)                     // 신규 (dev_v2 통합)
+	notifRepo := postgres.NewNotificationRepo(pg) // 신규 (대시보드 알림)
 
 	// ── 외부 API 클라이언트 ──
 	nvdAPIKey := os.Getenv("NVD_API_KEY")
@@ -88,6 +89,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	finalScoringSvc := service.NewFinalScoringService(finalScoringRepo, toxicSvc)
 	sbomPackageSvc := service.NewSBOMPackageService(pg, sbomPackageRepo)
 	packageVulnSvc := service.NewPackageVulnService(osvClient, packageVulnRepo, sbomPackageRepo) // 신규 (B-6)
+	notifSvc := service.NewNotificationService(notifRepo) // 신규 (대시보드 알림)
 	edgeSvc := service.NewEdgeService(edgesRepo)                                                 // 신규 (blast radius)  ← 추가
 
 	// ── Handler ──
@@ -108,10 +110,11 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	ebpfH := handler.NewEbpf(ebpfRepo)                            // 신규 (dev_v2 통합)
 	edgeH := handler.NewEdgeHandler(edgeSvc)
 	podRefreshH := handler.NewPodRefreshHandler(exposureSvc, attackPathSvc, localScoringSvc, toxicSvc, finalScoringSvc)
+	notifH := handler.NewNotificationHandler(notifSvc)
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
-		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH, podRefreshH)
-
+		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH, podRefreshH,
+		notifH)
 	return &Server{
 		cfg: cfg,
 		httpSrv: &http.Server{

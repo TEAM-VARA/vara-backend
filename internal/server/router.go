@@ -24,6 +24,7 @@ func newRouter(
 	ebpf *handler.EbpfHandler,
 	edge *handler.EdgeHandler,
 	podRefresh *handler.PodRefreshHandler,
+	notif *handler.NotificationHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -118,6 +119,13 @@ func newRouter(
 		api.GET("/sboms/packages/search", sbomPackage.Search)
 		api.POST("/sboms/packages/backfill", sbomPackage.Backfill)
 		api.POST("/sboms/packages/extract/:digest", sbomPackage.Extract)
+
+		// ── Dashboard Notifications (Phase 4) ──  ⭐ 추가
+		api.GET("/notifications", notif.List)
+		api.GET("/notifications/counts", notif.GetCounts)
+		api.POST("/notifications/:id/read", notif.MarkRead)
+		api.POST("/notifications/read-all", notif.MarkAllRead)
+		api.DELETE("/notifications/:id", notif.Dismiss)
 
 		// 동적 경로 (이미지 단위)
 		api.POST("/sboms/packages/:digest/vulnerabilities/scan", packageVuln.Scan)
