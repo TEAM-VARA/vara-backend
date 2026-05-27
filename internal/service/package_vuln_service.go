@@ -172,3 +172,21 @@ func (s *PackageVulnService) SearchByVulnID(ctx context.Context, vulnID string) 
 func (s *PackageVulnService) ListByPURL(ctx context.Context, purl string) ([]sbom.PackageVulnerability, error) {
 	return s.repo.ListByPURL(ctx, purl)
 }
+
+// ─────────────────────────────────────────
+// Scheduler 지원 메서드
+// ─────────────────────────────────────────
+
+// ListAllImageDigests는 모든 이미지 digest를 반환합니다 (Scheduler용).
+func (s *PackageVulnService) ListAllImageDigests(ctx context.Context) ([]string, error) {
+	return s.repo.ListDistinctImageDigests(ctx)
+}
+
+// ListRecentlyAdded는 최근 추가된 vulnerability를 반환합니다 (Scheduler용).
+func (s *PackageVulnService) ListRecentlyAdded(
+	ctx context.Context,
+	since time.Time,
+	severities []string,
+) ([]sbom.PackageVulnerability, error) {
+	return s.repo.ListRecentlyAdded(ctx, since, severities)
+}

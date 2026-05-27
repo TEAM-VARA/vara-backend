@@ -6,10 +6,13 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"log"
+	"strconv"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/vara/backend/internal/scheduler"
 	"github.com/vara/backend/internal/config"
 	"github.com/vara/backend/internal/external/trivy"
 	"github.com/vara/backend/internal/handler"
@@ -115,6 +118,31 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH, podRefreshH,
 		notifH)
+		// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
+	// ENV로 ON/OFF, 기본 활성
+	if os.Getenv("DISABLE_VULN_SCANNER") != "true" {
+		clusterName := os.Getenv("DEFAULT_CLUSTER_NAME")
+		if clusterName == "" {
+			clusterName = "vara-eks-test"
+		}
+
+		scanInterval := 1 * time.Hour
+		if envInterval := os.Getenv("VULN_SCAN_INTERVAL_MINUTES"); envInterval != "" {
+			if mins, err := strconv.Atoi(envInterval); err == nil && mins > 0 {
+				scanInterval = time.Duration(mins) * time.Minute
+			}
+		}
+
+		vulnScheduler := scheduler.NewVulnScheduler(
+			packageVulnSvc,
+			notifSvc,
+			finalScoringSvc,
+			clusterName,
+			scanInterval,
+		)
+		vulnScheduler.Start(context.Background())
+		log.Printf("server: vuln scheduler started (cluster=%s, interval=%v)", clusterName, scanInterval)
+	}
 	return &Server{
 		cfg: cfg,
 		httpSrv: &http.Server{
