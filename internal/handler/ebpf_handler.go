@@ -1,10 +1,16 @@
 package handler
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vara/backend/internal/domain/ebpf"
 	"github.com/vara/backend/internal/repository/postgres"
@@ -17,10 +23,78 @@ import (
 //   X-Node-Name    → node_name (페이로드 node와 일치 검증)
 type EbpfHandler struct {
 	repo *postgres.EbpfRepo
+	pg   *pgxpool.Pool  // ★ 매핑 쿼리용 추가 ★
 }
 
-func NewEbpf(repo *postgres.EbpfRepo) *EbpfHandler {
-	return &EbpfHandler{repo: repo}
+func NewEbpf(repo *postgres.EbpfRepo, pg *pgxpool.Pool) *EbpfHandler {
+    return &EbpfHandler{repo: repo, pg: pg}
+}
+
+// resolveDestination : dst_ip를 분석해서 Pod 정보 반환
+func (h *EbpfHandler) resolveDestination(
+    ctx context.Context, clusterName, dstIP string,
+) (podID, podIP, status string) {
+    // IPv4-mapped IPv6 prefix 제거
+    cleanIP := strings.TrimPrefix(dstIP, "::ffff:")
+    
+    // IP 유형 분류
+    switch {
+    case strings.HasPrefix(cleanIP, "172.20."):
+        // ClusterIP - 매핑 시도
+        return h.lookupServiceEndpoint(ctx, clusterName, cleanIP)
+    
+    case strings.HasPrefix(cleanIP, "169.254."):
+        return "", "", "imds"   // AWS 메타데이터
+    
+    case strings.HasPrefix(cleanIP, "10.0."):
+        return "", "", "backend_vpc"  // vara 백엔드 VPC
+    
+    case strings.HasPrefix(cleanIP, "10.1."):
+        return "", "", "vpc_internal"  // Pod IP 또는 Node IP
+    
+    default:
+        return "", "", "external"  // 외부 인터넷
+    }
+}
+
+// lookupServiceEndpoint : cluster_services에서 ClusterIP로 Pod 찾기
+func (h *EbpfHandler) lookupServiceEndpoint(
+    ctx context.Context, clusterName, clusterIP string,
+) (podID, podIP, status string) {
+    var serviceName, namespace string
+    var endpointsJSON []byte
+    
+    err := h.pg.QueryRow(ctx, `
+        SELECT name, namespace, endpoints 
+        FROM cluster_services 
+        WHERE cluster_name = $1 AND cluster_ip = $2 
+        ORDER BY snapshot_at DESC LIMIT 1
+    `, clusterName, clusterIP).Scan(&serviceName, &namespace, &endpointsJSON)
+    
+    if errors.Is(err, pgx.ErrNoRows) {
+        return "", "", "service_not_found"
+    }
+    if err != nil {
+        return "", "", "db_error"
+    }
+    
+    var endpoints []struct {
+        Ready   bool   `json:"ready"`
+        PodIP   string `json:"pod_ip"`
+        PodName string `json:"pod_name"`
+    }
+    if err := json.Unmarshal(endpointsJSON, &endpoints); err != nil {
+        return "", "", "parse_error"
+    }
+    
+    // 첫 번째 ready endpoint 반환
+    for _, ep := range endpoints {
+        if ep.Ready && ep.PodName != "" {
+            return namespace + "/" + ep.PodName, ep.PodIP, "mapped"
+        }
+    }
+    
+    return "", "", "no_ready_endpoint"
 }
 
 // extractEbpfHeaders : 공통 헤더 추출 + 검증
@@ -59,6 +133,16 @@ func (h *EbpfHandler) NetworkFlows(c *gin.Context) {
 		})
 		return
 	}
+
+	ctx := c.Request.Context()
+    for i := range req.Events {
+        podID, podIP, status := h.resolveDestination(
+            ctx, customerID, req.Events[i].Dst.IP,
+        )
+        req.Events[i].Dst.PodID = podID
+        req.Events[i].Dst.PodIP = podIP
+        req.Events[i].Dst.MappingStatus = status
+    }
 
 	saved, err := h.repo.UpsertNetworkFlows(c.Request.Context(), customerID, req)
 	if err != nil {

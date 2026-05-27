@@ -20,53 +20,58 @@ func NewEbpfRepo(pg *pgxpool.Pool) *EbpfRepo {
 
 // UpsertNetworkFlows : TCP/UDP 통신 이벤트 일괄 UPSERT
 func (r *EbpfRepo) UpsertNetworkFlows(ctx context.Context, customerID string, req ebpf.NetworkFlowsRequest) (int, error) {
-	if len(req.Events) == 0 {
-		return 0, nil
-	}
+    if len(req.Events) == 0 {
+        return 0, nil
+    }
 
-	tx, err := r.pg.Begin(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("tx begin: %w", err)
-	}
-	defer tx.Rollback(ctx)
+    tx, err := r.pg.Begin(ctx)
+    if err != nil {
+        return 0, fmt.Errorf("tx begin: %w", err)
+    }
+    defer tx.Rollback(ctx)
 
-	const q = `
-		INSERT INTO ebpf_network_flows (
-			customer_id, cluster_name, node_name,
-			timestamp, event_type, protocol,
-			src_pod_id, src_ip, src_port, src_pid,
-			dst_ip, dst_port, success
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-		)
-		ON CONFLICT (customer_id, node_name, timestamp, src_ip, src_port, dst_ip, dst_port, event_type) DO UPDATE SET
-			success = EXCLUDED.success
-	`
+    const q = `
+        INSERT INTO ebpf_network_flows (
+            customer_id, cluster_name, node_name,
+            timestamp, event_type, protocol,
+            src_pod_id, src_ip, src_port, src_pid,
+            dst_ip, dst_port, success,
+            dst_pod_id, dst_pod_ip, mapping_status
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+        )
+        ON CONFLICT (customer_id, node_name, timestamp, src_ip, src_port, dst_ip, dst_port, event_type) DO UPDATE SET
+            success = EXCLUDED.success,
+            dst_pod_id = EXCLUDED.dst_pod_id,
+            dst_pod_ip = EXCLUDED.dst_pod_ip,
+            mapping_status = EXCLUDED.mapping_status
+    `
 
-	saved := 0
-	for _, e := range req.Events {
-		var success interface{} = nil
-		if e.Success != nil {
-			success = *e.Success
-		}
+    saved := 0
+    for _, e := range req.Events {
+        var success interface{} = nil
+        if e.Success != nil {
+            success = *e.Success
+        }
 
-		_, err := tx.Exec(ctx, q,
-			customerID, customerID, req.Node,
-			e.Timestamp, e.EventType, e.Protocol,
-			e.Src.PodID, e.Src.IP, e.Src.Port, e.Src.PID,
-			e.Dst.IP, e.Dst.Port, success,
-		)
-		if err != nil {
-			return 0, fmt.Errorf("upsert network flow %s/%s:%d→%s:%d: %w",
-				e.EventType, e.Src.IP, e.Src.Port, e.Dst.IP, e.Dst.Port, err)
-		}
-		saved++
-	}
+        _, err := tx.Exec(ctx, q,
+            customerID, customerID, req.Node,
+            e.Timestamp, e.EventType, e.Protocol,
+            e.Src.PodID, e.Src.IP, e.Src.Port, e.Src.PID,
+            e.Dst.IP, e.Dst.Port, success,
+            e.Dst.PodID, e.Dst.PodIP, e.Dst.MappingStatus,
+        )
+        if err != nil {
+            return 0, fmt.Errorf("upsert network flow %s/%s:%d→%s:%d: %w",
+                e.EventType, e.Src.IP, e.Src.Port, e.Dst.IP, e.Dst.Port, err)
+        }
+        saved++
+    }
 
-	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("tx commit: %w", err)
-	}
-	return saved, nil
+    if err := tx.Commit(ctx); err != nil {
+        return 0, fmt.Errorf("tx commit: %w", err)
+    }
+    return saved, nil
 }
 
 // UpsertDNSQueries : DNS 쿼리 이벤트 일괄 UPSERT
