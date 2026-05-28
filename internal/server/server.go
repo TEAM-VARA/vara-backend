@@ -137,6 +137,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 			packageVulnSvc,
 			notifSvc,
 			finalScoringSvc,
+			globalScoringRepo,
 			clusterName,
 			scanInterval,
 		)

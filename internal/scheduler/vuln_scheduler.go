@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/vara/backend/internal/domain/notification"
 	"github.com/vara/backend/internal/domain/sbom"
+	"github.com/vara/backend/internal/platform/osv"
+	"github.com/vara/backend/internal/repository/postgres"
 	"github.com/vara/backend/internal/service"
 )
 
@@ -20,6 +23,7 @@ type VulnScheduler struct {
 	vulnSvc  *service.PackageVulnService
 	notifSvc *service.NotificationService
 	finalSvc *service.FinalScoringService
+	globalRepo *postgres.GlobalScoringRepo
 
 	clusterName string
 	interval    time.Duration
@@ -39,6 +43,7 @@ func NewVulnScheduler(
 	vulnSvc *service.PackageVulnService,
 	notifSvc *service.NotificationService,
 	finalSvc *service.FinalScoringService,
+	globalRepo *postgres.GlobalScoringRepo,
 	clusterName string,
 	interval time.Duration,
 ) *VulnScheduler {
@@ -49,6 +54,7 @@ func NewVulnScheduler(
 		vulnSvc:     vulnSvc,
 		notifSvc:    notifSvc,
 		finalSvc:    finalSvc,
+		globalRepo:  globalRepo,
 		clusterName: clusterName,
 		interval:    interval,
 		enabled:     true,
@@ -142,12 +148,17 @@ func (s *VulnScheduler) runScan(ctx context.Context) {
 	s.createScanCompleteNotif(ctx, totalImages, scanned, totalNewVulns, duration)
 }
 
-// processNewVulns는 이번 스캔에서 새로 발견된 critical/high CVE를 처리합니다.
+// processNewVulns는 이번 스캔에서 새로 발견된 vuln 중 critical/high를 처리합니다.
+//
+// 하이브리드 severity 결정:
+//   1. vuln_id가 CVE 형식 → cve_global_scores 조회
+//   2. aliases에서 CVE 추출 → cve_global_scores 조회
+//   3. severity_score (OSV 파싱 결과) 활용
+//   4. severity_label 활용
+//   5. "Unknown" (skip)
 func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time) {
-	// fetched_at >= scanStart인 critical/high vuln만 조회
-	newVulns, err := s.vulnSvc.ListRecentlyAdded(
-		ctx, scanStart, []string{"Critical", "High"},
-	)
+	// 모든 신규 vuln 조회 (severity 필터 없음, 하이브리드 방식으로 결정)
+	newVulns, err := s.vulnSvc.ListRecentlyAdded(ctx, scanStart, nil)
 	if err != nil {
 		log.Printf("scheduler: list recently added failed: %v", err)
 		return
@@ -160,9 +171,21 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 	// vuln_id 별로 그룹화 (한 vuln이 여러 PURL에 매핑될 수 있음)
 	byVulnID := groupByVulnID(newVulns)
 
-	log.Printf("scheduler: processing %d new critical/high CVEs", len(byVulnID))
+	log.Printf("scheduler: processing %d unique new vulns (total rows: %d)", len(byVulnID), len(newVulns))
+
+	criticalHighCount := 0
 
 	for vulnID, vulns := range byVulnID {
+		repVuln := selectTopVuln(vulns)
+
+		// 하이브리드 severity 결정 (4단계 fallback)
+		score, label := s.resolveSeverity(ctx, repVuln)
+
+		// Critical/High만 알림 생성
+		if label != "Critical" && label != "High" {
+			continue
+		}
+
 		// 영향 자산 식별
 		affected, err := s.vulnSvc.SearchByVulnID(ctx, vulnID)
 		if err != nil {
@@ -174,14 +197,11 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 			continue
 		}
 
-		// 대표 vuln 선택 (가장 높은 severity)
-		repVuln := selectTopVuln(vulns)
-
 		// 알림 생성 (24h dedup 자동 적용)
 		meta := notification.NewCVEMetadata{
 			VulnID:        vulnID,
-			SeverityScore: repVuln.SeverityScore,
-			SeverityLabel: repVuln.SeverityLabel,
+			SeverityScore: score,
+			SeverityLabel: label,
 			AffectedPods:  collectPodNames(affected),
 			AffectedCount: len(affected),
 			TopCVE:        vulnID,
@@ -194,18 +214,109 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		}
 
 		if notif == nil {
-			// 24h 내 동일 알림 존재 → skip
-			continue
+			continue // 24h dedup
 		}
 
-		log.Printf("scheduler: notification created for %s (id=%d, affected=%d)",
-			vulnID, notif.ID, len(affected))
+		criticalHighCount++
+		log.Printf("scheduler: notification created for %s (id=%d, label=%s, score=%.1f, affected=%d)",
+			vulnID, notif.ID, label, score, len(affected))
 
-		// Risk Scoring 자동 재계산 (영향 Pod별)
+		// Risk Scoring 자동 재계산
 		s.recalculateRiskScores(ctx, affected)
+	}
+
+	log.Printf("scheduler: %d critical/high notifications processed", criticalHighCount)
+}
+
+// resolveSeverity는 하이브리드 방식으로 vuln의 severity를 결정합니다.
+//
+// 우선순위:
+//   1. vuln_id가 CVE 형식 → cve_global_scores 조회 (가장 신뢰)
+//   2. aliases에서 CVE 추출 → cve_global_scores 조회
+//   3. OSV가 파싱한 severity_score 활용
+//   4. severity_label (Unknown 제외)
+//   5. CVSS vector 직접 재추정 (osv 헬퍼)
+func (s *VulnScheduler) resolveSeverity(ctx context.Context, vuln sbom.PackageVulnerability) (float64, string) {
+	// 1순위: VulnID가 CVE면 직접 조회
+	if isCVE(vuln.VulnID) {
+		if gs, err := s.globalRepo.GetByCVEID(ctx, vuln.VulnID); err == nil && gs != nil {
+			if gs.CVSSScore > 0 || gs.CVSSSeverity != "" {
+				return gs.CVSSScore, normalizeSeverityLabel(gs.CVSSSeverity)
+			}
+		}
+	}
+
+	// 2순위: aliases에서 CVE 추출 → 조회
+	for _, alias := range vuln.Aliases {
+		if isCVE(alias) {
+			if gs, err := s.globalRepo.GetByCVEID(ctx, alias); err == nil && gs != nil {
+				if gs.CVSSScore > 0 || gs.CVSSSeverity != "" {
+					return gs.CVSSScore, normalizeSeverityLabel(gs.CVSSSeverity)
+				}
+			}
+		}
+	}
+
+	// 3순위: OSV가 이미 파싱한 score 활용
+	if vuln.SeverityScore > 0 {
+		return vuln.SeverityScore, classifyScore(vuln.SeverityScore)
+	}
+
+	// 4순위: severity_label이 의미 있는 값이면 사용
+	if vuln.SeverityLabel != "" && vuln.SeverityLabel != "Unknown" {
+		return 0, vuln.SeverityLabel
+	}
+
+	// 5순위: CVSS vector를 직접 재추정 (osv 헬퍼 활용)
+	// severity_vector에 vector string이 있을 수 있음
+	if vuln.SeverityVector != "" {
+		if estimated := osv.EstimateCVSSFromVector(vuln.SeverityVector); estimated > 0 {
+			return estimated, classifyScore(estimated)
+		}
+	}
+
+	return 0, "Unknown"
+}
+
+// ─────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────
+
+func isCVE(id string) bool {
+	return strings.HasPrefix(strings.ToUpper(id), "CVE-")
+}
+
+func classifyScore(score float64) string {
+	switch {
+	case score >= 9.0:
+		return "Critical"
+	case score >= 7.0:
+		return "High"
+	case score >= 4.0:
+		return "Medium"
+	case score > 0:
+		return "Low"
+	default:
+		return "Unknown"
 	}
 }
 
+// normalizeSeverityLabel은 다양한 케이스를 표준 라벨로 정규화합니다.
+//   "CRITICAL" / "critical" / "Critical" → "Critical"
+func normalizeSeverityLabel(label string) string {
+	switch strings.ToLower(strings.TrimSpace(label)) {
+	case "critical":
+		return "Critical"
+	case "high":
+		return "High"
+	case "medium":
+		return "Medium"
+	case "low":
+		return "Low"
+	default:
+		return "Unknown"
+	}
+}
 // recalculateRiskScores는 영향받는 Pod의 final_score를 재계산합니다.
 func (s *VulnScheduler) recalculateRiskScores(ctx context.Context, affected []sbom.PackageVulnerability) {
 	// affected에 직접 pod_uid가 없음. 영향받는 Pod 식별을 위해 추가 로직 필요.
