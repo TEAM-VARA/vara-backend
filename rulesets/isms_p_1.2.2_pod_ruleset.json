@@ -1,0 +1,93 @@
+{
+  "schema_version": "3.1.0-pod",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA Pod Graph - ISMS-P Pod 단위 자동 점검",
+  "module": "pod-graph",
+  "judgment_source_legend": {
+    "k8s_native": "K8s API만으로 자동 판단 (VARA가 수집)",
+    "manual_evidence": "회사가 캡처/문서를 직접 업로드 (VLM 추출 후 판단)",
+    "hybrid": "k8s_native + manual_evidence 조합 — 둘 다 통과해야 PASS"
+  },
+  "item": {
+    "id": "1.2.2",
+    "name": "현황 및 흐름분석",
+    "category_path": "1. 관리체계 수립 및 운영 > 1.2 위험 관리 > 1.2.2 현황 및 흐름분석",
+    "description": "관리체계 범위 내 정보서비스 및 개인정보 처리 현황을 분석하고, 업무절차와 흐름을 파악하여 정보서비스 흐름도, 개인정보 흐름도 등을 작성하여야 한다."
+  },
+  "legal_references": [
+    { "law": "정보통신망법", "article": "제47조", "summary": "정보보호 관리체계 인증 기준" },
+    { "law": "개인정보 보호법", "article": "제29조", "summary": "안전조치의무" }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-1.2.2-POD-01",
+      "name": "외부 의존성 라벨 부재",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "ExternalName Service 외부 의존성 라벨 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        {
+          "resource_type": "service",
+          "api_endpoint": "GET /api/v1/namespaces/{ns}/services",
+          "fields": [".spec.type", ".spec.externalName", ".metadata.labels"],
+          "python_client": "v1.list_namespaced_service(ns)"
+        }
+      ],
+      "compliance_indicators": [
+        { "field": "externalname_service.metadata.labels.isms-p/external-dependency", "op": "!=", "value": null, "description": "ExternalName Service에 외부 의존성 분류 라벨 존재" },
+        { "field": "externalname_service.metadata.labels.isms-p/data-flow-id", "op": "!=", "value": null, "description": "흐름도 매핑 ID 라벨 존재" }
+      ],
+      "deficiency_indicators": [
+        { "field": "externalname_service.metadata.labels.isms-p/external-dependency", "op": "==", "value": null, "description": "ExternalName Service에 external-dependency 라벨 누락 — 외부 의존성 현황 파악 불가" },
+        { "field": "externalname_service.metadata.labels.isms-p/data-flow-id", "op": "==", "value": null, "description": "data-flow-id 라벨 누락 — 흐름도와 매핑 불가" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["ExternalName Service 목록", "누락된 라벨 항목", "현재 라벨 값"]
+    },
+    {
+      "rule_id": "R-1.2.2-POD-02",
+      "name": "Ingress 흐름도 등록 annotation 부재",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "Ingress 흐름도 등록 annotation 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        {
+          "resource_type": "ingress",
+          "api_endpoint": "GET /apis/networking.k8s.io/v1/namespaces/{ns}/ingresses",
+          "fields": [".metadata.annotations", ".spec.rules"],
+          "python_client": "networking.list_namespaced_ingress(ns)"
+        }
+      ],
+      "compliance_indicators": [
+        { "field": "ingress.metadata.annotations.isms-p/flow-diagram-registered", "op": "==", "value": "true", "description": "Ingress에 흐름도 등록 annotation 존재" },
+        { "field": "ingress.metadata.annotations.isms-p/service-flow-id", "op": "!=", "value": null, "description": "정보서비스 흐름도 ID annotation 존재" }
+      ],
+      "deficiency_indicators": [
+        { "field": "ingress.metadata.annotations.isms-p/flow-diagram-registered", "op": "!=", "value": "true", "description": "흐름도 등록 annotation 누락 또는 false — Ingress 경로가 흐름도에 미반영" },
+        { "field": "ingress.metadata.annotations.isms-p/service-flow-id", "op": "==", "value": null, "description": "service-flow-id annotation 누락 — 정보서비스 흐름도 매핑 불가" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["Ingress 목록", "누락된 annotation 항목", "현재 annotation 값"]
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "ExternalName Service에 외부 의존성 라벨 + Ingress에 흐름도 등록 annotation이 모두 존재해야 PASS"
+  }
+}

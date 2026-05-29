@@ -1,3 +1,6 @@
+// GRC 보조: BGE-M3 임베딩 서버(FastAPI)와 통신하여 텍스트를 벡터로 변환.
+// GRC 증적 평가(grc_embedding_eval) 시 증적 텍스트와 룰 기준 텍스트 간
+// 코사인 유사도를 계산하는 데 사용된다.
 package embedding
 
 import (
@@ -7,8 +10,15 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"time"
+)
+
+const (
+	defaultTimeout    = 300 * time.Second // BGE-M3 on CPU can be slow
+	maxRetries        = 3
+	initialRetryDelay = 2 * time.Second
 )
 
 // Client calls a BGE-M3 FastAPI embedding server.
@@ -23,7 +33,7 @@ func NewClient(url string) *Client {
 	return &Client{
 		url: url,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: defaultTimeout,
 		},
 	}
 }
@@ -83,33 +93,59 @@ func (c *Client) EmbedBatch(ctx context.Context, texts []string) ([][]float32, e
 		return nil, fmt.Errorf("embedding request marshal: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("embedding request create: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		log.Printf("[embedding] server unreachable (%s): %v", c.url, err)
-		return nil, nil // graceful degradation
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		log.Printf("[embedding] server returned %d: %s", resp.StatusCode, string(respBody))
-		return nil, nil // graceful degradation
-	}
-
 	var result embedResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("embedding response decode: %w", err)
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(float64(initialRetryDelay) * math.Pow(2, float64(attempt-1)))
+			log.Printf("[embedding] retry %d/%d after %v", attempt+1, maxRetries, delay)
+			select {
+			case <-ctx.Done():
+				return nil, nil
+			case <-time.After(delay):
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("embedding request create: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			log.Printf("[embedding] attempt %d: server unreachable (%s): %v", attempt+1, c.url, err)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			respBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("status %d: %s", resp.StatusCode, string(respBody))
+			log.Printf("[embedding] attempt %d: server returned %d: %s", attempt+1, resp.StatusCode, string(respBody))
+			continue
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			return nil, fmt.Errorf("embedding response decode: %w", err)
+		}
+		resp.Body.Close()
+
+		if len(result.Embeddings) != len(filtered) {
+			log.Printf("[embedding] expected %d embeddings, got %d", len(filtered), len(result.Embeddings))
+			return nil, nil
+		}
+
+		lastErr = nil
+		break
 	}
 
-	if len(result.Embeddings) != len(filtered) {
-		log.Printf("[embedding] expected %d embeddings, got %d", len(filtered), len(result.Embeddings))
-		return nil, nil
+	if lastErr != nil {
+		log.Printf("[embedding] all %d attempts failed: %v", maxRetries, lastErr)
+		return nil, nil // graceful degradation
 	}
 
 	// Map back to original indices.

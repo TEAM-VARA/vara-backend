@@ -1,0 +1,66 @@
+{
+  "schema_version": "3.1.0-pod",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA Pod Graph - ISMS-P Pod 단위 자동 점검",
+  "module": "pod-graph",
+  "judgment_source_legend": {
+    "k8s_native": "K8s API만으로 자동 판단 (VARA가 수집)",
+    "manual_evidence": "회사가 캡처/문서를 직접 업로드 (VLM 추출 후 판단)",
+    "hybrid": "k8s_native + manual_evidence 조합 — 둘 다 통과해야 PASS"
+  },
+  "item": {
+    "id": "2.10.2",
+    "name": "클라우드 보안",
+    "category_path": "2. 보호대책 요구사항 > 2.10 시스템 및 서비스 보안관리 > 2.10.2 클라우드 보안",
+    "description": "클라우드 서비스 이용 시 서비스 유형(IaaS, PaaS, SaaS 등)에 따른 보안 위험을 평가하고, 이에 맞는 보안대책을 수립·이행하여야 한다."
+  },
+  "legal_references": [],
+  "rules": [
+    {
+      "rule_id": "R-2.10.2-POD-08",
+      "name": "Namespace Pod Security Admission 라벨 부재",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "Namespace Pod Security Admission 라벨 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        {
+          "resource_type": "namespace",
+          "api_endpoint": "GET /api/v1/namespaces/{name}",
+          "fields": [
+            ".metadata.labels.pod-security\\.kubernetes\\.io/enforce",
+            ".metadata.labels.pod-security\\.kubernetes\\.io/audit",
+            ".metadata.labels.pod-security\\.kubernetes\\.io/warn"
+          ],
+          "python_client": "v1.read_namespace(name)"
+        }
+      ],
+      "psa_levels": ["privileged", "baseline", "restricted"],
+      "compliance_indicators": [
+        { "field": "namespace.metadata.labels.pod-security.kubernetes.io/enforce", "op": "in", "value": ["baseline", "restricted"], "description": "PSA enforce 라벨이 baseline 또는 restricted로 설정됨" },
+        { "field": "namespace.metadata.labels.pod-security.kubernetes.io/audit", "op": "in", "value": ["baseline", "restricted"], "description": "PSA audit 라벨이 baseline 또는 restricted로 설정됨" }
+      ],
+      "deficiency_indicators": [
+        { "field": "namespace.metadata.labels.pod-security.kubernetes.io/enforce", "op": "==", "value": null, "description": "PSA enforce 라벨 부재 — Pod Security Admission 미적용으로 특권 컨테이너 생성 가능" },
+        { "field": "namespace.metadata.labels.pod-security.kubernetes.io/enforce", "op": "==", "value": "privileged", "description": "PSA enforce=privileged — 모든 Pod 무제한 허용, 보안 통제 무력화" }
+      ],
+      "exception_check": {
+        "annotation": "psa-exception/justification",
+        "system_namespaces": ["kube-system", "kube-node-lease", "kube-public"]
+      },
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["Namespace 이름", "PSA enforce/audit/warn 라벨 값", "예외 사유 존재 여부"]
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "Namespace에 Pod Security Admission enforce 라벨이 baseline 또는 restricted로 설정되어 있어야 PASS"
+  }
+}

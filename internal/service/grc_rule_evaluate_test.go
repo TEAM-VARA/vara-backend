@@ -18,21 +18,22 @@ func rulesetDir(t *testing.T) string {
 	return filepath.Join(root, "rulesets")
 }
 
-func TestEvaluateRuleWithEvidence_semanticFromJSONMap(t *testing.T) {
+func TestEvaluateRuleWithEvidence_structuredFromJSONMap(t *testing.T) {
 	s := &GRCService{
 		rulesetStore: NewRulesetStore(rulesetDir(t)),
 	}
 	ctx := context.Background()
-	// 2.2.1-R007: structured EKS audit fields (see ISMS-P_룰_테스트데이터_JSON_1 / normalizer).
+	// 2.5.4-R005: IAM password policy structured fields.
 	payload := map[string]any{
-		"audit_log_enabled":    true,
-		"log_types":            []any{"api", "audit", "authenticator"},
-		"log_retention_days":   365.0,
-		"dashboard_url":        "https://dash.example",
-		"monitored_users":        []any{"a@b.com"},
-		"sample_audit_events":    []any{},
+		"MinimumPasswordLength":       12.0,
+		"RequireUppercaseCharacters":  true,
+		"RequireLowercaseCharacters":  true,
+		"RequireNumbers":              true,
+		"RequireSymbols":              true,
+		"MaxPasswordAge":              90.0,
+		"PasswordReusePrevention":     5.0,
 	}
-	res, err := s.EvaluateRuleWithEvidence(ctx, "R-2.2.1-07", payload, nil)
+	res, err := s.EvaluateRuleWithEvidence(ctx, "R-2.5.4-05", payload, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

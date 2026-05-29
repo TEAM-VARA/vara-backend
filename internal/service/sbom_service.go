@@ -1,3 +1,5 @@
+// GRC 보조: Trivy를 통해 컨테이너 이미지 SBOM과 CVE 취약점 데이터를 수집·저장.
+// GRC Finding 이미지 취약점 평가(F-2.10.8-K8S-04, cve_vulnerability_check)의 데이터 소스를 제공한다.
 package service
 
 import (

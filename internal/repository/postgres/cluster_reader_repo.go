@@ -1,10 +1,17 @@
+// GRC 보조: Cluster Reader 에이전트가 수집한 K8s 리소스(cluster_nodes, cluster_pods,
+// cluster_services, cluster_workloads, cluster_ingresses, cluster_network_policies,
+// cluster_rbac, cluster_sensitive_resources 등 12개 테이블)를 UPSERT 저장.
+// GRC Finding 평가 시 ClusterSnapshot을 구성하는 데이터 소스이며,
+// PodGraph 평가 시 Pod 단위 관련 리소스 조회에도 사용된다.
 package postgres
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vara/backend/internal/domain/agent"
@@ -584,4 +591,884 @@ func (r *ClusterReaderRepo) UpsertRBAC(ctx context.Context, req agent.ClusterRBA
 		return 0, 0, 0, 0, 0, fmt.Errorf("tx commit: %w", err)
 	}
 	return saSaved, crSaved, rSaved, crbSaved, rbSaved, nil
+}
+
+// ════════════════════════════════════════════
+// READ 메서드 (cluster_* → PodGraphRequest 매핑용)
+// ════════════════════════════════════════════
+
+// ClusterPodRow is a DB row from cluster_pods.
+type ClusterPodRow struct {
+	Name           string
+	Namespace      string
+	Node           string
+	ServiceAccount string
+	Labels         json.RawMessage
+	Annotations    json.RawMessage
+	Containers     json.RawMessage
+	Volumes        json.RawMessage
+}
+
+// GetLatestSnapshotAt returns the most recent snapshot_at for a cluster.
+func (r *ClusterReaderRepo) GetLatestSnapshotAt(ctx context.Context, clusterName string) (time.Time, error) {
+	var snapshotAt time.Time
+	err := r.pg.QueryRow(ctx,
+		`SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1`,
+		clusterName,
+	).Scan(&snapshotAt)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("get latest snapshot: %w", err)
+	}
+	if snapshotAt.IsZero() {
+		return time.Time{}, fmt.Errorf("no snapshots found for cluster %s", clusterName)
+	}
+	return snapshotAt, nil
+}
+
+// ListPods returns pods for a cluster/snapshot, optionally filtered by namespace.
+func (r *ClusterReaderRepo) ListPods(
+	ctx context.Context,
+	clusterName string,
+	snapshotAt time.Time,
+	namespace string,
+	limit, offset int,
+) ([]ClusterPodRow, int, error) {
+	// Count total
+	countQ := `SELECT COUNT(*) FROM cluster_pods WHERE cluster_name = $1 AND snapshot_at = $2`
+	countArgs := []any{clusterName, snapshotAt}
+	if namespace != "" {
+		countQ += ` AND namespace = $3`
+		countArgs = append(countArgs, namespace)
+	}
+
+	var total int
+	if err := r.pg.QueryRow(ctx, countQ, countArgs...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count pods: %w", err)
+	}
+
+	// Fetch rows
+	q := `SELECT name, namespace, node, service_account, labels, annotations, containers, volumes
+		  FROM cluster_pods WHERE cluster_name = $1 AND snapshot_at = $2`
+	args := []any{clusterName, snapshotAt}
+	argIdx := 3
+
+	if namespace != "" {
+		q += fmt.Sprintf(` AND namespace = $%d`, argIdx)
+		args = append(args, namespace)
+		argIdx++
+	}
+
+	q += fmt.Sprintf(` ORDER BY namespace, name LIMIT $%d OFFSET $%d`, argIdx, argIdx+1)
+	args = append(args, limit, offset)
+
+	rows, err := r.pg.Query(ctx, q, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query pods: %w", err)
+	}
+	defer rows.Close()
+
+	var pods []ClusterPodRow
+	for rows.Next() {
+		var p ClusterPodRow
+		var node, sa *string
+		if err := rows.Scan(&p.Name, &p.Namespace, &node, &sa,
+			&p.Labels, &p.Annotations, &p.Containers, &p.Volumes); err != nil {
+			return nil, 0, fmt.Errorf("scan pod: %w", err)
+		}
+		if node != nil {
+			p.Node = *node
+		}
+		if sa != nil {
+			p.ServiceAccount = *sa
+		}
+		pods = append(pods, p)
+	}
+	return pods, total, nil
+}
+
+// ClusterRelatedRows holds related K8s resources from DB for assembling PodGraphRequest.
+type ClusterRelatedRows struct {
+	Services            []map[string]any
+	Ingresses           []map[string]any
+	NetworkPolicies     []map[string]any
+	Workloads           []map[string]any
+	Nodes               []map[string]any
+	ClusterRoles        []map[string]any
+	ClusterRoleBindings []map[string]any
+	Roles               []map[string]any
+	RoleBindings        []map[string]any
+	ServiceAccounts     []map[string]any
+	Secrets             []map[string]any
+	ConfigMaps          []map[string]any
+	Namespaces          []string
+	NamespacesInCluster []map[string]any // Full namespace objects with metadata (for finding evaluator)
+	EBPFProcessEvents    []map[string]any
+	ImageVulnerabilities []map[string]any
+}
+
+// GetRelatedResources loads all related K8s resources for a cluster/snapshot/namespace.
+func (r *ClusterReaderRepo) GetRelatedResources(
+	ctx context.Context,
+	clusterName string,
+	snapshotAt time.Time,
+	namespace string,
+) (*ClusterRelatedRows, error) {
+	res := &ClusterRelatedRows{}
+
+	// ── Services (namespace-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, type, cluster_ip, external_name, selector, ports
+			 FROM cluster_services WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			clusterName, snapshotAt, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("query services: %w", err)
+		}
+		res.Services, err = scanServicesRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Ingresses (namespace-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, ingress_class, rules, tls
+			 FROM cluster_ingresses WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			clusterName, snapshotAt, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("query ingresses: %w", err)
+		}
+		res.Ingresses, err = scanIngressRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── NetworkPolicies (namespace-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, pod_selector, policy_types, ingress_rules, egress_rules
+			 FROM cluster_network_policies WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			clusterName, snapshotAt, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("query network_policies: %w", err)
+		}
+		res.NetworkPolicies, err = scanNetworkPolicyRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Workloads (namespace-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT kind, name, namespace, selector, template_labels, containers
+			 FROM cluster_workloads WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			clusterName, snapshotAt, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("query workloads: %w", err)
+		}
+		res.Workloads, err = scanWorkloadRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Roles (namespace-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, rules FROM cluster_roles
+			 WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			clusterName, snapshotAt, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("query roles: %w", err)
+		}
+		res.Roles, err = scanRoleRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── RoleBindings (namespace-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, role_ref, subjects FROM cluster_role_bindings
+			 WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			clusterName, snapshotAt, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("query role_bindings: %w", err)
+		}
+		res.RoleBindings, err = scanBindingRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── ServiceAccounts (namespace-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, secrets FROM cluster_service_accounts
+			 WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			clusterName, snapshotAt, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("query service_accounts: %w", err)
+		}
+		res.ServiceAccounts, err = scanServiceAccountRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Secrets (namespace-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, type FROM cluster_secrets
+			 WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			clusterName, snapshotAt, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("query secrets: %w", err)
+		}
+		res.Secrets, err = scanSecretRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── ConfigMaps (namespace-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace FROM cluster_configmaps
+			 WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			clusterName, snapshotAt, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("query configmaps: %w", err)
+		}
+		res.ConfigMaps, err = scanConfigMapRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Nodes (cluster-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, kubelet_version FROM cluster_nodes
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query nodes: %w", err)
+		}
+		res.Nodes, err = scanNodeRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── ClusterRoles (cluster-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, rules FROM cluster_cluster_roles
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query cluster_roles: %w", err)
+		}
+		res.ClusterRoles, err = scanClusterRoleRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── ClusterRoleBindings (cluster-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, role_ref, subjects FROM cluster_cluster_role_bindings
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query cluster_role_bindings: %w", err)
+		}
+		res.ClusterRoleBindings, err = scanClusterBindingRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Namespaces (cluster-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT namespace FROM cluster_namespaces
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query namespaces: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var ns string
+			if err := rows.Scan(&ns); err != nil {
+				return nil, fmt.Errorf("scan namespace: %w", err)
+			}
+			res.Namespaces = append(res.Namespaces, ns)
+		}
+	}
+
+	// ── eBPF Process Events (namespace-scoped, best-effort) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT pod_name, namespace, process, timestamp
+			 FROM ebpf_process_events
+			 WHERE cluster_name=$1 AND namespace=$2
+			 ORDER BY timestamp DESC LIMIT 100`,
+			clusterName, namespace)
+		if err == nil {
+			res.EBPFProcessEvents, _ = scanEBPFProcessRows(rows)
+		}
+		// Silently ignore errors (table may not exist or have different schema)
+	}
+
+	return res, nil
+}
+
+// GetClusterWideResources loads ALL K8s resources for a cluster (no namespace filter).
+// Used by the Finding evaluator for cluster-wide analysis.
+func (r *ClusterReaderRepo) GetClusterWideResources(
+	ctx context.Context,
+	clusterName string,
+	snapshotAt time.Time,
+) (*ClusterRelatedRows, error) {
+	res := &ClusterRelatedRows{}
+
+	// ── Services (all namespaces) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, type, cluster_ip, external_name, selector, ports
+			 FROM cluster_services WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query services: %w", err)
+		}
+		res.Services, err = scanServicesRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Ingresses (all namespaces) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, ingress_class, rules, tls
+			 FROM cluster_ingresses WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query ingresses: %w", err)
+		}
+		res.Ingresses, err = scanIngressRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── NetworkPolicies (all namespaces) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, pod_selector, policy_types, ingress_rules, egress_rules
+			 FROM cluster_network_policies WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query network_policies: %w", err)
+		}
+		res.NetworkPolicies, err = scanNetworkPolicyRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Workloads (all namespaces) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT kind, name, namespace, selector, template_labels, containers
+			 FROM cluster_workloads WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query workloads: %w", err)
+		}
+		res.Workloads, err = scanWorkloadRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Roles (all namespaces) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, rules FROM cluster_roles
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query roles: %w", err)
+		}
+		res.Roles, err = scanRoleRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── RoleBindings (all namespaces) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, role_ref, subjects FROM cluster_role_bindings
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query role_bindings: %w", err)
+		}
+		res.RoleBindings, err = scanBindingRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── ServiceAccounts (all namespaces) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, secrets FROM cluster_service_accounts
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query service_accounts: %w", err)
+		}
+		res.ServiceAccounts, err = scanServiceAccountRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Secrets (all namespaces) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace, type FROM cluster_secrets
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query secrets: %w", err)
+		}
+		res.Secrets, err = scanSecretRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── ConfigMaps (all namespaces) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, namespace FROM cluster_configmaps
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query configmaps: %w", err)
+		}
+		res.ConfigMaps, err = scanConfigMapRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Nodes (cluster-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, kubelet_version FROM cluster_nodes
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query nodes: %w", err)
+		}
+		res.Nodes, err = scanNodeRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── ClusterRoles (cluster-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, rules FROM cluster_cluster_roles
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query cluster_roles: %w", err)
+		}
+		res.ClusterRoles, err = scanClusterRoleRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── ClusterRoleBindings (cluster-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, role_ref, subjects FROM cluster_cluster_role_bindings
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query cluster_role_bindings: %w", err)
+		}
+		res.ClusterRoleBindings, err = scanClusterBindingRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── Namespaces (cluster-scoped) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT namespace FROM cluster_namespaces
+			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			clusterName, snapshotAt)
+		if err != nil {
+			return nil, fmt.Errorf("query namespaces: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var ns string
+			if err := rows.Scan(&ns); err != nil {
+				return nil, fmt.Errorf("scan namespace: %w", err)
+			}
+			res.Namespaces = append(res.Namespaces, ns)
+			// Build NamespacesInCluster with metadata for finding evaluator
+			res.NamespacesInCluster = append(res.NamespacesInCluster, map[string]any{
+				"metadata": map[string]any{
+					"name":   ns,
+					"labels": map[string]any{}, // No labels in DB schema; evaluator handles gracefully
+				},
+			})
+		}
+	}
+
+	// ── eBPF Process Events (all namespaces, best-effort) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT pod_name, namespace, process, timestamp
+			 FROM ebpf_process_events
+			 WHERE cluster_name=$1
+			 ORDER BY timestamp DESC LIMIT 500`,
+			clusterName)
+		if err == nil {
+			res.EBPFProcessEvents, _ = scanEBPFProcessRows(rows)
+		}
+	}
+
+	return res, nil
+}
+
+// ── Row scanners ──
+
+func scanServicesRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var name, ns, svcType string
+		var clusterIP, externalName *string
+		var selector, ports json.RawMessage
+		if err := rows.Scan(&name, &ns, &svcType, &clusterIP, &externalName, &selector, &ports); err != nil {
+			return nil, fmt.Errorf("scan service: %w", err)
+		}
+		spec := map[string]any{"type": svcType}
+		if clusterIP != nil {
+			spec["clusterIP"] = *clusterIP
+		}
+		if externalName != nil {
+			spec["externalName"] = *externalName
+		}
+		var sel map[string]any
+		_ = json.Unmarshal(selector, &sel)
+		if sel != nil {
+			spec["selector"] = sel
+		}
+		var p []any
+		_ = json.Unmarshal(ports, &p)
+		if p != nil {
+			spec["ports"] = p
+		}
+		m := map[string]any{
+			"metadata": map[string]any{"name": name, "namespace": ns},
+			"spec":     spec,
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanIngressRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var name, ns string
+		var ingressClass *string
+		var rules, tls json.RawMessage
+		if err := rows.Scan(&name, &ns, &ingressClass, &rules, &tls); err != nil {
+			return nil, fmt.Errorf("scan ingress: %w", err)
+		}
+		annotations := map[string]any{}
+		if ingressClass != nil {
+			annotations["kubernetes.io/ingress.class"] = *ingressClass
+		}
+		spec := map[string]any{}
+		var r []any
+		_ = json.Unmarshal(rules, &r)
+		if r != nil {
+			spec["rules"] = r
+		}
+		var t []any
+		_ = json.Unmarshal(tls, &t)
+		if t != nil {
+			spec["tls"] = t
+		}
+		m := map[string]any{
+			"metadata": map[string]any{"name": name, "namespace": ns, "annotations": annotations},
+			"spec":     spec,
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanNetworkPolicyRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var name, ns string
+		var podSelector, policyTypes, ingressRules, egressRules json.RawMessage
+		if err := rows.Scan(&name, &ns, &podSelector, &policyTypes, &ingressRules, &egressRules); err != nil {
+			return nil, fmt.Errorf("scan network_policy: %w", err)
+		}
+		spec := map[string]any{}
+		var ps map[string]any
+		_ = json.Unmarshal(podSelector, &ps)
+		spec["podSelector"] = ps
+		var pt []any
+		_ = json.Unmarshal(policyTypes, &pt)
+		spec["policyTypes"] = pt
+		var ir []any
+		_ = json.Unmarshal(ingressRules, &ir)
+		spec["ingress"] = ir
+		var er []any
+		_ = json.Unmarshal(egressRules, &er)
+		spec["egress"] = er
+		m := map[string]any{
+			"metadata": map[string]any{"name": name, "namespace": ns},
+			"spec":     spec,
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanWorkloadRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var kind, name, ns string
+		var selector, templateLabels, containers json.RawMessage
+		if err := rows.Scan(&kind, &name, &ns, &selector, &templateLabels, &containers); err != nil {
+			return nil, fmt.Errorf("scan workload: %w", err)
+		}
+		annotations := map[string]any{}
+		spec := map[string]any{}
+		var sel map[string]any
+		_ = json.Unmarshal(selector, &sel)
+		if sel != nil {
+			spec["selector"] = sel
+		}
+		m := map[string]any{
+			"kind":     kind,
+			"metadata": map[string]any{"name": name, "namespace": ns, "labels": map[string]any{}, "annotations": annotations},
+			"spec":     spec,
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanNodeRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var name string
+		var kubeletVersion *string
+		if err := rows.Scan(&name, &kubeletVersion); err != nil {
+			return nil, fmt.Errorf("scan node: %w", err)
+		}
+		nodeInfo := map[string]any{}
+		if kubeletVersion != nil {
+			nodeInfo["kubeletVersion"] = *kubeletVersion
+		}
+		m := map[string]any{
+			"metadata": map[string]any{"name": name},
+			"status":   map[string]any{"nodeInfo": nodeInfo},
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanRoleRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var name, ns string
+		var rules json.RawMessage
+		if err := rows.Scan(&name, &ns, &rules); err != nil {
+			return nil, fmt.Errorf("scan role: %w", err)
+		}
+		var r []any
+		_ = json.Unmarshal(rules, &r)
+		m := map[string]any{
+			"metadata": map[string]any{"name": name, "namespace": ns},
+			"rules":    r,
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanClusterRoleRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var name string
+		var rules json.RawMessage
+		if err := rows.Scan(&name, &rules); err != nil {
+			return nil, fmt.Errorf("scan cluster_role: %w", err)
+		}
+		var r []any
+		_ = json.Unmarshal(rules, &r)
+		m := map[string]any{
+			"metadata": map[string]any{"name": name},
+			"rules":    r,
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanBindingRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var name, ns string
+		var roleRef, subjects json.RawMessage
+		if err := rows.Scan(&name, &ns, &roleRef, &subjects); err != nil {
+			return nil, fmt.Errorf("scan role_binding: %w", err)
+		}
+		var ref map[string]any
+		_ = json.Unmarshal(roleRef, &ref)
+		var subj []any
+		_ = json.Unmarshal(subjects, &subj)
+		m := map[string]any{
+			"metadata": map[string]any{"name": name, "namespace": ns},
+			"roleRef":  ref,
+			"subjects": subj,
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanClusterBindingRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var name string
+		var roleRef, subjects json.RawMessage
+		if err := rows.Scan(&name, &roleRef, &subjects); err != nil {
+			return nil, fmt.Errorf("scan cluster_role_binding: %w", err)
+		}
+		var ref map[string]any
+		_ = json.Unmarshal(roleRef, &ref)
+		var subj []any
+		_ = json.Unmarshal(subjects, &subj)
+		m := map[string]any{
+			"metadata": map[string]any{"name": name},
+			"roleRef":  ref,
+			"subjects": subj,
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanServiceAccountRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var name, ns string
+		var secrets json.RawMessage
+		if err := rows.Scan(&name, &ns, &secrets); err != nil {
+			return nil, fmt.Errorf("scan service_account: %w", err)
+		}
+		m := map[string]any{
+			"metadata": map[string]any{"name": name, "namespace": ns, "labels": map[string]any{}},
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanSecretRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var name, ns string
+		var secretType *string
+		if err := rows.Scan(&name, &ns, &secretType); err != nil {
+			return nil, fmt.Errorf("scan secret: %w", err)
+		}
+		m := map[string]any{
+			"metadata": map[string]any{"name": name, "namespace": ns},
+		}
+		if secretType != nil {
+			m["type"] = *secretType
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanEBPFProcessRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var podName, ns, process string
+		var ts time.Time
+		if err := rows.Scan(&podName, &ns, &process, &ts); err != nil {
+			return nil, fmt.Errorf("scan ebpf_process: %w", err)
+		}
+		m := map[string]any{
+			"pod_name":  podName,
+			"namespace": ns,
+			"process":   process,
+			"binary":    process,
+			"timestamp": ts.Format(time.RFC3339),
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanConfigMapRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var name, ns string
+		if err := rows.Scan(&name, &ns); err != nil {
+			return nil, fmt.Errorf("scan configmap: %w", err)
+		}
+		m := map[string]any{
+			"metadata": map[string]any{"name": name, "namespace": ns},
+		}
+		result = append(result, m)
+	}
+	return result, nil
 }

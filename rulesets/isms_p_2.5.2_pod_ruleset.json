@@ -1,0 +1,108 @@
+{
+  "schema_version": "3.1.0-pod",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA Pod Graph - ISMS-P Pod 단위 자동 점검",
+  "module": "pod-graph",
+  "judgment_source_legend": {
+    "k8s_native": "K8s API만으로 자동 판단 (VARA가 수집)",
+    "manual_evidence": "회사가 캡처/문서를 직접 업로드 (VLM 추출 후 판단)",
+    "hybrid": "k8s_native + manual_evidence 조합 — 둘 다 통과해야 PASS"
+  },
+  "item": {
+    "id": "2.5.2",
+    "name": "사용자 식별",
+    "category_path": "2. 보호대책 요구사항 > 2.5 인증 및 권한관리 > 2.5.2 사용자 식별",
+    "description": "정보시스템과 개인정보 및 중요정보에 대한 접근은 사용자별로 고유하게 식별·인증할 수 있어야 하며, 동일한 사용자 계정을 공유하여 사용하지 않도록 하여야 한다."
+  },
+  "legal_references": [
+    { "law": "개인정보 보호법", "article": "제29조", "summary": "안전조치의무" },
+    { "law": "개인정보의 안전성 확보조치 기준", "article": "제5조", "summary": "접근 권한의 관리" }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.5.2-POD-01",
+      "name": "추측 가능한 SA 이름",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "ServiceAccount 이름 추측 가능성 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        {
+          "resource_type": "serviceaccount",
+          "api_endpoint": "GET /api/v1/namespaces/{ns}/serviceaccounts",
+          "fields": [".metadata.name"],
+          "python_client": "v1.list_namespaced_service_account(ns)"
+        }
+      ],
+      "guessable_name_patterns": [
+        "^admin$",
+        "^root$",
+        "^test$",
+        "^user$",
+        "^sa$",
+        "^service$",
+        "^app$",
+        "^demo$",
+        "^temp$",
+        "^tmp$"
+      ],
+      "compliance_indicators": [
+        { "field": "sa_name_is_guessable", "op": "==", "value": false, "description": "ServiceAccount 이름이 추측 불가능한 고유 식별명 사용" }
+      ],
+      "deficiency_indicators": [
+        { "field": "sa_name_is_guessable", "op": "==", "value": true, "description": "ServiceAccount 이름이 추측 가능한 일반명(admin, root, test 등) — 무차별 대입 공격 표적" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["ServiceAccount명", "매칭된 추측 가능 패턴"]
+    },
+    {
+      "rule_id": "R-2.5.2-POD-02",
+      "name": "일반 명명 패턴",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "ServiceAccount 일반 명명 패턴 사용 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        {
+          "resource_type": "serviceaccount",
+          "api_endpoint": "GET /api/v1/namespaces/{ns}/serviceaccounts",
+          "fields": [".metadata.name", ".metadata.labels"],
+          "python_client": "v1.list_namespaced_service_account(ns)"
+        }
+      ],
+      "generic_naming_patterns": [
+        "^sa-[0-9]+$",
+        "^serviceaccount-[0-9]+$",
+        "^svc-account-[0-9]+$",
+        "^user[0-9]+$",
+        "^account[0-9]+$"
+      ],
+      "compliance_indicators": [
+        { "field": "sa_name_is_generic", "op": "==", "value": false, "description": "ServiceAccount 이름이 워크로드·기능을 식별할 수 있는 명명규칙 준수" }
+      ],
+      "deficiency_indicators": [
+        { "field": "sa_name_is_generic", "op": "==", "value": true, "description": "ServiceAccount 이름이 일반 명명 패턴(sa-1, user01 등) — 고유 식별 불가, 감사 추적 곤란" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["ServiceAccount명", "매칭된 일반 명명 패턴", "권장 명명규칙 안내"]
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "ServiceAccount 이름이 추측 불가능 + 일반 명명 패턴 미사용 시 PASS"
+  }
+}

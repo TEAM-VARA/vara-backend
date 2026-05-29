@@ -1,0 +1,159 @@
+{
+  "schema_version": "3.1.0-pod",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA Pod Graph - ISMS-P Pod 단위 자동 점검",
+  "module": "pod-graph",
+  "judgment_source_legend": {
+    "k8s_native": "K8s API만으로 자동 판단 (VARA가 수집)",
+    "manual_evidence": "회사가 캡처/문서를 직접 업로드 (VLM 추출 후 판단)",
+    "hybrid": "k8s_native + manual_evidence 조합 — 둘 다 통과해야 PASS"
+  },
+  "item": {
+    "id": "2.6.1",
+    "name": "네트워크 접근",
+    "category_path": "2. 보호대책 요구사항 > 2.6 접근통제 > 2.6.1 네트워크 접근",
+    "description": "네트워크에 대한 비인가 접근을 통제하기 위하여 IP 관리, 단말 인증 등 관리절차를 수립·이행하고, 업무 목적 및 중요도에 따라 네트워크 분리(DMZ, 서버팜, DB존, 개발존 등)와 접근통제를 적용하여야 한다."
+  },
+  "legal_references": [
+    { "law": "개인정보 보호법", "article": "제29조", "summary": "안전조치의무" },
+    { "law": "개인정보의 안전성 확보조치 기준", "article": "제6조", "summary": "접근통제" }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.6.1-POD-01",
+      "name": "hostNetwork 사용 점검",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "Pod 호스트 네트워크 공유 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        { "resource_type": "pod", "api_endpoint": "GET /api/v1/namespaces/{ns}/pods/{name}", "fields": [".spec.hostNetwork", ".spec.hostPID", ".spec.hostIPC"], "python_client": "v1.read_namespaced_pod(name, ns)" }
+      ],
+      "compliance_indicators": [
+        { "field": "pod.spec.hostNetwork", "op": "!=", "value": true, "description": "hostNetwork 비활성" },
+        { "field": "pod.spec.hostPID", "op": "!=", "value": true, "description": "hostPID 비활성" },
+        { "field": "pod.spec.hostIPC", "op": "!=", "value": true, "description": "hostIPC 비활성" }
+      ],
+      "deficiency_indicators": [
+        { "field": "pod.spec.hostNetwork", "op": "==", "value": true, "description": "hostNetwork=true — 노드 네트워크 스택 직접 공유, 네트워크 격리 무력화" },
+        { "field": "pod.spec.hostPID", "op": "==", "value": true, "description": "hostPID=true — 노드 프로세스 네임스페이스 공유" },
+        { "field": "pod.spec.hostIPC", "op": "==", "value": true, "description": "hostIPC=true — 노드 IPC 네임스페이스 공유" }
+      ],
+      "exception_check": {
+        "annotation": "security-exception/justification",
+        "system_namespaces": ["kube-system", "kube-node-lease", "amazon-cloudwatch"]
+      },
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["활성화된 호스트 공유 항목", "예외 사유 존재 여부"]
+    },
+    {
+      "rule_id": "R-2.6.1-POD-02",
+      "name": "NetworkPolicy 적용 점검",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "namespace NetworkPolicy 적용 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        { "resource_type": "networkpolicy", "api_endpoint": "GET /apis/networking.k8s.io/v1/namespaces/{ns}/networkpolicies", "fields": [".spec.podSelector", ".spec.policyTypes"], "python_client": "networking.list_namespaced_network_policy(ns)" }
+      ],
+      "compliance_indicators": [
+        { "field": "has_default_deny", "op": "==", "value": true, "description": "default-deny(Ingress+Egress) NetworkPolicy 존재" },
+        { "field": "has_matching_policy", "op": "==", "value": true, "description": "Pod에 매칭되는 허용 NetworkPolicy 존재" }
+      ],
+      "deficiency_indicators": [
+        { "field": "has_default_deny", "op": "==", "value": false, "description": "default-deny NetworkPolicy 미존재 — 모든 Pod 간 무제한 통신 가능" },
+        { "field": "has_matching_policy", "op": "==", "value": false, "description": "Pod에 매칭되는 NetworkPolicy 없음 — 트래픽 통제 불가" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["default-deny 존재 여부", "Pod 매칭 NetworkPolicy 목록"]
+    },
+    {
+      "rule_id": "R-2.6.1-POD-03",
+      "name": "CNI NetworkPolicy 강제 지원 점검",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "CNI DaemonSet 종류 및 정책 강제 환경변수 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "judgment_source_note": "AWS EKS describe-addon API 대신 kube-system namespace의 DaemonSet과 그 env 변수를 직접 점검하여 동등한 판단 가능",
+      "data_sources": [
+        {
+          "resource_type": "daemonset",
+          "api_endpoint": "GET /apis/apps/v1/namespaces/kube-system/daemonsets",
+          "fields": [
+            ".items[].metadata.name",
+            ".items[].spec.template.spec.containers[].image",
+            ".items[].spec.template.spec.containers[].env"
+          ],
+          "python_client": "apps.list_namespaced_daemon_set('kube-system')"
+        }
+      ],
+      "supported_cni_indicators": [
+        { "name": "calico", "daemonset_name": "calico-node", "policy_enforcement": "native" },
+        { "name": "cilium", "daemonset_name": "cilium", "policy_enforcement": "native" },
+        { "name": "weave", "daemonset_name": "weave-net", "policy_enforcement": "native" },
+        { "name": "aws-vpc-cni", "daemonset_name": "aws-node", "policy_enforcement": "conditional", "required_env": { "ENABLE_NETWORK_POLICY": "true" } }
+      ],
+      "compliance_indicators": [
+        { "field": "has_policy_capable_cni", "op": "==", "value": true, "description": "NetworkPolicy 강제 가능한 CNI DaemonSet 존재" },
+        { "field": "policy_enforcement_enabled", "op": "==", "value": true, "description": "aws-vpc-cni 경우 aws-node DaemonSet env에 ENABLE_NETWORK_POLICY=true 설정" }
+      ],
+      "deficiency_indicators": [
+        { "field": "has_policy_capable_cni", "op": "==", "value": false, "description": "NetworkPolicy 지원하지 않는 CNI — 정책 선언해도 무시됨" },
+        { "field": "policy_enforcement_enabled", "op": "==", "value": false, "description": "aws-node DaemonSet에 ENABLE_NETWORK_POLICY 미설정 또는 false — 정책 우회 가능" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["탐지된 CNI DaemonSet명", "ENABLE_NETWORK_POLICY 값", "CNI 컨테이너 이미지·버전"]
+    },
+    {
+      "rule_id": "R-2.6.1-POD-04",
+      "name": "cross-namespace 통신 통제 부재",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "cross-namespace 통신 NetworkPolicy 적용 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        { "resource_type": "networkpolicy", "api_endpoint": "GET /apis/networking.k8s.io/v1/namespaces/{ns}/networkpolicies", "fields": [".spec.egress", ".spec.policyTypes", ".spec.podSelector"], "python_client": "networking.list_namespaced_network_policy(ns)" }
+      ],
+      "compliance_indicators": [
+        { "field": "cross_ns_egress_controlled", "op": "==", "value": true, "description": "Pod에 매칭되는 egress NetworkPolicy로 cross-namespace 통신 통제" }
+      ],
+      "deficiency_indicators": [
+        { "field": "cross_ns_egress_controlled", "op": "==", "value": false, "description": "Pod에 매칭되는 egress NetworkPolicy 없음 — cross-namespace 자유 통신 가능" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["Pod 매칭 egress NetworkPolicy 목록", "cross-namespace 통신 통제 여부"]
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "hostNetwork/PID/IPC 미사용 + default-deny NetworkPolicy 존재 + Pod 매칭 정책 존재 + 정책 강제 가능 CNI 적용 시 PASS"
+  }
+}

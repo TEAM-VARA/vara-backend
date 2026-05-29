@@ -18,11 +18,11 @@ func fixtureRootDir(t *testing.T) string {
 		t.Fatal("runtime.Caller")
 	}
 	repoRoot := filepath.Join(filepath.Dir(file), "..", "..")
-	def := filepath.Join(repoRoot, "ISMS-P_룰_테스트데이터_JSON_1")
+	def := filepath.Join(repoRoot, "ISMS-P_rule_testdata")
 	if st, err := os.Stat(def); err == nil && st.IsDir() {
 		return def
 	}
-	t.Skip("ISMS-P_룰_테스트데이터_JSON_1 디렉터리가 저장소 루트에 없습니다")
+	t.Skip("ISMS-P_rule_testdata 디렉터리가 저장소 루트에 없습니다")
 	return ""
 }
 
@@ -65,7 +65,7 @@ func buildSemanticCompliantPayload(f RuleFixtureFile, rule *Rule) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// TestRuleFixturesGolden 은 ISMS-P_룰_테스트데이터_JSON_1/ 내 모든 *.json 픽스처를 대상으로
+// TestRuleFixturesGolden 은 ISMS-P_rule_testdata/ 내 모든 *.json 픽스처를 대상으로
 // compliant(PASS)·non_compliant(FAIL) 양쪽 시나리오를 검증한다.
 func TestRuleFixturesGolden(t *testing.T) {
 	dir := fixtureRootDir(t)

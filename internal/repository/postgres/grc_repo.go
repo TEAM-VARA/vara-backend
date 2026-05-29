@@ -28,10 +28,11 @@ func NewGRCRepo(pg *pgxpool.Pool) *GRCRepo {
 func (r *GRCRepo) CreateCheck(ctx context.Context, chk *grc.Check) error {
 	_, err := r.pg.Exec(ctx, `
 		INSERT INTO grc_checks (check_id, company_id, isms_p_item_id, ruleset_version,
-		                        status, progress_pct, auto_collect, submitted_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		                        status, progress_pct, auto_collect, submitted_at, check_source)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, chk.CheckID, chk.CompanyID, chk.ISMSPItemID, chk.RulesetVersion,
-		chk.Status, chk.ProgressPct, chk.AutoCollect, chk.SubmittedAt)
+		chk.Status, chk.ProgressPct, chk.AutoCollect, chk.SubmittedAt,
+		nilIfEmpty(chk.CheckSource))
 	return err
 }
 
@@ -104,11 +105,13 @@ func (r *GRCRepo) SaveCheckResult(ctx context.Context, result *grc.ComplianceChe
 		err = tx.QueryRow(ctx, `
 			INSERT INTO grc_rule_results
 				(check_id, rule_id, check_category, evidence_type, system,
-				 verdict, evidence_files, evidence_sources, matched_indicators, skip_reason)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
+				 verdict, evidence_files, evidence_sources, matched_indicators, skip_reason,
+				 embedding_similarity)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11)
 			RETURNING id
 		`, result.CheckID, rr.RuleID, rr.CheckCategory, rr.EvidenceType, rr.System,
 			rr.Verdict, rr.EvidenceFiles, srcJSON, rr.MatchedIndicators, rr.SkipReason,
+			rr.EmbeddingSimilarity,
 		).Scan(&rrID)
 		if err != nil {
 			return fmt.Errorf("insert rule_result %s: %w", rr.RuleID, err)
@@ -212,7 +215,8 @@ func (r *GRCRepo) GetCheck(ctx context.Context, checkID string) (*grc.Check, err
 func (r *GRCRepo) GetCheckRuleResults(ctx context.Context, checkID string) ([]grc.RuleResult, error) {
 	rows, err := r.pg.Query(ctx, `
 		SELECT id, rule_id, check_category, evidence_type, system,
-		       verdict, evidence_files, evidence_sources, matched_indicators, skip_reason
+		       verdict, evidence_files, evidence_sources, matched_indicators, skip_reason,
+		       embedding_similarity
 		FROM grc_rule_results WHERE check_id = $1
 		ORDER BY rule_id
 	`, checkID)
@@ -225,10 +229,12 @@ func (r *GRCRepo) GetCheckRuleResults(ctx context.Context, checkID string) ([]gr
 	for rows.Next() {
 		var rr grc.RuleResult
 		var evidenceType, system, skipReason *string
+		var embSim *float64
 		var srcRaw []byte
 		if err := rows.Scan(
 			&rr.ID, &rr.RuleID, &rr.CheckCategory, &evidenceType, &system,
 			&rr.Verdict, &rr.EvidenceFiles, &srcRaw, &rr.MatchedIndicators, &skipReason,
+			&embSim,
 		); err != nil {
 			return nil, err
 		}
@@ -240,6 +246,9 @@ func (r *GRCRepo) GetCheckRuleResults(ctx context.Context, checkID string) ([]gr
 		}
 		if skipReason != nil {
 			rr.SkipReason = *skipReason
+		}
+		if embSim != nil {
+			rr.EmbeddingSimilarity = embSim
 		}
 		if len(srcRaw) > 0 {
 			_ = json.Unmarshal(srcRaw, &rr.EvidenceSources)
@@ -798,6 +807,294 @@ func (r *GRCRepo) ListCloudEnvironments(ctx context.Context, companyID, resource
 	return items, totalCount, nil
 }
 
+// ── Pod Graph Evaluations ──
+
+// SavePodGraphEvaluation inserts a pod graph evaluation result.
+func (r *GRCRepo) SavePodGraphEvaluation(ctx context.Context, companyID, clusterName, podName, namespace, verdict string, totalRules, passed, failed, skipped int, ruleResults any, summary any) (int64, error) {
+	ruleResultsJSON, err := json.Marshal(ruleResults)
+	if err != nil {
+		return 0, fmt.Errorf("marshal rule_results: %w", err)
+	}
+	summaryJSON, err := json.Marshal(summary)
+	if err != nil {
+		return 0, fmt.Errorf("marshal summary: %w", err)
+	}
+
+	var id int64
+	err = r.pg.QueryRow(ctx, `
+		INSERT INTO grc_pod_graph_evaluations
+			(company_id, cluster_name, pod_name, namespace, overall_verdict,
+			 total_rules, passed, failed, skipped, rule_results, summary)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id
+	`, companyID, nilIfEmpty(clusterName), podName, nilIfEmpty(namespace),
+		verdict, totalRules, passed, failed, skipped, ruleResultsJSON, summaryJSON).Scan(&id)
+	return id, err
+}
+
+// ListPodGraphEvaluations returns paginated pod graph evaluation results.
+func (r *GRCRepo) ListPodGraphEvaluations(ctx context.Context, companyID string, page, pageSize int) ([]grc.PodGraphEvalListItem, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	where := "WHERE 1=1"
+	args := []any{}
+	argIdx := 1
+
+	if companyID != "" {
+		where += fmt.Sprintf(" AND company_id = $%d", argIdx)
+		args = append(args, companyID)
+		argIdx++
+	}
+
+	var totalCount int
+	if err := r.pg.QueryRow(ctx,
+		"SELECT COUNT(*) FROM grc_pod_graph_evaluations "+where, args...,
+	).Scan(&totalCount); err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * pageSize
+	listQuery := fmt.Sprintf(`
+		SELECT id, company_id, cluster_name, pod_name, namespace,
+		       overall_verdict, total_rules, passed, failed, skipped, created_at
+		FROM grc_pod_graph_evaluations %s
+		ORDER BY created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, where, argIdx, argIdx+1)
+	args = append(args, pageSize, offset)
+
+	rows, err := r.pg.Query(ctx, listQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var items []grc.PodGraphEvalListItem
+	for rows.Next() {
+		var item grc.PodGraphEvalListItem
+		var clusterName, namespace *string
+		if err := rows.Scan(
+			&item.ID, &item.CompanyID, &clusterName, &item.PodName, &namespace,
+			&item.OverallVerdict, &item.TotalRules, &item.Passed, &item.Failed,
+			&item.Skipped, &item.CreatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		if clusterName != nil {
+			item.ClusterName = *clusterName
+		}
+		if namespace != nil {
+			item.Namespace = *namespace
+		}
+		items = append(items, item)
+	}
+
+	return items, totalCount, nil
+}
+
+// GetPodGraphEvaluation returns a single pod graph evaluation with full rule_results.
+func (r *GRCRepo) GetPodGraphEvaluation(ctx context.Context, id int64) (*grc.PodGraphEvalListItem, json.RawMessage, error) {
+	var item grc.PodGraphEvalListItem
+	var clusterName, namespace *string
+	var ruleResultsRaw json.RawMessage
+
+	err := r.pg.QueryRow(ctx, `
+		SELECT id, company_id, cluster_name, pod_name, namespace,
+		       overall_verdict, total_rules, passed, failed, skipped, rule_results, created_at
+		FROM grc_pod_graph_evaluations WHERE id = $1
+	`, id).Scan(
+		&item.ID, &item.CompanyID, &clusterName, &item.PodName, &namespace,
+		&item.OverallVerdict, &item.TotalRules, &item.Passed, &item.Failed,
+		&item.Skipped, &ruleResultsRaw, &item.CreatedAt,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	if clusterName != nil {
+		item.ClusterName = *clusterName
+	}
+	if namespace != nil {
+		item.Namespace = *namespace
+	}
+	return &item, ruleResultsRaw, nil
+}
+
+// ── Guidelines ──
+
+// InsertGuideline inserts a new guideline record.
+func (r *GRCRepo) InsertGuideline(ctx context.Context, g *grc.Guideline) error {
+	return r.pg.QueryRow(ctx, `
+		INSERT INTO grc_guidelines
+			(company_id, isms_p_item_id, filename, storage_path,
+			 file_size_bytes, content_hash, extracted_text, embedding)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)
+		RETURNING id, uploaded_at, updated_at
+	`, g.CompanyID, g.ISMSPItemID, g.Filename, g.StoragePath,
+		g.FileSizeBytes, nilIfEmpty(g.ContentHash),
+		nilIfEmpty(g.ExtractedText), vectorToString(g.Embedding),
+	).Scan(&g.ID, &g.UploadedAt, &g.UpdatedAt)
+}
+
+// UpdateGuidelineText updates the extracted text and embedding for a guideline.
+func (r *GRCRepo) UpdateGuidelineText(ctx context.Context, id int64, text string, emb []float32) error {
+	_, err := r.pg.Exec(ctx, `
+		UPDATE grc_guidelines
+		SET extracted_text = $2, embedding = $3::vector, updated_at = NOW()
+		WHERE id = $1
+	`, id, nilIfEmpty(text), vectorToString(emb))
+	return err
+}
+
+// ListGuidelines returns guideline list items for a company and optional item.
+func (r *GRCRepo) ListGuidelines(ctx context.Context, companyID, ismspItemID string) ([]grc.GuidelineListItem, error) {
+	where := "WHERE company_id = $1"
+	args := []any{companyID}
+	if ismspItemID != "" {
+		where += " AND isms_p_item_id = $2"
+		args = append(args, ismspItemID)
+	}
+
+	rows, err := r.pg.Query(ctx, fmt.Sprintf(`
+		SELECT id, company_id, isms_p_item_id, filename, file_size_bytes,
+		       (extracted_text IS NOT NULL AND extracted_text != '') AS has_extracted_text,
+		       (embedding IS NOT NULL) AS has_embedding,
+		       uploaded_at
+		FROM grc_guidelines %s
+		ORDER BY uploaded_at DESC
+	`, where), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []grc.GuidelineListItem
+	for rows.Next() {
+		var item grc.GuidelineListItem
+		if err := rows.Scan(
+			&item.ID, &item.CompanyID, &item.ISMSPItemID, &item.Filename,
+			&item.FileSizeBytes, &item.HasExtractedText, &item.HasEmbedding,
+			&item.UploadedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+// GetGuidelinesForItem returns full guideline records (with embedding) for compliance evaluation.
+func (r *GRCRepo) GetGuidelinesForItem(ctx context.Context, companyID, ismspItemID string) ([]grc.Guideline, error) {
+	rows, err := r.pg.Query(ctx, `
+		SELECT id, company_id, isms_p_item_id, filename, storage_path,
+		       file_size_bytes, content_hash, extracted_text,
+		       embedding::text, uploaded_at, updated_at
+		FROM grc_guidelines
+		WHERE company_id = $1 AND isms_p_item_id = $2
+		ORDER BY uploaded_at DESC
+	`, companyID, ismspItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var guidelines []grc.Guideline
+	for rows.Next() {
+		var g grc.Guideline
+		var contentHash, extractedText, embText *string
+		if err := rows.Scan(
+			&g.ID, &g.CompanyID, &g.ISMSPItemID, &g.Filename, &g.StoragePath,
+			&g.FileSizeBytes, &contentHash, &extractedText,
+			&embText, &g.UploadedAt, &g.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if contentHash != nil {
+			g.ContentHash = *contentHash
+		}
+		if extractedText != nil {
+			g.ExtractedText = *extractedText
+		}
+		if embText != nil && *embText != "" {
+			vec, err := parseVectorText(*embText)
+			if err == nil {
+				g.Embedding = vec
+			}
+		}
+		guidelines = append(guidelines, g)
+	}
+	return guidelines, nil
+}
+
+// DeleteGuideline deletes a guideline by ID.
+func (r *GRCRepo) DeleteGuideline(ctx context.Context, id int64) error {
+	tag, err := r.pg.Exec(ctx, `DELETE FROM grc_guidelines WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("guideline not found: %d", id)
+	}
+	return nil
+}
+
+// GetGuideline returns a single guideline by ID.
+func (r *GRCRepo) GetGuideline(ctx context.Context, id int64) (*grc.Guideline, error) {
+	var g grc.Guideline
+	var contentHash, extractedText *string
+	err := r.pg.QueryRow(ctx, `
+		SELECT id, company_id, isms_p_item_id, filename, storage_path,
+		       file_size_bytes, content_hash, extracted_text,
+		       uploaded_at, updated_at
+		FROM grc_guidelines WHERE id = $1
+	`, id).Scan(
+		&g.ID, &g.CompanyID, &g.ISMSPItemID, &g.Filename, &g.StoragePath,
+		&g.FileSizeBytes, &contentHash, &extractedText,
+		&g.UploadedAt, &g.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if contentHash != nil {
+		g.ContentHash = *contentHash
+	}
+	if extractedText != nil {
+		g.ExtractedText = *extractedText
+	}
+	return &g, nil
+}
+
+// FindGuidelineTextByHash looks up previously extracted text by content hash.
+func (r *GRCRepo) FindGuidelineTextByHash(ctx context.Context, hash string) (string, bool, error) {
+	var text *string
+	err := r.pg.QueryRow(ctx, `
+		SELECT extracted_text FROM grc_guidelines
+		WHERE content_hash = $1
+		  AND extracted_text IS NOT NULL AND extracted_text != ''
+		LIMIT 1
+	`, hash).Scan(&text)
+	if err != nil {
+		return "", false, nil
+	}
+	if text != nil && *text != "" {
+		return *text, true, nil
+	}
+	return "", false, nil
+}
+
+// UpdateCheckGuidelineIDs saves the guideline IDs used in a check.
+func (r *GRCRepo) UpdateCheckGuidelineIDs(ctx context.Context, checkID string, guidelineIDs []int64) error {
+	_, err := r.pg.Exec(ctx, `
+		UPDATE grc_checks SET guideline_ids = $2, updated_at = NOW()
+		WHERE check_id = $1
+	`, checkID, guidelineIDs)
+	return err
+}
+
 // ── Helpers ──
 
 // vectorToString converts a float32 slice to a pgvector-compatible string "[0.1,0.2,...]".
@@ -820,4 +1117,163 @@ func TotalPages(totalCount, pageSize int) int {
 		return 0
 	}
 	return int(math.Ceil(float64(totalCount) / float64(pageSize)))
+}
+
+// ── Compliance Findings ──
+
+// LoadActiveFindings returns all enabled, non-deferred findings from compliance_findings.
+func (r *GRCRepo) LoadActiveFindings(ctx context.Context) ([]grc.Finding, error) {
+	rows, err := r.pg.Query(ctx, `
+		SELECT finding_id, isms_p_item_id, title, verdict_type,
+		       observation_template, target_resource, required_data, condition,
+		       compliance_mappings, kisa_defect_case_refs,
+		       additional_review_items, manual_check_areas,
+		       automation_coverage, k8s_only_check,
+		       alternative_controls, exception_conditions,
+		       enabled, deferred, deferred_reason
+		FROM compliance_findings
+		WHERE enabled = true
+		ORDER BY finding_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var findings []grc.Finding
+	for rows.Next() {
+		var f grc.Finding
+		var deferredReason *string
+		var exceptionConditions []byte
+		if err := rows.Scan(
+			&f.FindingID, &f.ISMSPItemID, &f.Title, &f.VerdictType,
+			&f.ObservationTemplate, &f.TargetResource, &f.RequiredData, &f.Condition,
+			&f.ComplianceMappings, &f.KisaDefectCaseRefs,
+			&f.AdditionalReviewItems, &f.ManualCheckAreas,
+			&f.AutomationCoverage, &f.K8sOnlyCheck,
+			&f.AlternativeControls, &exceptionConditions,
+			&f.Enabled, &f.Deferred, &deferredReason,
+		); err != nil {
+			return nil, err
+		}
+		if deferredReason != nil {
+			f.DeferredReason = *deferredReason
+		}
+		if exceptionConditions != nil {
+			f.ExceptionConditions = exceptionConditions
+		}
+		findings = append(findings, f)
+	}
+	return findings, rows.Err()
+}
+
+// SaveFindingEvaluation inserts a single finding evaluation result.
+func (r *GRCRepo) SaveFindingEvaluation(ctx context.Context, findingID, companyID, clusterName, namespace, podName string, matched bool, observation string, evidence any) (int64, error) {
+	evidenceJSON, err := json.Marshal(evidence)
+	if err != nil {
+		return 0, fmt.Errorf("marshal evidence: %w", err)
+	}
+	var id int64
+	err = r.pg.QueryRow(ctx, `
+		INSERT INTO finding_evaluations
+			(finding_id, company_id, cluster_name, namespace, pod_name, matched, observation_text, evidence)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id
+	`, findingID, companyID, clusterName, nilIfEmpty(namespace), nilIfEmpty(podName),
+		matched, nilIfEmpty(observation), evidenceJSON).Scan(&id)
+	return id, err
+}
+
+// SaveFindingClusterSummary inserts a cluster-level finding summary.
+func (r *GRCRepo) SaveFindingClusterSummary(ctx context.Context, companyID, clusterName, namespace string, snapshotAt time.Time, totalFindings, matchedCount, unmatchedCount int, byVerdict any, findingsDetail any) (int64, error) {
+	byVerdictJSON, err := json.Marshal(byVerdict)
+	if err != nil {
+		return 0, fmt.Errorf("marshal by_verdict: %w", err)
+	}
+	detailJSON, err := json.Marshal(findingsDetail)
+	if err != nil {
+		return 0, fmt.Errorf("marshal findings_detail: %w", err)
+	}
+	var id int64
+	err = r.pg.QueryRow(ctx, `
+		INSERT INTO finding_cluster_summaries
+			(company_id, cluster_name, namespace, snapshot_at,
+			 total_findings, matched_count, unmatched_count, by_verdict, findings_detail)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (company_id, cluster_name, namespace, snapshot_at)
+		DO UPDATE SET
+			total_findings = EXCLUDED.total_findings,
+			matched_count = EXCLUDED.matched_count,
+			unmatched_count = EXCLUDED.unmatched_count,
+			by_verdict = EXCLUDED.by_verdict,
+			findings_detail = EXCLUDED.findings_detail,
+			evaluated_at = NOW()
+		RETURNING id
+	`, companyID, clusterName, namespace, snapshotAt,
+		totalFindings, matchedCount, unmatchedCount, byVerdictJSON, detailJSON).Scan(&id)
+	return id, err
+}
+
+// ListFindingClusterSummaries returns paginated cluster finding summaries.
+func (r *GRCRepo) ListFindingClusterSummaries(ctx context.Context, companyID string, page, pageSize int) ([]grc.FindingClusterResult, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	where := "WHERE company_id = $1"
+	args := []any{companyID}
+
+	var totalCount int
+	if err := r.pg.QueryRow(ctx,
+		"SELECT COUNT(*) FROM finding_cluster_summaries "+where, args...,
+	).Scan(&totalCount); err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * pageSize
+	listQuery := fmt.Sprintf(`
+		SELECT id, company_id, cluster_name, namespace, snapshot_at, evaluated_at,
+		       total_findings, matched_count, unmatched_count, by_verdict, findings_detail
+		FROM finding_cluster_summaries %s
+		ORDER BY evaluated_at DESC
+		LIMIT $2 OFFSET $3
+	`, where)
+	args = append(args, pageSize, offset)
+
+	rows, err := r.pg.Query(ctx, listQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var items []grc.FindingClusterResult
+	for rows.Next() {
+		var item grc.FindingClusterResult
+		var namespace *string
+		var snapshotAt, evaluatedAt time.Time
+		var byVerdictRaw, findingsDetailRaw json.RawMessage
+
+		if err := rows.Scan(
+			&item.ID, &item.CompanyID, &item.ClusterName, &namespace,
+			&snapshotAt, &evaluatedAt,
+			&item.TotalFindings, &item.MatchedCount, &item.UnmatchedCount,
+			&byVerdictRaw, &findingsDetailRaw,
+		); err != nil {
+			return nil, 0, err
+		}
+		if namespace != nil {
+			item.Namespace = *namespace
+		}
+		item.SnapshotAt = snapshotAt.Format(time.RFC3339)
+		item.EvaluatedAt = evaluatedAt.Format(time.RFC3339)
+
+		_ = json.Unmarshal(byVerdictRaw, &item.ByVerdict)
+		_ = json.Unmarshal(findingsDetailRaw, &item.Findings)
+
+		items = append(items, item)
+	}
+	return items, totalCount, nil
 }

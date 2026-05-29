@@ -29,6 +29,7 @@ import (
 // GRCService orchestrates the compliance check workflow.
 type GRCService struct {
 	repo            *postgres.GRCRepo
+	clusterRepo     *postgres.ClusterReaderRepo
 	rulesetStore    *RulesetStore
 	storagePath     string // local storage root for evidence files
 	embeddingURL    string
@@ -38,7 +39,7 @@ type GRCService struct {
 	embeddingClient *embedding.Client
 }
 
-func NewGRCService(repo *postgres.GRCRepo, rulesetStore *RulesetStore, embClient *embedding.Client) *GRCService {
+func NewGRCService(repo *postgres.GRCRepo, clusterRepo *postgres.ClusterReaderRepo, rulesetStore *RulesetStore, embClient *embedding.Client) *GRCService {
 	storagePath := os.Getenv("EVIDENCE_STORAGE_PATH")
 	if storagePath == "" {
 		storagePath = "evidence_storage"
@@ -63,6 +64,7 @@ func NewGRCService(repo *postgres.GRCRepo, rulesetStore *RulesetStore, embClient
 
 	return &GRCService{
 		repo:            repo,
+		clusterRepo:     clusterRepo,
 		rulesetStore:    rulesetStore,
 		storagePath:     storagePath,
 		embeddingURL:    envOrDefault("EMBEDDING_SERVER_URL", "http://localhost:9000/embed"),
@@ -72,6 +74,205 @@ func NewGRCService(repo *postgres.GRCRepo, rulesetStore *RulesetStore, embClient
 		embeddingClient: embClient,
 	}
 }
+
+// EvaluateCluster reads pods from cluster_* DB tables and evaluates each pod.
+func (s *GRCService) EvaluateCluster(ctx context.Context, req ClusterEvalRequest) (*ClusterEvalResult, error) {
+	if req.CompanyID == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
+	}
+	if req.ClusterName == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "cluster_name 필수", HTTPStatus: 400}
+	}
+	if s.clusterRepo == nil {
+		return nil, &GRCError{Code: "NOT_CONFIGURED", Message: "cluster reader repo not configured", HTTPStatus: 500}
+	}
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	// 1. Get latest snapshot
+	snapshotAt, err := s.clusterRepo.GetLatestSnapshotAt(ctx, req.ClusterName)
+	if err != nil {
+		return nil, &GRCError{Code: "NO_SNAPSHOT", Message: fmt.Sprintf("클러스터 스냅샷 없음: %v", err), HTTPStatus: 404}
+	}
+	log.Printf("[cluster-eval] cluster=%s snapshot=%s ns=%s limit=%d offset=%d",
+		req.ClusterName, snapshotAt.Format(time.RFC3339), req.Namespace, limit, offset)
+
+	// 2. List pods
+	pods, totalCount, err := s.clusterRepo.ListPods(ctx, req.ClusterName, snapshotAt, req.Namespace, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+	log.Printf("[cluster-eval] found %d pods (total %d)", len(pods), totalCount)
+
+	// 3. Get related resources per namespace (cache to avoid redundant queries)
+	nsRelatedCache := map[string]*postgres.ClusterRelatedRows{}
+
+	result := &ClusterEvalResult{
+		ClusterName:    req.ClusterName,
+		SnapshotAt:     snapshotAt.Format(time.RFC3339),
+		TotalPodsScope: totalCount,
+	}
+
+	// 4. Evaluate each pod
+	for _, pod := range pods {
+		// Load related resources (cached per namespace)
+		related, ok := nsRelatedCache[pod.Namespace]
+		if !ok {
+			related, err = s.clusterRepo.GetRelatedResources(ctx, req.ClusterName, snapshotAt, pod.Namespace)
+			if err != nil {
+				log.Printf("[cluster-eval] skip pod=%s ns=%s (related resources error: %v)", pod.Name, pod.Namespace, err)
+				continue
+			}
+			nsRelatedCache[pod.Namespace] = related
+		}
+
+		// Assemble PodGraphRequest
+		pgReq := AssembleClusterPodGraph(req.CompanyID, req.ClusterName, pod, related)
+
+		// Evaluate
+		evalResult, err := s.EvaluatePodGraph(ctx, pgReq)
+		if err != nil {
+			log.Printf("[cluster-eval] skip pod=%s ns=%s (eval error: %v)", pod.Name, pod.Namespace, err)
+			continue
+		}
+
+		result.Results = append(result.Results, ClusterEvalResultItem{
+			PodName:        evalResult.PodName,
+			Namespace:      evalResult.Namespace,
+			OverallVerdict: evalResult.OverallVerdict,
+			TotalRules:     evalResult.TotalRules,
+			Passed:         evalResult.Passed,
+			Failed:         evalResult.Failed,
+			Skipped:        evalResult.Skipped,
+			ID:             evalResult.ID,
+		})
+	}
+
+	result.Evaluated = len(result.Results)
+	log.Printf("[cluster-eval] evaluated %d/%d pods", result.Evaluated, totalCount)
+
+	return result, nil
+}
+
+// EvaluateClusterFindings evaluates all active findings against a cluster snapshot.
+func (s *GRCService) EvaluateClusterFindings(ctx context.Context, req FindingEvalRequest) (*grc.FindingClusterResult, error) {
+	if req.CompanyID == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
+	}
+	if req.ClusterName == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "cluster_name 필수", HTTPStatus: 400}
+	}
+	if s.clusterRepo == nil {
+		return nil, &GRCError{Code: "NOT_CONFIGURED", Message: "cluster reader repo not configured", HTTPStatus: 500}
+	}
+
+	// 1. Load active findings from DB
+	findings, err := s.repo.LoadActiveFindings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load findings: %w", err)
+	}
+	log.Printf("[finding-eval] loaded %d active findings", len(findings))
+
+	// 2. Get latest snapshot
+	snapshotAt, err := s.clusterRepo.GetLatestSnapshotAt(ctx, req.ClusterName)
+	if err != nil {
+		return nil, &GRCError{Code: "NO_SNAPSHOT", Message: fmt.Sprintf("클러스터 스냅샷 없음: %v", err), HTTPStatus: 404}
+	}
+	log.Printf("[finding-eval] cluster=%s snapshot=%s", req.ClusterName, snapshotAt.Format(time.RFC3339))
+
+	// 3. Load all pods
+	pods, _, err := s.clusterRepo.ListPods(ctx, req.ClusterName, snapshotAt, req.Namespace, 10000, 0)
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+
+	// 4. Load all cluster-wide resources
+	related, err := s.clusterRepo.GetClusterWideResources(ctx, req.ClusterName, snapshotAt)
+	if err != nil {
+		return nil, fmt.Errorf("get cluster resources: %w", err)
+	}
+
+	// 5. Build cluster snapshot
+	snap := &ClusterSnapshot{
+		ClusterName: req.ClusterName,
+		SnapshotAt:  snapshotAt,
+		Pods:        pods,
+		Namespaces:  related.Namespaces,
+		Related:     related,
+	}
+
+	// 6. Evaluate all findings
+	results := EvaluateFindings(findings, snap)
+
+	// 7. Compute summary
+	matchedCount := 0
+	unmatchedCount := 0
+	byVerdict := map[string]int{}
+	for _, fr := range results {
+		if fr.Matched {
+			matchedCount++
+		} else {
+			unmatchedCount++
+		}
+		byVerdict[fr.VerdictType]++
+	}
+
+	// 8. Save individual evaluations to DB
+	for _, fr := range results {
+		_, saveErr := s.repo.SaveFindingEvaluation(ctx,
+			fr.FindingID, req.CompanyID, req.ClusterName, req.Namespace, "",
+			fr.Matched, fr.Observation, fr.Evidence)
+		if saveErr != nil {
+			log.Printf("[finding-eval] save finding %s error: %v", fr.FindingID, saveErr)
+		}
+	}
+
+	// 9. Save cluster summary
+	ns := req.Namespace
+	summaryID, err := s.repo.SaveFindingClusterSummary(ctx,
+		req.CompanyID, req.ClusterName, ns, snapshotAt,
+		len(results), matchedCount, unmatchedCount,
+		byVerdict, results)
+	if err != nil {
+		log.Printf("[finding-eval] save cluster summary error: %v", err)
+	}
+
+	now := time.Now().UTC()
+	return &grc.FindingClusterResult{
+		ID:             summaryID,
+		CompanyID:      req.CompanyID,
+		ClusterName:    req.ClusterName,
+		Namespace:      req.Namespace,
+		SnapshotAt:     snapshotAt.Format(time.RFC3339),
+		EvaluatedAt:    now.Format(time.RFC3339),
+		TotalFindings:  len(results),
+		MatchedCount:   matchedCount,
+		UnmatchedCount: unmatchedCount,
+		ByVerdict:      byVerdict,
+		Findings:       results,
+	}, nil
+}
+
+// ListFindingClusterSummaries returns paginated finding cluster summaries.
+func (s *GRCService) ListFindingClusterSummaries(ctx context.Context, companyID string, page, pageSize int) ([]grc.FindingClusterResult, int, error) {
+	return s.repo.ListFindingClusterSummaries(ctx, companyID, page, pageSize)
+}
+
+// ListActiveFindings returns all active finding definitions.
+func (s *GRCService) ListActiveFindings(ctx context.Context) ([]grc.Finding, error) {
+	return s.repo.LoadActiveFindings(ctx)
+}
+
 
 func envOrDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {
@@ -99,8 +300,8 @@ func (s *GRCService) CreateCheck(
 	files []*multipart.FileHeader,
 	metadataList []grc.EvidenceMetadata,
 ) (*grc.Check, error) {
-	// Validate ruleset exists.
-	_, err := s.rulesetStore.Load(ismspItemID)
+	// Validate ruleset exists (document, pod, or unified).
+	_, err := s.rulesetStore.LoadUnified(ismspItemID)
 	if err != nil {
 		return nil, &GRCError{Code: "UNSUPPORTED_ITEM", Message: fmt.Sprintf("지원하지 않는 ISMS-P 항목: %s", ismspItemID), HTTPStatus: 400}
 	}
@@ -278,6 +479,133 @@ func (s *GRCService) ListEvidence(ctx context.Context, checkID string) ([]grc.Ev
 	return s.repo.ListEvidenceForAPI(ctx, checkID)
 }
 
+// ── Guidelines (지침) ──
+
+// UploadGuideline saves a guideline file, extracts text, generates embedding, and persists.
+func (s *GRCService) UploadGuideline(
+	ctx context.Context,
+	companyID, ismspItemID string,
+	fh *multipart.FileHeader,
+) (*grc.Guideline, error) {
+	// Validate file extension.
+	ext := strings.ToLower(filepath.Ext(fh.Filename))
+	allowed := map[string]bool{".pdf": true, ".txt": true, ".json": true, ".yaml": true, ".yml": true}
+	if !allowed[ext] {
+		return nil, &GRCError{Code: "UNSUPPORTED_FILE_FORMAT", Message: fmt.Sprintf("지침 파일 형식 미지원: %s", ext), HTTPStatus: 400}
+	}
+
+	if fh.Size > grc.MaxFileSize {
+		return nil, &GRCError{Code: "PAYLOAD_TOO_LARGE", Message: "파일 크기 초과 (50MB)", HTTPStatus: 413}
+	}
+
+	// Save file to storage.
+	guidelineDir := filepath.Join(s.storagePath, companyID, "guidelines", ismspItemID)
+	if err := os.MkdirAll(guidelineDir, 0o755); err != nil {
+		return nil, fmt.Errorf("지침 디렉토리 생성 실패: %w", err)
+	}
+
+	storagePath := filepath.Join(guidelineDir, fh.Filename)
+	contentHash, err := saveUploadedFile(fh, storagePath)
+	if err != nil {
+		return nil, fmt.Errorf("지침 파일 저장 실패: %w", err)
+	}
+
+	g := &grc.Guideline{
+		CompanyID:     companyID,
+		ISMSPItemID:   ismspItemID,
+		Filename:      fh.Filename,
+		StoragePath:   storagePath,
+		FileSizeBytes: fh.Size,
+		ContentHash:   contentHash,
+	}
+
+	// Check hash-based cache for extracted text.
+	if cached, found, _ := s.repo.FindGuidelineTextByHash(ctx, contentHash); found {
+		g.ExtractedText = cached
+		log.Printf("[grc-guideline] text cache HIT (hash=%s) %s", contentHash[:12], fh.Filename)
+	} else {
+		// Extract text from file.
+		data, extractErr := s.extractGuidelineText(storagePath, ext)
+		if extractErr != nil {
+			log.Printf("[grc-guideline] text extraction failed %s: %v", fh.Filename, extractErr)
+		} else {
+			g.ExtractedText = data
+		}
+	}
+
+	// Generate embedding from extracted text.
+	if g.ExtractedText != "" && s.embeddingClient != nil && s.embeddingClient.Available() {
+		emb, embErr := s.embeddingClient.Embed(ctx, g.ExtractedText)
+		if embErr != nil {
+			log.Printf("[grc-guideline] embed error %s: %v", fh.Filename, embErr)
+		} else {
+			g.Embedding = emb
+		}
+	}
+
+	// Insert into DB.
+	if err := s.repo.InsertGuideline(ctx, g); err != nil {
+		// Duplicate check (unique constraint).
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			return nil, &GRCError{Code: "DUPLICATE_GUIDELINE", Message: fmt.Sprintf("동일 지침 파일 이미 존재: %s", fh.Filename), HTTPStatus: 409}
+		}
+		return nil, fmt.Errorf("지침 DB 저장 실패: %w", err)
+	}
+
+	log.Printf("[grc-guideline] uploaded %s for %s/%s (id=%d, text=%d chars, emb=%d dims)",
+		fh.Filename, companyID, ismspItemID, g.ID, len(g.ExtractedText), len(g.Embedding))
+
+	return g, nil
+}
+
+// extractGuidelineText extracts text from a guideline file.
+func (s *GRCService) extractGuidelineText(path, ext string) (string, error) {
+	switch ext {
+	case ".pdf":
+		return s.extractPDFText(path)
+	case ".txt":
+		return readTextFile(path)
+	case ".json":
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	case ".yaml", ".yml":
+		return readTextFile(path)
+	default:
+		return "", fmt.Errorf("unsupported guideline format: %s", ext)
+	}
+}
+
+// ListGuidelines returns guideline list items for a company and optional item.
+func (s *GRCService) ListGuidelines(ctx context.Context, companyID, ismspItemID string) ([]grc.GuidelineListItem, error) {
+	return s.repo.ListGuidelines(ctx, companyID, ismspItemID)
+}
+
+// DeleteGuideline deletes a guideline by ID and its storage file.
+func (s *GRCService) DeleteGuideline(ctx context.Context, id int64) error {
+	// Get guideline to find storage path.
+	g, err := s.repo.GetGuideline(ctx, id)
+	if err != nil {
+		return &GRCError{Code: "GUIDELINE_NOT_FOUND", Message: "지침 미존재", HTTPStatus: 404}
+	}
+
+	// Delete from DB first.
+	if err := s.repo.DeleteGuideline(ctx, id); err != nil {
+		return fmt.Errorf("지침 삭제 실패: %w", err)
+	}
+
+	// Delete file from storage (best-effort).
+	if g.StoragePath != "" {
+		if err := os.Remove(g.StoragePath); err != nil && !os.IsNotExist(err) {
+			log.Printf("[grc-guideline] file delete warning %s: %v", g.StoragePath, err)
+		}
+	}
+
+	return nil
+}
+
 // ── Cloud Environments ──
 
 // CreateCloudEnvironments inserts cloud environment resources, generates text + embeddings.
@@ -356,7 +684,7 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 		return nil, err
 	}
 
-	ruleset, err := s.rulesetStore.Load(chk.ISMSPItemID)
+	ruleset, err := s.rulesetStore.LoadUnified(chk.ISMSPItemID)
 	if err != nil {
 		return nil, err
 	}
@@ -417,8 +745,19 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 	}
 	_ = s.repo.UpdateCheckProgress(ctx, checkID, 30)
 
-	// Step 1.5: Generate embeddings for evidence + guideline text.
-	s.generateEvidenceEmbeddings(ctx, checkID, evidenceFiles, evidenceStore, ruleset)
+	// Step 1.5: Load DB guidelines for this company + item (지침 임베딩 사용).
+	dbGuidelines, _ := s.repo.GetGuidelinesForItem(ctx, chk.CompanyID, chk.ISMSPItemID)
+	if len(dbGuidelines) > 0 {
+		var ids []int64
+		for _, g := range dbGuidelines {
+			ids = append(ids, g.ID)
+		}
+		_ = s.repo.UpdateCheckGuidelineIDs(ctx, checkID, ids)
+		log.Printf("[grc-worker] loaded %d DB guidelines for %s/%s", len(dbGuidelines), chk.CompanyID, chk.ISMSPItemID)
+	}
+
+	// Step 1.6: Generate embeddings for evidence + guideline text.
+	s.generateEvidenceEmbeddings(ctx, checkID, evidenceFiles, evidenceStore, ruleset, dbGuidelines)
 	_ = s.repo.UpdateCheckProgress(ctx, checkID, 40)
 
 	embByFile, errEmb := s.repo.ListEvidenceEmbeddingsForCheck(ctx, checkID)
@@ -455,7 +794,7 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 
 			result = s.evaluateRule(ctx, rule, extractedData, filenames)
 			result.EvidenceSources = evidenceAttributionsFromFiles(matched)
-			result = s.applyEmbeddingSecondPass(ctx, rule, matched, embByFile, result)
+			result = s.applyGuidelineEmbedding(rule, matched, embByFile, dbGuidelines, result)
 		}
 
 		ruleResults = append(ruleResults, result)
@@ -515,17 +854,32 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 // ─────────────────────────────────────────────
 
 // generateEvidenceEmbeddings creates BGE-M3 embeddings for extracted evidence text
-// and the corresponding guideline (rule) text, then stores them in the DB.
-// This is best-effort: if the embedding server is unavailable, it logs and returns.
+// and the corresponding guideline text, then stores them in the DB.
+// If dbGuidelines are available, their extracted_text is used as the guideline text.
+// Otherwise, falls back to buildGuidelineText(rule).
 func (s *GRCService) generateEvidenceEmbeddings(
 	ctx context.Context,
 	checkID string,
 	evidenceFiles []grc.EvidenceFile,
 	evidenceStore map[string]any,
 	ruleset *Ruleset,
+	dbGuidelines []grc.Guideline,
 ) {
 	if s.embeddingClient == nil || !s.embeddingClient.Available() {
 		return
+	}
+
+	// Build guideline text: prefer DB guidelines, fallback to rule-based text.
+	var guidelineText string
+	if len(dbGuidelines) > 0 {
+		var parts []string
+		for _, g := range dbGuidelines {
+			if g.ExtractedText != "" {
+				parts = append(parts, g.ExtractedText)
+			}
+		}
+		guidelineText = strings.Join(parts, "\n---\n")
+		log.Printf("[grc-embed] using %d DB guideline texts (%d chars total)", len(parts), len(guidelineText))
 	}
 
 	for _, ef := range evidenceFiles {
@@ -549,17 +903,19 @@ func (s *GRCService) generateEvidenceEmbeddings(
 			continue
 		}
 
-		// Find the matching rule(s) for this evidence file → build guideline text.
-		var guidelineText string
-		for _, rule := range ruleset.Rules {
-			matched := matchEvidenceToRule([]grc.EvidenceFile{ef}, rule)
-			if len(matched) > 0 {
-				guidelineText += buildGuidelineText(rule) + "\n"
+		// If no DB guideline text, fall back to rule-based text for this file.
+		glText := guidelineText
+		if glText == "" {
+			for _, rule := range ruleset.Rules {
+				matched := matchEvidenceToRule([]grc.EvidenceFile{ef}, rule)
+				if len(matched) > 0 {
+					glText += buildGuidelineText(rule) + "\n"
+				}
 			}
 		}
 
 		// Generate embeddings (batch: evidence + guideline in one call).
-		texts := []string{evidenceText, guidelineText}
+		texts := []string{evidenceText, glText}
 		embeddings, err := s.embeddingClient.EmbedBatch(ctx, texts)
 		if err != nil {
 			log.Printf("[grc-embed] batch embed error for %s: %v", ef.Filename, err)
@@ -577,7 +933,7 @@ func (s *GRCService) generateEvidenceEmbeddings(
 			guidelineEmb = embeddings[1]
 		}
 
-		if err := s.repo.UpdateEvidenceEmbeddings(ctx, checkID, ef.Filename, guidelineText, evidenceEmb, guidelineEmb); err != nil {
+		if err := s.repo.UpdateEvidenceEmbeddings(ctx, checkID, ef.Filename, glText, evidenceEmb, guidelineEmb); err != nil {
 			log.Printf("[grc-embed] save embeddings error for %s: %v", ef.Filename, err)
 		} else {
 			log.Printf("[grc-embed] saved embeddings for %s (evidence=%d dims, guideline=%d dims)",
@@ -822,7 +1178,7 @@ func (s *GRCService) evaluateRule(ctx context.Context, rule Rule, evidenceData [
 	}
 
 	switch rule.JudgementLogic.Type {
-	case "structured_match":
+	case "structured_match", "manual_evidence_match", "hybrid_match":
 		return evaluateStructured(rule, evidenceData, base)
 	case "semantic_match":
 		return s.evaluateSemantic(ctx, rule, evidenceData, base)
@@ -1570,6 +1926,224 @@ func generateRecommendations(results []grc.RuleResult, ruleset *Ruleset) []grc.R
 		})
 	}
 	return recs
+}
+
+// ─────────────────────────────────────────────
+// Pod Graph → Unified Check Pipeline
+// ─────────────────────────────────────────────
+
+// CreatePodGraphCheck creates a compliance check from K8s pod graph data.
+// Returns immediately with check_id; evaluation runs asynchronously.
+func (s *GRCService) CreatePodGraphCheck(ctx context.Context, companyID string, pgReq PodGraphRequest) (*grc.Check, error) {
+	// Validate pod rulesets exist.
+	rulesets := s.rulesetStore.LoadAllPodRulesets()
+	if len(rulesets) == 0 {
+		return nil, &GRCError{Code: "NO_POD_RULESETS", Message: "Pod 룰셋이 로드되지 않았습니다", HTTPStatus: 500}
+	}
+
+	checkID := GenerateJobID()
+	now := time.Now().UTC()
+
+	chk := &grc.Check{
+		CheckID:     checkID,
+		CompanyID:   companyID,
+		ISMSPItemID: "pod-graph",
+		Status:      "queued",
+		ProgressPct: 0,
+		AutoCollect: false,
+		SubmittedAt: now,
+		CheckSource: "pod_graph",
+	}
+
+	if err := s.repo.CreateCheck(ctx, chk); err != nil {
+		return nil, fmt.Errorf("check 생성 실패: %w", err)
+	}
+
+	// Build synthetic evidence files from K8s resources.
+	syntheticList := buildSyntheticEvidenceList(pgReq)
+	podName, podNS := extractPodMeta(pgReq.Pod)
+	jobDir := filepath.Join(s.storagePath, companyID, checkID)
+	if err := os.MkdirAll(jobDir, 0o755); err != nil {
+		return nil, fmt.Errorf("storage directory 생성 실패: %w", err)
+	}
+
+	for _, se := range syntheticList {
+		// Serialize to disk.
+		jsonBytes, err := json.MarshalIndent(se.Data, "", "  ")
+		if err != nil {
+			log.Printf("[pod-graph-check] marshal %s failed: %v", se.Filename, err)
+			continue
+		}
+		filePath := filepath.Join(jobDir, se.Filename)
+		if err := os.WriteFile(filePath, jsonBytes, 0o644); err != nil {
+			log.Printf("[pod-graph-check] write %s failed: %v", se.Filename, err)
+			continue
+		}
+
+		// Compute content hash.
+		h := sha256.Sum256(jsonBytes)
+		contentHash := hex.EncodeToString(h[:])
+
+		ef := &grc.EvidenceFile{
+			CheckID:       checkID,
+			Filename:      se.Filename,
+			EvidenceType:  "pod_graph",
+			System:        "AWS EKS",
+			Description:   fmt.Sprintf("Pod %s/%s — %s %s", podNS, podName, se.ResourceType, se.Filename),
+			StoragePath:   filePath,
+			FileSizeBytes: int64(len(jsonBytes)),
+			K8sSource:     se.K8sSource,
+			ContentHash:   contentHash,
+		}
+		if err := s.repo.InsertEvidenceFile(ctx, ef); err != nil {
+			log.Printf("[pod-graph-check] insert evidence %s failed: %v", se.Filename, err)
+		}
+	}
+
+	// Launch async worker.
+	go s.runPodGraphWorker(checkID, pgReq)
+
+	return chk, nil
+}
+
+func (s *GRCService) runPodGraphWorker(checkID string, pgReq PodGraphRequest) {
+	ctx := context.Background()
+
+	if err := s.repo.UpdateCheckStarted(ctx, checkID); err != nil {
+		log.Printf("[pod-graph-worker] failed to mark check started: %s: %v", checkID, err)
+		return
+	}
+
+	result, err := s.processPodGraphCheck(ctx, checkID, pgReq)
+	if err != nil {
+		log.Printf("[pod-graph-worker] check %s failed: %v", checkID, err)
+		errDetail := &grc.ErrorDetail{
+			Code:    "INTERNAL_ERROR",
+			Message: err.Error(),
+		}
+		if ge, ok := err.(*GRCError); ok {
+			errDetail.Code = ge.Code
+			errDetail.Message = ge.Message
+		}
+		_ = s.repo.UpdateCheckFailed(ctx, checkID, errDetail)
+		return
+	}
+
+	if err := s.repo.SaveCheckResult(ctx, result); err != nil {
+		log.Printf("[pod-graph-worker] failed to save result: %s: %v", checkID, err)
+		_ = s.repo.UpdateCheckFailed(ctx, checkID, &grc.ErrorDetail{Code: "INTERNAL_ERROR", Message: "결과 저장 실패"})
+	}
+}
+
+func (s *GRCService) processPodGraphCheck(ctx context.Context, checkID string, pgReq PodGraphRequest) (*grc.ComplianceCheckResult, error) {
+	rulesets := s.rulesetStore.LoadAllPodRulesets()
+	if len(rulesets) == 0 {
+		return nil, &GRCError{Code: "NO_POD_RULESETS", Message: "Pod 룰셋이 로드되지 않았습니다", HTTPStatus: 500}
+	}
+
+	// Step 1: Load evidence files + textualize.
+	_ = s.repo.UpdateCheckProgress(ctx, checkID, 10)
+	evidenceFiles, err := s.repo.ListEvidenceFiles(ctx, checkID)
+	if err != nil {
+		return nil, fmt.Errorf("evidence 로드 실패: %w", err)
+	}
+
+	// Step 2: Textualize each K8s resource and store as extracted_text.
+	_ = s.repo.UpdateCheckProgress(ctx, checkID, 20)
+	syntheticList := buildSyntheticEvidenceList(pgReq)
+	typeByFilename := make(map[string]string)
+	dataByFilename := make(map[string]map[string]any)
+	for _, se := range syntheticList {
+		typeByFilename[se.Filename] = se.ResourceType
+		dataByFilename[se.Filename] = se.Data
+	}
+
+	for _, ef := range evidenceFiles {
+		resType := typeByFilename[ef.Filename]
+		data := dataByFilename[ef.Filename]
+		if data == nil {
+			continue
+		}
+		text := textualizePodResource(resType, data)
+		if text != "" {
+			_ = s.repo.UpdateEvidenceExtractedText(ctx, checkID, ef.Filename, text)
+		}
+	}
+
+	// Step 3: Structured evaluation (k8s_native — 임베딩 없음).
+	_ = s.repo.UpdateCheckProgress(ctx, checkID, 40)
+
+	// Step 4: Structured evaluation using existing rule evaluators.
+	var allEvidenceFilenames []string
+	for _, ef := range evidenceFiles {
+		allEvidenceFilenames = append(allEvidenceFilenames, ef.Filename)
+	}
+
+	var ruleResults []grc.RuleResult
+	for _, rs := range rulesets {
+		for _, rule := range rs.Rules {
+			podResult := evaluatePodRule(rule, rs.Item.ID, rs.Item.Name, pgReq)
+			rr := convertPodRuleResult(podResult, checkID, allEvidenceFilenames)
+			// k8s_native: 구조적 판정만, 임베딩 없음
+			ruleResults = append(ruleResults, rr)
+		}
+	}
+
+	// Step 6: Aggregate.
+	_ = s.repo.UpdateCheckProgress(ctx, checkID, 90)
+	summary := aggregateSummary(ruleResults, len(evidenceFiles))
+
+	// Compute overall verdict and severity.
+	podName, podNS := extractPodMeta(pgReq.Pod)
+	verdict := "준수"
+	severity := "low"
+	for _, rr := range ruleResults {
+		if rr.Verdict == "미준수" {
+			verdict = "미준수"
+			for _, v := range rr.Violations {
+				if severityRank(v.Severity) > severityRank(severity) {
+					severity = v.Severity
+				}
+			}
+		}
+	}
+
+	summary.SummaryText = fmt.Sprintf("Pod Graph 점검 (pod=%s ns=%s): %d개 룰 중 통과 %d / 미준수 %d / 스킵 %d",
+		podName, podNS, summary.TotalRules, summary.Passed, summary.Failed, summary.Skipped)
+
+	// Generate recommendations from all rulesets.
+	var recommendations []grc.Recommendation
+	for _, rs := range rulesets {
+		recs := generateRecommendations(ruleResults, rs)
+		recommendations = append(recommendations, recs...)
+	}
+
+	return &grc.ComplianceCheckResult{
+		CheckID:         checkID,
+		ISMSPItemID:     "pod-graph",
+		ItemName:        "Pod Graph 점검",
+		Verdict:         verdict,
+		Severity:        severity,
+		CompletedAt:     time.Now().UTC(),
+		Summary:         summary,
+		RuleResults:     ruleResults,
+		Recommendations: recommendations,
+	}, nil
+}
+
+func severityRank(s string) int {
+	switch s {
+	case "critical":
+		return 4
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	default:
+		return 0
+	}
 }
 
 // ─────────────────────────────────────────────

@@ -1,3 +1,5 @@
+// GRC 보조: Pod 라이프사이클 이벤트, SBOM, eBPF 트래픽 데이터를 배치 수신하여
+// GRC 자산 인벤토리 및 취약점(CVE) 평가에 활용되는 원시 데이터를 저장한다.
 package handler
 
 import (

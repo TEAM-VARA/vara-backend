@@ -65,7 +65,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	grcRepo := postgres.NewGRCRepo(pg)
 	rulesetStore := service.NewRulesetStore("rulesets")
 	embClient := embedding.NewClient(os.Getenv("EMBEDDING_SERVER_URL"))
-	grcSvc := service.NewGRCService(grcRepo, rulesetStore, embClient)
+	grcSvc := service.NewGRCService(grcRepo, clusterReaderRepo, rulesetStore, embClient)
 
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)

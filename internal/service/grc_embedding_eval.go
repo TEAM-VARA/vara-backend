@@ -101,13 +101,14 @@ func (s *GRCService) evaluateEmbeddingSimilarity(ctx context.Context, rule Rule,
 	return base
 }
 
-// applyEmbeddingSecondPass uses DB-stored evidence_embedding vs freshly embedded per-rule guideline.
-// If primary verdict was 준수 but similarity is below threshold, downgrades to 미준수 with a violation.
-func (s *GRCService) applyEmbeddingSecondPass(
-	ctx context.Context,
+// applyGuidelineEmbedding compares evidence embeddings against guideline embeddings.
+// Uses DB guideline embeddings when available, otherwise falls back to rule-based text embedding.
+// If primary verdict was 준수 but similarity is below threshold, downgrades to 미준수.
+func (s *GRCService) applyGuidelineEmbedding(
 	rule Rule,
 	matched []grc.EvidenceFile,
 	embByFile map[string][]float32,
+	dbGuidelines []grc.Guideline,
 	primary grc.RuleResult,
 ) grc.RuleResult {
 	// 1차가 이미 증적↔지침 임베딩 유사도만으로 판정한 경우 중복 호출 방지
@@ -118,50 +119,66 @@ func (s *GRCService) applyEmbeddingSecondPass(
 	if primary.Verdict == "skipped" {
 		return primary
 	}
-	if s.embeddingClient == nil || !s.embeddingClient.Available() {
-		primary.MatchedIndicators = append(primary.MatchedIndicators,
-			"임베딩 2차 검증: 임베딩 서버 비가동(스킵)")
-		return primary
-	}
 	if len(embByFile) == 0 {
 		primary.MatchedIndicators = append(primary.MatchedIndicators,
-			"임베딩 2차 검증: DB에 증적 벡터 없음(스킵)")
+			"임베딩 검증: DB에 증적 벡터 없음(스킵)")
 		return primary
 	}
-	guide := buildGuidelineText(rule)
-	if strings.TrimSpace(guide) == "" {
+
+	// Collect guideline embeddings from DB.
+	var guidelineEmbs [][]float32
+	for _, g := range dbGuidelines {
+		if len(g.Embedding) > 0 {
+			guidelineEmbs = append(guidelineEmbs, g.Embedding)
+		}
+	}
+
+	if len(guidelineEmbs) == 0 {
 		primary.MatchedIndicators = append(primary.MatchedIndicators,
-			"임베딩 2차 검증: 지침 텍스트 없음(스킵)")
+			"임베딩 검증: 지침 임베딩 없음(스킵)")
 		return primary
 	}
-	gEmb, err := s.embeddingClient.Embed(ctx, guide)
-	if err != nil || gEmb == nil {
-		primary.MatchedIndicators = append(primary.MatchedIndicators,
-			"임베딩 2차 검증: 룰 지침 벡터 생성 실패(스킵)")
-		return primary
-	}
+
 	th := ruleEmbeddingThreshold(rule)
-	var sims []float64
+
+	// Compare each evidence file against all guideline embeddings, take max per evidence.
+	var bestSims []float64
 	for _, ef := range matched {
 		ev, ok := embByFile[ef.Filename]
-		if !ok || len(ev) != len(gEmb) {
+		if !ok || len(ev) == 0 {
 			continue
 		}
-		sims = append(sims, cosineSimilarity(ev, gEmb))
+		var maxSim float64
+		for _, gEmb := range guidelineEmbs {
+			if len(ev) != len(gEmb) {
+				continue
+			}
+			sim := cosineSimilarity(ev, gEmb)
+			if sim > maxSim {
+				maxSim = sim
+			}
+		}
+		bestSims = append(bestSims, maxSim)
 	}
-	if len(sims) == 0 {
+
+	if len(bestSims) == 0 {
 		primary.MatchedIndicators = append(primary.MatchedIndicators,
-			"임베딩 2차 검증: 매칭 증적에 저장된 벡터 없음 또는 차원 불일치(스킵)")
+			"임베딩 검증: 매칭 증적에 저장된 벡터 없음(스킵)")
 		return primary
 	}
-	minSim := sims[0]
-	for _, x := range sims[1:] {
-		if x < minSim {
-			minSim = x
+
+	// Use max similarity across all evidence files.
+	maxSim := bestSims[0]
+	for _, x := range bestSims[1:] {
+		if x > maxSim {
+			maxSim = x
 		}
 	}
-	if minSim < th {
-		msg := fmt.Sprintf("임베딩 2차: 증적↔룰 지침 코사인 최저 %.3f < 임계 %.3f (의미 정합성 부족)", minSim, th)
+
+	primary.EmbeddingSimilarity = &maxSim
+
+	if maxSim < th {
+		msg := fmt.Sprintf("임베딩: 증적↔지침 코사인 최대 %.3f < 임계 %.3f (의미 정합성 부족)", maxSim, th)
 		if primary.Verdict == "준수" {
 			primary.Verdict = "미준수"
 			primary.Violations = append(primary.Violations, grc.Violation{
@@ -173,7 +190,7 @@ func (s *GRCService) applyEmbeddingSecondPass(
 		}
 	} else {
 		primary.MatchedIndicators = append(primary.MatchedIndicators,
-			fmt.Sprintf("임베딩 2차 검증 통과 (증적↔룰 지침 코사인 최저 %.3f ≥ %.3f)", minSim, th))
+			fmt.Sprintf("임베딩 검증 통과 (증적↔지침 코사인 최대 %.3f ≥ %.3f)", maxSim, th))
 	}
 	return primary
 }

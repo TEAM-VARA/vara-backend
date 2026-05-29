@@ -1,6 +1,9 @@
 package grc
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ── 통합 체크 모델 (기존 Job + ComplianceScan 병합) ──
 
@@ -27,6 +30,12 @@ type Check struct {
 	FailedRules   int    `json:"failed_rules,omitempty"`
 	SkippedRules  int    `json:"skipped_rules,omitempty"`
 	EvidenceCount int    `json:"evidence_count,omitempty"`
+
+	// Source type: "file" (evidence upload) | "pod_graph" (K8s pod graph)
+	CheckSource string `json:"check_source,omitempty"`
+
+	// 이 체크에서 참조한 지침 ID 목록
+	GuidelineIDs []int64 `json:"guideline_ids,omitempty"`
 
 	// Error (populated on failure)
 	Error *ErrorDetail `json:"error,omitempty"`
@@ -104,8 +113,9 @@ type RuleResult struct {
 	EvidenceFiles     []string              `json:"evidence_files"`
 	EvidenceSources   []EvidenceAttribution `json:"evidence_sources,omitempty"`
 	MatchedIndicators []string              `json:"matched_indicators,omitempty"`
-	Violations        []Violation           `json:"violations,omitempty"`
-	SkipReason        string                `json:"skip_reason,omitempty"`
+	Violations          []Violation           `json:"violations,omitempty"`
+	SkipReason          string                `json:"skip_reason,omitempty"`
+	EmbeddingSimilarity *float64              `json:"embedding_similarity,omitempty"`
 }
 
 // Violation describes a single compliance failure.
@@ -220,6 +230,35 @@ type EvidenceListItem struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
+// ── 지침 (회사 내부 정책 문서) ──
+
+// Guideline is a company internal policy document (PDF) uploaded per ISMS-P item.
+type Guideline struct {
+	ID            int64     `json:"id"`
+	CompanyID     string    `json:"company_id"`
+	ISMSPItemID   string    `json:"isms_p_item_id"`
+	Filename      string    `json:"filename"`
+	StoragePath   string    `json:"-"`
+	FileSizeBytes int64     `json:"file_size_bytes"`
+	ContentHash   string    `json:"-"`
+	ExtractedText string    `json:"-"`
+	Embedding     []float32 `json:"-"`
+	UploadedAt    time.Time `json:"uploaded_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// GuidelineListItem is a summary for guideline list API responses.
+type GuidelineListItem struct {
+	ID               int64     `json:"id"`
+	CompanyID        string    `json:"company_id"`
+	ISMSPItemID      string    `json:"isms_p_item_id"`
+	Filename         string    `json:"filename"`
+	FileSizeBytes    int64     `json:"file_size_bytes"`
+	HasExtractedText bool      `json:"has_extracted_text"`
+	HasEmbedding     bool      `json:"has_embedding"`
+	UploadedAt       time.Time `json:"uploaded_at"`
+}
+
 // ── 클라우드 환경 정보 ──
 
 // CloudEnvironment represents a Kubernetes resource stored for GRC compliance matching.
@@ -250,6 +289,82 @@ type CloudEnvListItem struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+// ── Pod 그래프 평가 결과 ──
+
+// PodGraphEvalListItem is for the pod graph evaluation list API response.
+type PodGraphEvalListItem struct {
+	ID             int64     `json:"id"`
+	CompanyID      string    `json:"company_id"`
+	ClusterName    string    `json:"cluster_name,omitempty"`
+	PodName        string    `json:"pod_name"`
+	Namespace      string    `json:"namespace,omitempty"`
+	OverallVerdict string    `json:"overall_verdict"`
+	TotalRules     int       `json:"total_rules"`
+	Passed         int       `json:"passed"`
+	Failed         int       `json:"failed"`
+	Skipped        int       `json:"skipped"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// ── Finding (컴플라이언스 점검 보조 도구 — F-X.X.X-K8S-NN) ──
+
+// Finding represents a compliance finding definition from compliance_findings table.
+type Finding struct {
+	FindingID             string          `json:"finding_id"`
+	ISMSPItemID           string          `json:"isms_p_item_id"`
+	Title                 string          `json:"title"`
+	VerdictType           string          `json:"verdict_type"` // compliant_indicator | potential_finding | needs_review | additional_evidence
+	ObservationTemplate   string          `json:"observation_template"`
+	TargetResource        string          `json:"target_resource"`
+	RequiredData          json.RawMessage `json:"required_data"`
+	Condition             json.RawMessage `json:"condition"`
+	ComplianceMappings    json.RawMessage `json:"compliance_mappings"`
+	KisaDefectCaseRefs    json.RawMessage `json:"kisa_defect_case_refs,omitempty"`
+	AdditionalReviewItems json.RawMessage `json:"additional_review_items"`
+	ManualCheckAreas      json.RawMessage `json:"manual_check_areas,omitempty"`
+	AutomationCoverage    json.RawMessage `json:"automation_coverage,omitempty"`
+	K8sOnlyCheck          bool            `json:"k8s_only_check"`
+	AlternativeControls   json.RawMessage `json:"alternative_controls,omitempty"`
+	ExceptionConditions   json.RawMessage `json:"exception_conditions,omitempty"`
+	Enabled               bool            `json:"enabled"`
+	Deferred              bool            `json:"deferred"`
+	DeferredReason        string          `json:"deferred_reason,omitempty"`
+}
+
+// FindingResult is the evaluation output for a single finding.
+type FindingResult struct {
+	FindingID             string          `json:"finding_id"`
+	ISMSPItemID           string          `json:"isms_p_item_id"`
+	Title                 string          `json:"title"`
+	VerdictType           string          `json:"verdict_type"`
+	Matched               bool            `json:"matched"`
+	Observation           string          `json:"observation"`
+	Evidence              map[string]any  `json:"evidence,omitempty"`
+	ComplianceMappings    json.RawMessage `json:"compliance_mappings,omitempty"`
+	KisaDefectCaseRefs    json.RawMessage `json:"kisa_defect_case_refs,omitempty"`
+	AdditionalReviewItems json.RawMessage `json:"additional_review_items,omitempty"`
+	ManualCheckAreas      json.RawMessage `json:"manual_check_areas,omitempty"`
+	AutomationCoverage    json.RawMessage `json:"automation_coverage,omitempty"`
+	AlternativeControls   json.RawMessage `json:"alternative_controls,omitempty"`
+	Deferred              bool            `json:"deferred,omitempty"`
+	DeferredReason        string          `json:"deferred_reason,omitempty"`
+}
+
+// FindingClusterResult is the API response for cluster-wide finding evaluation.
+type FindingClusterResult struct {
+	ID             int64            `json:"id"`
+	CompanyID      string           `json:"company_id"`
+	ClusterName    string           `json:"cluster_name"`
+	Namespace      string           `json:"namespace,omitempty"`
+	SnapshotAt     string           `json:"snapshot_at"`
+	EvaluatedAt    string           `json:"evaluated_at"`
+	TotalFindings  int              `json:"total_findings"`
+	MatchedCount   int              `json:"matched_count"`
+	UnmatchedCount int              `json:"unmatched_count"`
+	ByVerdict      map[string]int   `json:"by_verdict"`
+	Findings       []FindingResult  `json:"findings"`
+}
+
 // ── 에러 ──
 
 // ErrorDetail describes an error that occurred during processing.
@@ -270,6 +385,8 @@ var AllowedEvidenceTypes = map[string]bool{
 	"임시_비밀번호_강제_변경":  true,
 	"저장_형태":          true,
 	"인증수단":           true,
+	"manual_evidence":  true,
+	"pod_graph":        true,
 }
 
 var AllowedFileExtensions = map[string]bool{

@@ -7,24 +7,30 @@ import (
 )
 
 const sampleFixtureJSON = `{
-  "rule_id": "R-2.2.1-07",
+  "rule_id": "R-2.5.4-05",
   "compliant": {
-    "description": "audit ok",
+    "description": "IAM password policy compliant",
     "data": {
-      "audit_log_enabled": true,
-      "log_types": ["api", "audit", "authenticator", "controllerManager", "scheduler"],
-      "log_retention_days": 365,
-      "dashboard_url": "https://datadog.example.com/dash"
+      "MinimumPasswordLength": 12,
+      "RequireUppercaseCharacters": true,
+      "RequireLowercaseCharacters": true,
+      "RequireNumbers": true,
+      "RequireSymbols": true,
+      "MaxPasswordAge": 90,
+      "PasswordReusePrevention": 5
     },
     "expected_result": "PASS"
   },
   "non_compliant": {
-    "description": "audit off",
+    "description": "IAM password policy too weak",
     "data": {
-      "audit_log_enabled": false,
-      "log_types": [],
-      "log_retention_days": 0,
-      "dashboard_url": null
+      "MinimumPasswordLength": 6,
+      "RequireUppercaseCharacters": false,
+      "RequireLowercaseCharacters": false,
+      "RequireNumbers": false,
+      "RequireSymbols": false,
+      "MaxPasswordAge": 0,
+      "PasswordReusePrevention": 0
     },
     "expected_result": "FAIL"
   }
@@ -35,7 +41,7 @@ func TestRuleFixtureFile_roundTrip(t *testing.T) {
 	if err := json.Unmarshal([]byte(sampleFixtureJSON), &f); err != nil {
 		t.Fatal(err)
 	}
-	if f.RuleID != "R-2.2.1-07" {
+	if f.RuleID != "R-2.5.4-05" {
 		t.Fatalf("rule_id=%q", f.RuleID)
 	}
 	s := &GRCService{rulesetStore: NewRulesetStore(rulesetDir(t))}

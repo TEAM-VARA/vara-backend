@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -22,7 +23,18 @@ func NewGRC(svc *service.GRCService, rulesetStore *service.RulesetStore) *GRCHan
 }
 
 // POST /compliance/checks
+// Content-Type: multipart/form-data → 파일 증적 체크
+// Content-Type: application/json   → Pod Graph 체크
 func (h *GRCHandler) CreateCheck(c *gin.Context) {
+	ct := c.GetHeader("Content-Type")
+	if strings.HasPrefix(ct, "application/json") {
+		h.createPodGraphCheck(c)
+		return
+	}
+	h.createFileCheck(c)
+}
+
+func (h *GRCHandler) createFileCheck(c *gin.Context) {
 	ismspItemID := c.PostForm("isms_p_item_id")
 	if ismspItemID == "" {
 		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "isms_p_item_id 필수")
@@ -77,6 +89,40 @@ func (h *GRCHandler) CreateCheck(c *gin.Context) {
 		"isms_p_item_id":    chk.ISMSPItemID,
 		"company_id":        chk.CompanyID,
 		"submitted_at":      chk.SubmittedAt,
+	})
+}
+
+func (h *GRCHandler) createPodGraphCheck(c *gin.Context) {
+	var req service.PodGraphRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "JSON 파싱 실패: "+err.Error())
+		return
+	}
+	if req.CompanyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+	if req.Pod == nil {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "pod 데이터 필수")
+		return
+	}
+
+	chk, err := h.svc.CreatePodGraphCheck(c.Request.Context(), req.CompanyID, req)
+	if err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"check_id":     chk.CheckID,
+		"status":       chk.Status,
+		"check_source": chk.CheckSource,
+		"company_id":   chk.CompanyID,
+		"submitted_at": chk.SubmittedAt,
 	})
 }
 
@@ -145,6 +191,89 @@ func (h *GRCHandler) ListEvidence(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": items})
+}
+
+// ── Guidelines (지침) ──
+
+// POST /compliance/guidelines
+func (h *GRCHandler) UploadGuideline(c *gin.Context) {
+	companyID := c.PostForm("company_id")
+	if companyID == "" || len(companyID) > 64 {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수 (1~64자)")
+		return
+	}
+
+	ismspItemID := c.PostForm("isms_p_item_id")
+	if ismspItemID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "isms_p_item_id 필수")
+		return
+	}
+
+	file, err := c.FormFile("file")
+	if err != nil {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "file 필수")
+		return
+	}
+
+	g, err := h.svc.UploadGuideline(c.Request.Context(), companyID, ismspItemID, file)
+	if err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"id":              g.ID,
+		"company_id":      g.CompanyID,
+		"isms_p_item_id":  g.ISMSPItemID,
+		"filename":        g.Filename,
+		"file_size_bytes": g.FileSizeBytes,
+		"has_text":        g.ExtractedText != "",
+		"has_embedding":   len(g.Embedding) > 0,
+		"uploaded_at":     g.UploadedAt,
+	})
+}
+
+// GET /compliance/guidelines
+func (h *GRCHandler) ListGuidelines(c *gin.Context) {
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+
+	ismspItemID := c.Query("isms_p_item_id")
+
+	items, err := h.svc.ListGuidelines(c.Request.Context(), companyID, ismspItemID)
+	if err != nil {
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": items})
+}
+
+// DELETE /compliance/guidelines/:id
+func (h *GRCHandler) DeleteGuideline(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "id must be integer")
+		return
+	}
+
+	if err := h.svc.DeleteGuideline(c.Request.Context(), id); err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "삭제 완료"})
 }
 
 // GET /rulesets
@@ -248,6 +377,209 @@ func (h *GRCHandler) ListCloudEnvironments(c *gin.Context) {
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
 	items, totalCount, err := h.svc.ListCloudEnvironments(c.Request.Context(), companyID, resourceType, page, pageSize)
+	if err != nil {
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": items,
+		"pagination": grc.Pagination{
+			Page:       page,
+			PageSize:   pageSize,
+			TotalCount: totalCount,
+			TotalPages: postgres.TotalPages(totalCount, pageSize),
+		},
+	})
+}
+
+// ── Pod Graph Evaluation (legacy, backward-compat) ──
+
+// POST /compliance/pod-graph/evaluate
+func (h *GRCHandler) EvaluatePodGraph(c *gin.Context) {
+	var req service.PodGraphRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "JSON 파싱 실패: "+err.Error())
+		return
+	}
+	if req.CompanyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+	if req.Pod == nil {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "pod 데이터 필수")
+		return
+	}
+
+	result, err := h.svc.EvaluatePodGraph(c.Request.Context(), req)
+	if err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// GET /compliance/pod-graph/rulesets
+func (h *GRCHandler) ListPodRulesets(c *gin.Context) {
+	items, err := h.rulesetStore.ListPodItems()
+	if err != nil {
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": items})
+}
+
+// GET /compliance/pod-graph/evaluations
+func (h *GRCHandler) ListPodGraphEvaluations(c *gin.Context) {
+	companyID := c.Query("company_id")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	items, totalCount, err := h.svc.ListPodGraphEvaluations(c.Request.Context(), companyID, page, pageSize)
+	if err != nil {
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": items,
+		"pagination": grc.Pagination{
+			Page:       page,
+			PageSize:   pageSize,
+			TotalCount: totalCount,
+			TotalPages: postgres.TotalPages(totalCount, pageSize),
+		},
+	})
+}
+
+// GET /compliance/pod-graph/evaluations/:eval_id
+func (h *GRCHandler) GetPodGraphEvaluation(c *gin.Context) {
+	evalID, err := strconv.ParseInt(c.Param("eval_id"), 10, 64)
+	if err != nil {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "eval_id must be integer")
+		return
+	}
+
+	item, ruleResults, err := h.svc.GetPodGraphEvaluation(c.Request.Context(), evalID)
+	if err != nil {
+		grcError(c, http.StatusNotFound, "NOT_FOUND", "평가 결과 미존재")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":              item.ID,
+		"company_id":      item.CompanyID,
+		"cluster_name":    item.ClusterName,
+		"pod_name":        item.PodName,
+		"namespace":       item.Namespace,
+		"overall_verdict": item.OverallVerdict,
+		"total_rules":     item.TotalRules,
+		"passed":          item.Passed,
+		"failed":          item.Failed,
+		"rule_results":    ruleResults,
+		"created_at":      item.CreatedAt,
+	})
+}
+
+// GET /compliance/pod-graph/rulesets/:item_id
+func (h *GRCHandler) GetPodRuleset(c *gin.Context) {
+	itemID := c.Param("item_id")
+	raw, err := h.rulesetStore.GetPodRaw(itemID)
+	if err != nil {
+		grcError(c, http.StatusNotFound, "RULESET_NOT_FOUND", "Pod 룰셋 미존재: "+itemID)
+		return
+	}
+	c.Data(http.StatusOK, "application/json; charset=utf-8", raw)
+}
+
+// POST /compliance/pod-graph/evaluate-cluster
+func (h *GRCHandler) EvaluateCluster(c *gin.Context) {
+	var req service.ClusterEvalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "JSON 파싱 실패: "+err.Error())
+		return
+	}
+	if req.CompanyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+	if req.ClusterName == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "cluster_name 필수")
+		return
+	}
+
+	result, err := h.svc.EvaluateCluster(c.Request.Context(), req)
+	if err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// ── Compliance Findings (F-X.X.X-K8S-NN) ──
+
+// POST /compliance/findings/evaluate-cluster
+func (h *GRCHandler) EvaluateClusterFindings(c *gin.Context) {
+	var req service.FindingEvalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "JSON 파싱 실패: "+err.Error())
+		return
+	}
+	if req.CompanyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+	if req.ClusterName == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "cluster_name 필수")
+		return
+	}
+
+	result, err := h.svc.EvaluateClusterFindings(c.Request.Context(), req)
+	if err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+
+// GET /compliance/findings
+func (h *GRCHandler) ListFindings(c *gin.Context) {
+	findings, err := h.svc.ListActiveFindings(c.Request.Context())
+	if err != nil {
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": findings, "total": len(findings)})
+}
+
+// GET /compliance/findings/summaries
+func (h *GRCHandler) ListFindingClusterSummaries(c *gin.Context) {
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	items, totalCount, err := h.svc.ListFindingClusterSummaries(c.Request.Context(), companyID, page, pageSize)
 	if err != nil {
 		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return

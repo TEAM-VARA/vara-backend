@@ -50,9 +50,27 @@ func newRouter(
 		api.GET("/rulesets", grc.ListRulesets)
 		api.GET("/rulesets/:item_id", grc.GetRuleset)
 
+		// ── Guidelines (지침) ──
+		api.POST("/compliance/guidelines", grc.UploadGuideline)
+		api.GET("/compliance/guidelines", grc.ListGuidelines)
+		api.DELETE("/compliance/guidelines/:id", grc.DeleteGuideline)
+
 		// ── Cloud Environments ──
 		api.POST("/compliance/cloud-environments", grc.CreateCloudEnvironments)
 		api.GET("/compliance/cloud-environments", grc.ListCloudEnvironments)
+
+		// ── Pod Graph Evaluation ──
+		api.POST("/compliance/pod-graph/evaluate", grc.EvaluatePodGraph)
+		api.POST("/compliance/pod-graph/evaluate-cluster", grc.EvaluateCluster)
+		api.GET("/compliance/pod-graph/evaluations", grc.ListPodGraphEvaluations)
+		api.GET("/compliance/pod-graph/evaluations/:eval_id", grc.GetPodGraphEvaluation)
+		api.GET("/compliance/pod-graph/rulesets", grc.ListPodRulesets)
+		api.GET("/compliance/pod-graph/rulesets/:item_id", grc.GetPodRuleset)
+
+		// ── Compliance Findings (F-X.X.X-K8S-NN) ──
+		api.GET("/compliance/findings", grc.ListFindings)
+		api.POST("/compliance/findings/evaluate-cluster", grc.EvaluateClusterFindings)
+		api.GET("/compliance/findings/summaries", grc.ListFindingClusterSummaries)
 
 		// ── Backward-compat aliases (deprecated) ──
 		api.POST("/compliance/check", grc.CreateCheck)
