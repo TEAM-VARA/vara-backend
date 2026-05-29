@@ -49,6 +49,10 @@ type NetworkFlowSrc struct {
 type NetworkFlowDst struct {
 	IP   string `json:"ip" binding:"required"`
 	Port int    `json:"port" binding:"required"`
+
+	PodID         string `json:"-"`
+    PodIP         string `json:"-"`
+    MappingStatus string `json:"-"`
 }
 
 // ── /dns-queries ──

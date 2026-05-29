@@ -110,7 +110,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	toxicH := handler.NewToxicHandler(toxicSvc)
 	sbomPackageH := handler.NewSBOMPackageHandler(sbomPackageSvc)
 	packageVulnH := handler.NewPackageVulnHandler(packageVulnSvc) // 신규 (B-6)
-	ebpfH := handler.NewEbpf(ebpfRepo)                            // 신규 (dev_v2 통합)
+	ebpfH := handler.NewEbpf(ebpfRepo, pg)                         // 신규 (dev_v2 통합)
 	edgeH := handler.NewEdgeHandler(edgeSvc)
 	podRefreshH := handler.NewPodRefreshHandler(exposureSvc, attackPathSvc, localScoringSvc, toxicSvc, finalScoringSvc)
 	notifH := handler.NewNotificationHandler(notifSvc)
