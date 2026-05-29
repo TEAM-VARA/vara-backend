@@ -61,6 +61,11 @@ func (s *AnalysisService) PrecomputeAll(ctx context.Context, cluster string) err
 		log.Printf("analysis: centrality failed: %v", err)
 	}
 
+	// 4. Dijkstra (외부→critical) — centrality 결과 활용하므로 뒤에
+	if err := s.precomputeAttackPaths(ctx, cluster, topo); err != nil {
+		log.Printf("analysis: attack paths failed: %v", err)
+	}
+
 	log.Printf("analysis: precompute done for cluster=%s, duration=%v", cluster, time.Since(start))
 	return nil
 }
@@ -143,5 +148,71 @@ func (s *AnalysisService) precomputeCentrality(ctx context.Context, cluster stri
 	}
 
 	log.Printf("analysis: centrality computed for %d nodes", len(rows))
+	return nil
+}
+
+// ─────────────────────────────────────────
+// Dijkstra 최단 공격 경로 (외부 → critical asset)
+// ─────────────────────────────────────────
+
+const (
+	criticalAssetCount = 20 // PageRank 상위 N개를 critical asset으로
+)
+
+func (s *AnalysisService) precomputeAttackPaths(ctx context.Context, cluster string, topo *edgeTopology) error {
+	// 1. critical asset 식별 (PageRank 상위 N개)
+	topCritical, err := s.cacheRepo.GetTopByPageRank(ctx, cluster, criticalAssetCount)
+	if err != nil {
+		return fmt.Errorf("get critical assets: %w", err)
+	}
+	if len(topCritical) == 0 {
+		log.Printf("analysis: no critical assets, skip attack paths")
+		return nil
+	}
+
+	criticalIDs := make([]string, 0, len(topCritical))
+	criticalSet := make(map[string]bool, len(topCritical))
+	for _, c := range topCritical {
+		criticalIDs = append(criticalIDs, c.NodeID)
+		criticalSet[c.NodeID] = true
+	}
+
+	// 2. BlastGraph 빌드 (Dijkstra용)
+	bg := BuildBlastGraph(topo)
+
+	// 3. 각 Pod source에서 critical asset까지 최단 경로
+	var rows []postgres.AttackPathRow
+
+	for _, node := range topo.Nodes {
+		if node.Kind != "pod" {
+			continue
+		}
+		// source 자신이 critical이면 skip (자기 자신 경로 무의미)
+		// dijkstraToCriticalAssets가 hop<2 필터하므로 안전
+
+		paths := dijkstraToCriticalAssets(bg, node.ID, criticalIDs)
+		for _, p := range paths {
+			// source == target 제외 (이미 hop>=1 필터됨)
+			if p.SourceID == p.TargetID {
+				continue
+			}
+			rows = append(rows, postgres.AttackPathRow{
+				SourceID:  p.SourceID,
+				TargetID:  p.TargetID,
+				Nodes:     p.Nodes,
+				Labels:    p.Labels,
+				Layers:    p.Layers,
+				TotalCost: p.TotalCost,
+				Hops:      p.Hops,
+			})
+		}
+	}
+
+	if err := s.cacheRepo.UpsertAttackPathBatch(ctx, cluster, rows); err != nil {
+		return fmt.Errorf("upsert attack paths: %w", err)
+	}
+
+	log.Printf("analysis: attack paths computed (%d paths to %d critical assets)",
+		len(rows), len(criticalIDs))
 	return nil
 }
