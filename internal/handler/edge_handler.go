@@ -7,9 +7,7 @@ import (
 
 	"github.com/vara/backend/internal/service"
 
-	 "strconv"
-
-	 "strings"
+	"strconv"
 )
 
 // ────────────────────────────────────────────────────
@@ -189,64 +187,6 @@ func (h *EdgeHandler) GetBlastRadius(c *gin.Context) {
 	}
 
 	result, err := h.svc.BuildBlastRadius(c.Request.Context(), cluster, source, hops)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, result)
-}
-
-// GetAttackPaths — PM 명세서 B-4
-// GET /api/v1/topology/top-paths?cluster=<name>&source=<id>&target=<id>&k=3
-func (h *EdgeHandler) GetAttackPaths(c *gin.Context) {
-	cluster := c.Query("cluster")
-	source := c.Query("source")
-	target := c.Query("target")
-	kStr := c.DefaultQuery("k", "3")
-
-	if cluster == "" || source == "" || target == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "cluster, source, target query params required",
-		})
-		return
-	}
-
-	k, err := strconv.Atoi(kStr)
-	if err != nil || k < 1 || k > 10 {
-		k = 3
-	}
-
-	result, err := h.svc.BuildAttackPaths(c.Request.Context(), cluster, source, target, k)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, result)
-}
-
-// GetLayerPaths — DFS Constrained
-// GET /api/v1/topology/layer-paths?cluster=<>&source=<>&target=<>&layers=identity,network&maxDepth=5
-func (h *EdgeHandler) GetLayerPaths(c *gin.Context) {
-	cluster := c.Query("cluster")
-	source := c.Query("source")
-	target := c.Query("target")
-	layersStr := c.DefaultQuery("layers", "identity,network,supply_chain,host")
-	maxDepthStr := c.DefaultQuery("maxDepth", "5")
-
-	if cluster == "" || source == "" || target == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "cluster, source, target query params required",
-		})
-		return
-	}
-
-	layers := strings.Split(layersStr, ",")
-	maxDepth, err := strconv.Atoi(maxDepthStr)
-	if err != nil || maxDepth < 1 || maxDepth > 10 {
-		maxDepth = 5
-	}
-
-	result, err := h.svc.BuildLayerPaths(c.Request.Context(), cluster, source, target, layers, maxDepth)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

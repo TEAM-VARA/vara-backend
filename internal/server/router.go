@@ -25,6 +25,7 @@ func newRouter(
 	edge *handler.EdgeHandler,
 	podRefresh *handler.PodRefreshHandler,
 	notif *handler.NotificationHandler,
+	analysis *handler.AnalysisHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -60,10 +61,11 @@ func newRouter(
 		api.POST("/edges/clusters/:cluster_name/network/compute", edge.ComputeNetwork)
 		api.GET("/topology", edge.GetTopology)
 		api.GET("/topology/blast-radius", edge.GetBlastRadius)
-		api.GET("/topology/top-paths", edge.GetAttackPaths)
-		api.GET("/topology/layer-paths", edge.GetLayerPaths)
 		api.GET("/topology/criticality", edge.GetCriticality)
 		api.GET("/topology/clusters", edge.GetClusters)
+		api.GET("/analysis/blast-radius", analysis.GetBlastRadius)
+		api.GET("/analysis/centrality", analysis.GetCentrality)
+		api.GET("/analysis/attack-paths", analysis.GetAttackPaths)
 
 		// ── 기존 Risk Scoring ──
 		api.POST("/pods/:pod_id/risk", scoring.ComputeRisk)
