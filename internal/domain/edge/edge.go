@@ -292,49 +292,15 @@ type ReachableNode struct {
 }
 
 // ────────────────────────────────────────────────────
-// Attack Paths API 응답 (PM 명세서 B-3/B-4)
-// ────────────────────────────────────────────────────
-
-type AttackPathsResponse struct {
-	Source  string       `json:"source"`
-	Target  string       `json:"target"`
-	K       int          `json:"k"`
-	Paths   []PathResult `json:"paths"`
-	BuildMs int64        `json:"buildMs"`
-}
-
-type PathResult struct {
-	Rank   int      `json:"rank"`
-	Hops   int      `json:"hops"`
-	Nodes  []string `json:"nodes"`  // 노드 ID 시퀀스
-	Labels []string `json:"labels"` // 사용자 친화 이름
-	Layers []string `json:"layers"` // 각 hop의 layer
-	Cost   float64  `json:"cost"`
-}
-
-// ────────────────────────────────────────────────────
-// Layer-Constrained Paths API
-// ────────────────────────────────────────────────────
-
-type LayerPathsResponse struct {
-	Source     string       `json:"source"`
-	Target     string       `json:"target"`
-	AllowedLayers []string  `json:"allowedLayers"`
-	MaxDepth   int          `json:"maxDepth"`
-	Paths      []PathResult `json:"paths"`
-	BuildMs    int64        `json:"buildMs"`
-}
-
-// ────────────────────────────────────────────────────
 // Criticality API (PageRank)
 // ────────────────────────────────────────────────────
 
 type CriticalityResponse struct {
-	Cluster  string             `json:"cluster"`
-	TopN     int                `json:"topN"`
-	Nodes    []NodeCriticality  `json:"nodes"`
+	Cluster   string            `json:"cluster"`
+	TopN      int               `json:"topN"`
+	Nodes     []NodeCriticality `json:"nodes"`
 	Algorithm string            `json:"algorithm"`
-	BuildMs  int64              `json:"buildMs"`
+	BuildMs   int64             `json:"buildMs"`
 }
 
 type NodeCriticality struct {
@@ -351,14 +317,14 @@ type NodeCriticality struct {
 // ────────────────────────────────────────────────────
 
 type ClustersResponse struct {
-	Cluster        string         `json:"cluster"`
-	GroupBy        string         `json:"groupBy"` // "image" 또는 "cve"
-	TotalGroups    int            `json:"totalGroups"`
-	TotalPods      int            `json:"totalPods"`
-	LargestGroup   int            `json:"largestGroup"`
-	SingletonCount int            `json:"singletonCount"`
-	Groups         []PodGroup     `json:"groups"`
-	BuildMs        int64          `json:"buildMs"`
+	Cluster        string     `json:"cluster"`
+	GroupBy        string     `json:"groupBy"` // "image" 또는 "cve"
+	TotalGroups    int        `json:"totalGroups"`
+	TotalPods      int        `json:"totalPods"`
+	LargestGroup   int        `json:"largestGroup"`
+	SingletonCount int        `json:"singletonCount"`
+	Groups         []PodGroup `json:"groups"`
+	BuildMs        int64      `json:"buildMs"`
 }
 
 type PodGroup struct {
