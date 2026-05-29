@@ -533,13 +533,18 @@ func (s *GRCService) UploadGuideline(
 		}
 	}
 
-	// Generate embedding from extracted text.
+	// Generate embedding from extracted text (with hash cache).
 	if g.ExtractedText != "" && s.embeddingClient != nil && s.embeddingClient.Available() {
-		emb, embErr := s.embeddingClient.Embed(ctx, g.ExtractedText)
-		if embErr != nil {
-			log.Printf("[grc-guideline] embed error %s: %v", fh.Filename, embErr)
+		if cachedEmb, found, _ := s.repo.FindGuidelineEmbeddingByHash(ctx, contentHash); found {
+			g.Embedding = cachedEmb
+			log.Printf("[grc-guideline] embedding cache HIT (hash=%s) %s", contentHash[:12], fh.Filename)
 		} else {
-			g.Embedding = emb
+			emb, embErr := s.embeddingClient.Embed(ctx, g.ExtractedText)
+			if embErr != nil {
+				log.Printf("[grc-guideline] embed error %s: %v", fh.Filename, embErr)
+			} else {
+				g.Embedding = emb
+			}
 		}
 	}
 
@@ -608,24 +613,12 @@ func (s *GRCService) DeleteGuideline(ctx context.Context, id int64) error {
 
 // ── Cloud Environments ──
 
-// CreateCloudEnvironments inserts cloud environment resources, generates text + embeddings.
+// CreateCloudEnvironments inserts cloud environment resources with text extraction.
 func (s *GRCService) CreateCloudEnvironments(ctx context.Context, envs []grc.CloudEnvironment) ([]grc.CloudEnvironment, error) {
 	for i := range envs {
-		// Generate extracted_text from raw_data.
 		if envs[i].ExtractedText == "" {
 			envs[i].ExtractedText = ExtractCloudEnvText(envs[i].ResourceType, envs[i].RawData)
 		}
-
-		// Generate embedding.
-		if s.embeddingClient != nil && s.embeddingClient.Available() && envs[i].ExtractedText != "" {
-			emb, err := s.embeddingClient.Embed(ctx, envs[i].ExtractedText)
-			if err != nil {
-				log.Printf("[grc-cloud-env] embed error for %s/%s: %v", envs[i].ResourceType, envs[i].ResourceName, err)
-			} else {
-				envs[i].Embedding = emb
-			}
-		}
-
 		if err := s.repo.InsertCloudEnvironment(ctx, &envs[i]); err != nil {
 			return nil, fmt.Errorf("insert cloud env %s/%s: %w", envs[i].ResourceType, envs[i].ResourceName, err)
 		}
@@ -769,7 +762,7 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 	// Step 2: Evaluate each rule.
 	var ruleResults []grc.RuleResult
 	for i, rule := range ruleset.Rules {
-		matched := matchEvidenceToRule(evidenceFiles, rule)
+		matched := matchEvidenceToRule(evidenceFiles, rule, evidenceStore)
 		var result grc.RuleResult
 
 		if len(matched) == 0 {
@@ -882,8 +875,15 @@ func (s *GRCService) generateEvidenceEmbeddings(
 		log.Printf("[grc-embed] using %d DB guideline texts (%d chars total)", len(parts), len(guidelineText))
 	}
 
+	// Phase 1: 텍스트 수집 (evidence + guideline 쌍)
+	type embedEntry struct {
+		filename string
+		glText   string
+	}
+	var allTexts []string
+	var entries []embedEntry
+
 	for _, ef := range evidenceFiles {
-		// Get the extracted text for this evidence file.
 		var evidenceText string
 		if d, ok := evidenceStore[ef.Filename]; ok {
 			switch v := d.(type) {
@@ -903,41 +903,53 @@ func (s *GRCService) generateEvidenceEmbeddings(
 			continue
 		}
 
-		// If no DB guideline text, fall back to rule-based text for this file.
 		glText := guidelineText
 		if glText == "" {
 			for _, rule := range ruleset.Rules {
-				matched := matchEvidenceToRule([]grc.EvidenceFile{ef}, rule)
+				matched := matchEvidenceToRule([]grc.EvidenceFile{ef}, rule, evidenceStore)
 				if len(matched) > 0 {
 					glText += buildGuidelineText(rule) + "\n"
 				}
 			}
 		}
 
-		// Generate embeddings (batch: evidence + guideline in one call).
-		texts := []string{evidenceText, glText}
-		embeddings, err := s.embeddingClient.EmbedBatch(ctx, texts)
-		if err != nil {
-			log.Printf("[grc-embed] batch embed error for %s: %v", ef.Filename, err)
-			continue
-		}
-		if len(embeddings) < 2 {
+		allTexts = append(allTexts, evidenceText, glText)
+		entries = append(entries, embedEntry{filename: ef.Filename, glText: glText})
+	}
+
+	if len(allTexts) == 0 {
+		return
+	}
+
+	// Phase 2: 한 번에 임베딩 (N개 파일 × 2 = 2N개 텍스트, 1회 HTTP)
+	log.Printf("[grc-embed] batch embedding %d texts (%d evidence files) in single call", len(allTexts), len(entries))
+	allEmbeddings, err := s.embeddingClient.EmbedBatch(ctx, allTexts)
+	if err != nil {
+		log.Printf("[grc-embed] batch embed error: %v", err)
+		return
+	}
+
+	// Phase 3: 결과 매핑 + DB 저장
+	for i, entry := range entries {
+		evIdx := i * 2
+		glIdx := i*2 + 1
+		if evIdx >= len(allEmbeddings) || glIdx >= len(allEmbeddings) {
 			continue
 		}
 
 		var evidenceEmb, guidelineEmb []float32
-		if embeddings[0] != nil {
-			evidenceEmb = embeddings[0]
+		if allEmbeddings[evIdx] != nil {
+			evidenceEmb = allEmbeddings[evIdx]
 		}
-		if embeddings[1] != nil {
-			guidelineEmb = embeddings[1]
+		if allEmbeddings[glIdx] != nil {
+			guidelineEmb = allEmbeddings[glIdx]
 		}
 
-		if err := s.repo.UpdateEvidenceEmbeddings(ctx, checkID, ef.Filename, glText, evidenceEmb, guidelineEmb); err != nil {
-			log.Printf("[grc-embed] save embeddings error for %s: %v", ef.Filename, err)
+		if err := s.repo.UpdateEvidenceEmbeddings(ctx, checkID, entry.filename, entry.glText, evidenceEmb, guidelineEmb); err != nil {
+			log.Printf("[grc-embed] save embeddings error for %s: %v", entry.filename, err)
 		} else {
 			log.Printf("[grc-embed] saved embeddings for %s (evidence=%d dims, guideline=%d dims)",
-				ef.Filename, len(evidenceEmb), len(guidelineEmb))
+				entry.filename, len(evidenceEmb), len(guidelineEmb))
 		}
 	}
 }
@@ -1143,10 +1155,10 @@ func readTextFile(path string) (string, error) {
 // Evidence-to-Rule Matching
 // ─────────────────────────────────────────────
 
-func matchEvidenceToRule(files []grc.EvidenceFile, rule Rule) []grc.EvidenceFile {
+func matchEvidenceToRule(files []grc.EvidenceFile, rule Rule, evidenceStore map[string]any) []grc.EvidenceFile {
 	var matched []grc.EvidenceFile
 	for _, ef := range files {
-		// If target_rule_ids is specified, use that.
+		// Phase 1a: If target_rule_ids is specified, use that.
 		if len(ef.TargetRuleIDs) > 0 {
 			for _, rid := range ef.TargetRuleIDs {
 				if rid == rule.RuleID {
@@ -1156,12 +1168,69 @@ func matchEvidenceToRule(files []grc.EvidenceFile, rule Rule) []grc.EvidenceFile
 			}
 			continue
 		}
-		// Otherwise, match by evidence_type (check_category).
+		// Phase 1b: match by evidence_type (check_category).
 		if ef.EvidenceType == rule.CheckCategory {
 			matched = append(matched, ef)
 		}
 	}
+	if len(matched) > 0 {
+		return matched
+	}
+
+	// Phase 2: Keyword-based fallback matching.
+	// 증적의 추출 텍스트에서 룰의 identification_keywords를 검색하여 자동 매칭.
+	if len(rule.IdentificationKeywords) == 0 {
+		return nil
+	}
+
+	minKW := rule.JudgementLogic.MinKeywordMatches
+	if minKW <= 0 {
+		minKW = 1 // default: 키워드 1개 이상 매칭 시 관련 증적으로 간주 (평가는 evaluateRule이 담당)
+	}
+
+	for _, ef := range files {
+		if len(ef.TargetRuleIDs) > 0 {
+			continue // explicit mapping만 사용하는 파일은 건너뜀
+		}
+		// 추출 텍스트 가져오기 (포맷 무관 — 키워드 매칭만으로 관련성 판단)
+		text := extractTextString(evidenceStore[ef.Filename])
+		if text == "" {
+			continue
+		}
+		lowerText := strings.ToLower(text)
+		kwHits := 0
+		for _, kw := range rule.IdentificationKeywords {
+			if strings.Contains(lowerText, strings.ToLower(kw)) {
+				kwHits++
+			}
+		}
+		if kwHits >= minKW {
+			matched = append(matched, ef)
+			log.Printf("[grc-match] keyword fallback: %s → rule %s (%d/%d keywords hit)",
+				ef.Filename, rule.RuleID, kwHits, len(rule.IdentificationKeywords))
+		}
+	}
 	return matched
+}
+
+// extractTextString extracts a plain text string from evidence data (string or map).
+func extractTextString(data any) string {
+	if data == nil {
+		return ""
+	}
+	switch v := data.(type) {
+	case string:
+		return v
+	case map[string]any:
+		// JSON 증적의 경우 전체를 직렬화하여 키워드 검색 가능하게
+		b, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	default:
+		return ""
+	}
 }
 
 // ─────────────────────────────────────────────

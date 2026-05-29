@@ -1086,6 +1086,29 @@ func (r *GRCRepo) FindGuidelineTextByHash(ctx context.Context, hash string) (str
 	return "", false, nil
 }
 
+// FindGuidelineEmbeddingByHash looks up a previously generated embedding by content hash.
+// Returns the embedding vector and true if found, or nil and false if not cached.
+func (r *GRCRepo) FindGuidelineEmbeddingByHash(ctx context.Context, hash string) ([]float32, bool, error) {
+	var vecText *string
+	err := r.pg.QueryRow(ctx, `
+		SELECT embedding::text FROM grc_guidelines
+		WHERE content_hash = $1
+		  AND embedding IS NOT NULL
+		LIMIT 1
+	`, hash).Scan(&vecText)
+	if err != nil {
+		return nil, false, nil // not found or error → treat as cache miss
+	}
+	if vecText == nil || *vecText == "" {
+		return nil, false, nil
+	}
+	emb, err := parseVectorText(*vecText)
+	if err != nil {
+		return nil, false, nil
+	}
+	return emb, true, nil
+}
+
 // UpdateCheckGuidelineIDs saves the guideline IDs used in a check.
 func (r *GRCRepo) UpdateCheckGuidelineIDs(ctx context.Context, checkID string, guidelineIDs []int64) error {
 	_, err := r.pg.Exec(ctx, `

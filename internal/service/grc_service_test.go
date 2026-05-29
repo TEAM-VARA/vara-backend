@@ -432,7 +432,7 @@ func TestMatchEvidenceToRule_ByCategory(t *testing.T) {
 	}
 
 	rule := Rule{RuleID: "2.5.4-R005", CheckCategory: "정책_시스템_설정"}
-	matched := matchEvidenceToRule(files, rule)
+	matched := matchEvidenceToRule(files, rule, nil)
 
 	if len(matched) != 1 {
 		t.Fatalf("matched count = %d, want 1", len(matched))
@@ -449,7 +449,7 @@ func TestMatchEvidenceToRule_ByTargetRuleIDs(t *testing.T) {
 	}
 
 	rule := Rule{RuleID: "2.5.4-R005", CheckCategory: "정책_시스템_설정"}
-	matched := matchEvidenceToRule(files, rule)
+	matched := matchEvidenceToRule(files, rule, nil)
 
 	if len(matched) != 1 {
 		t.Fatalf("matched count = %d, want 1", len(matched))
@@ -465,7 +465,7 @@ func TestMatchEvidenceToRule_NoMatch(t *testing.T) {
 	}
 
 	rule := Rule{RuleID: "2.5.4-R009", CheckCategory: "변경주기_준수"}
-	matched := matchEvidenceToRule(files, rule)
+	matched := matchEvidenceToRule(files, rule, nil)
 
 	if len(matched) != 0 {
 		t.Errorf("matched count = %d, want 0", len(matched))

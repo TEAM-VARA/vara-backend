@@ -83,7 +83,7 @@ func TestMatchEvidenceToRule_K8sSourcePreserved(t *testing.T) {
 		},
 	}
 	rule := Rule{RuleID: "R005", CheckCategory: "정책_시스템_설정"}
-	matched := matchEvidenceToRule(files, rule)
+	matched := matchEvidenceToRule(files, rule, nil)
 	if len(matched) != 1 {
 		t.Fatalf("matched len = %d", len(matched))
 	}
@@ -109,7 +109,7 @@ func TestMatchEvidenceToRule_TargetRuleIDs_K8sSource(t *testing.T) {
 		},
 	}
 	rule := Rule{RuleID: "R005", CheckCategory: "정책_시스템_설정"}
-	matched := matchEvidenceToRule(files, rule)
+	matched := matchEvidenceToRule(files, rule, nil)
 	if len(matched) != 1 {
 		t.Fatalf("matched len = %d", len(matched))
 	}
