@@ -237,3 +237,68 @@ func scanVulns(rows pgx.Rows) ([]sbom.PackageVulnerability, error) {
 	}
 	return out, rows.Err()
 }
+
+// ─────────────────────────────────────────
+// Scheduler 지원 메서드
+// ─────────────────────────────────────────
+
+// ListDistinctImageDigests는 sbom_packages에 있는 모든 unique image_digest를 반환합니다.
+// VulnScheduler가 스캔할 이미지 목록 조회에 사용됩니다.
+func (r *PackageVulnerabilityRepo) ListDistinctImageDigests(ctx context.Context) ([]string, error) {
+	const query = `
+		SELECT DISTINCT image_digest 
+		FROM sbom_packages 
+		WHERE image_digest IS NOT NULL AND image_digest != ''
+		ORDER BY image_digest
+	`
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list image digests: %w", err)
+	}
+	defer rows.Close()
+
+	var digests []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return nil, err
+		}
+		digests = append(digests, d)
+	}
+	return digests, rows.Err()
+}
+
+// ListRecentlyAdded는 since 이후로 fetched_at된 vulnerability를 반환합니다.
+// severities가 비어있으면 모든 severity 포함.
+//
+// VulnScheduler가 "이번 스캔에서 새로 추가된 vuln" 식별에 사용.
+func (r *PackageVulnerabilityRepo) ListRecentlyAdded(
+	ctx context.Context,
+	since time.Time,
+	severities []string,
+) ([]sbom.PackageVulnerability, error) {
+	query := `
+		SELECT purl, name, version, ecosystem,
+		       vuln_id, aliases, summary, 
+		       severity_score, severity_vector, severity_label,
+		       fetched_at, expires_at
+		FROM package_vulnerabilities
+		WHERE fetched_at >= $1
+	`
+	args := []interface{}{since}
+
+	if len(severities) > 0 {
+		query += ` AND severity_label = ANY($2)`
+		args = append(args, severities)
+	}
+
+	query += ` ORDER BY severity_score DESC, vuln_id`
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list recently added: %w", err)
+	}
+	defer rows.Close()
+
+	return scanVulns(rows)
+}

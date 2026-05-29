@@ -67,13 +67,14 @@ type queryResponse struct {
 //
 // 실제 응답은 더 많은 필드가 있지만, 우리가 쓰는 것만 정의.
 type OSVVulnerability struct {
-	ID        string         `json:"id"`        // 'CVE-2017-3735' / 'GHSA-...' / 'GO-2024-...'
-	Aliases   []string       `json:"aliases"`   // 별칭 ID들
-	Summary   string         `json:"summary"`
-	Details   string         `json:"details"`
-	Severity  []OSVSeverity  `json:"severity"`
-	Published string         `json:"published"`
-	Modified  string         `json:"modified"`
+	ID               string          `json:"id"`
+	Aliases          []string        `json:"aliases"`
+	Summary          string          `json:"summary"`
+	Details          string          `json:"details"`
+	Severity         []OSVSeverity   `json:"severity"`
+	Published        string          `json:"published"`
+	Modified         string          `json:"modified"`
+	DatabaseSpecific json.RawMessage `json:"database_specific,omitempty"` // GHSA/OSV가 종종 severity 라벨 제공
 }
 
 // OSVSeverity는 한 취약점의 한 severity 표기입니다.
@@ -143,9 +144,9 @@ func (c *Client) QueryByPURL(ctx context.Context, purl string) ([]OSVVulnerabili
 
 // ExtractCVSSScore extracts the highest CVSS base score from a vulnerability.
 //
-// osv.dev returns severity strings in CVSS vector format. We need to extract
-// the numeric base score. For CVSS_V3 the score is the first number after
-// "CVSS:3.x/". For CVSS_V4 similar.
+// Order:
+//   1. Direct numeric score (e.g., "7.5")
+//   2. CVSS vector parsing (simple estimation)
 //
 // Returns 0.0 if no score found.
 func ExtractCVSSScore(v OSVVulnerability) (score float64, vector string) {
@@ -153,9 +154,7 @@ func ExtractCVSSScore(v OSVVulnerability) (score float64, vector string) {
 	bestVector := ""
 
 	for _, s := range v.Severity {
-		// Score in osv.dev is typically a CVSS vector string, but sometimes
-		// it's already a numeric base score string like "7.5".
-		// Try direct parse first (numeric), then vector parse.
+		// 1) Direct numeric (e.g., "7.5")
 		if val, err := strconv.ParseFloat(strings.TrimSpace(s.Score), 64); err == nil {
 			if val > bestScore {
 				bestScore = val
@@ -164,12 +163,11 @@ func ExtractCVSSScore(v OSVVulnerability) (score float64, vector string) {
 			continue
 		}
 
-		// Vector format: try to compute base score from vector.
-		// Without a full CVSS calculator we cannot derive it precisely,
-		// so we look for a base score embedded in the vector if any
-		// (some entries include "score=7.5" style metadata).
-		// As fallback we keep the vector for traceability and 0 score.
-		if bestVector == "" {
+		// 2) CVSS vector estimation
+		if estimated := EstimateCVSSFromVector(s.Score); estimated > bestScore {
+			bestScore = estimated
+			bestVector = s.Score
+		} else if bestVector == "" {
 			bestVector = s.Score
 		}
 	}
@@ -177,13 +175,158 @@ func ExtractCVSSScore(v OSVVulnerability) (score float64, vector string) {
 	return bestScore, bestVector
 }
 
-// ClassifySeverity returns a label for a CVSS score.
+// EstimateCVSSFromVector estimates a CVSS base score from a vector string.
 //
-//	>= 9.0  Critical
-//	>= 7.0  High
-//	>= 4.0  Medium
-//	>  0.0  Low
-//	== 0.0  None (or Unknown)
+// 정확한 CVSS 알고리즘은 아니지만, base metrics (AV/AC/PR/UI/C/I/A/S)에서
+// 영향도와 공격성을 단순 매핑하여 대략의 base score를 추정합니다.
+//
+// CVSS:3.x 만 지원. v2/v4는 0 반환.
+func EstimateCVSSFromVector(vector string) float64 {
+	if vector == "" {
+		return 0
+	}
+	upper := strings.ToUpper(vector)
+	if !strings.Contains(upper, "CVSS:3") {
+		return 0
+	}
+
+	hasMetric := func(metric string) bool {
+		return strings.Contains(upper, "/"+metric)
+	}
+
+	// Impact metrics
+	cImpact := 0.0
+	if hasMetric("C:H") {
+		cImpact = 0.56
+	} else if hasMetric("C:L") {
+		cImpact = 0.22
+	}
+
+	iImpact := 0.0
+	if hasMetric("I:H") {
+		iImpact = 0.56
+	} else if hasMetric("I:L") {
+		iImpact = 0.22
+	}
+
+	aImpact := 0.0
+	if hasMetric("A:H") {
+		aImpact = 0.56
+	} else if hasMetric("A:L") {
+		aImpact = 0.22
+	}
+
+	// ISC = 1 - (1-C)(1-I)(1-A)
+	isc := 1 - (1-cImpact)*(1-iImpact)*(1-aImpact)
+	if isc <= 0 {
+		return 0
+	}
+
+	scopeChanged := hasMetric("S:C")
+
+	impact := 6.42 * isc
+	if scopeChanged {
+		impact = 7.52*(isc-0.029) - 3.25*pow(isc-0.02, 15)
+	}
+
+	// Exploitability
+	av := 0.85
+	if hasMetric("AV:A") {
+		av = 0.62
+	} else if hasMetric("AV:L") {
+		av = 0.55
+	} else if hasMetric("AV:P") {
+		av = 0.2
+	}
+
+	ac := 0.77
+	if hasMetric("AC:H") {
+		ac = 0.44
+	}
+
+	pr := 0.85
+	if scopeChanged {
+		if hasMetric("PR:L") {
+			pr = 0.68
+		} else if hasMetric("PR:H") {
+			pr = 0.5
+		}
+	} else {
+		if hasMetric("PR:L") {
+			pr = 0.62
+		} else if hasMetric("PR:H") {
+			pr = 0.27
+		}
+	}
+
+	ui := 0.85
+	if hasMetric("UI:R") {
+		ui = 0.62
+	}
+
+	exploitability := 8.22 * av * ac * pr * ui
+
+	var base float64
+	if scopeChanged {
+		base = min10(1.08 * (impact + exploitability))
+	} else {
+		base = min10(impact + exploitability)
+	}
+
+	if base <= 0 {
+		return 0
+	}
+
+	// Round up to nearest 0.1
+	return roundUp01(base)
+}
+
+// ExtractDBSpecificSeverity는 database_specific.severity 라벨을 추출합니다.
+//
+// GHSA는 종종 다음 형식으로 제공:
+//   { "severity": "CRITICAL" }
+func ExtractDBSpecificSeverity(v OSVVulnerability) string {
+	if len(v.DatabaseSpecific) == 0 {
+		return ""
+	}
+	var dbs struct {
+		Severity string `json:"severity"`
+	}
+	if err := json.Unmarshal(v.DatabaseSpecific, &dbs); err != nil {
+		return ""
+	}
+	return strings.Title(strings.ToLower(strings.TrimSpace(dbs.Severity)))
+}
+
+// ─────────────────────────────────────────
+// math helpers (라이브러리 추가 없이 진행)
+// ─────────────────────────────────────────
+
+func pow(x float64, n int) float64 {
+	result := 1.0
+	for i := 0; i < n; i++ {
+		result *= x
+	}
+	return result
+}
+
+func min10(v float64) float64 {
+	if v > 10 {
+		return 10
+	}
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
+func roundUp01(v float64) float64 {
+	rounded := float64(int(v*10+0.999)) / 10
+	if rounded > 10 {
+		return 10
+	}
+	return rounded
+}
 func ClassifySeverity(score float64) string {
 	switch {
 	case score >= 9.0:
