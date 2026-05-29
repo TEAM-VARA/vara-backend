@@ -41,6 +41,12 @@ func (s *AnalysisService) PrecomputeAll(ctx context.Context, cluster string) err
 	start := time.Now()
 	log.Printf("analysis: precompute starting for cluster=%s", cluster)
 
+	// 0. edges 최신화 (snapshot 불일치 방지) ⭐
+	if err := s.refreshEdges(ctx, cluster); err != nil {
+		log.Printf("analysis: edge refresh failed: %v", err)
+		// 계속 진행 (기존 edges로라도)
+	}
+
 	// 1. Topology 한 번만 로드 (모든 알고리즘이 재활용)
 	topo, err := s.edgeRepo.BuildTopology(ctx, cluster)
 	if err != nil {
@@ -214,5 +220,21 @@ func (s *AnalysisService) precomputeAttackPaths(ctx context.Context, cluster str
 
 	log.Printf("analysis: attack paths computed (%d paths to %d critical assets)",
 		len(rows), len(criticalIDs))
+	return nil
+}
+
+// refreshEdges는 분석 전 edges를 최신 pod snapshot으로 재계산합니다.
+// (snapshot 불일치로 BFS/Dijkstra가 0이 되는 문제 방지)
+func (s *AnalysisService) refreshEdges(ctx context.Context, cluster string) error {
+	if _, err := s.edgeRepo.ComputeIdentityEdges(ctx, cluster); err != nil {
+		return fmt.Errorf("identity edges: %w", err)
+	}
+	if _, err := s.edgeRepo.ComputeSupplyChainEdges(ctx, cluster); err != nil {
+		return fmt.Errorf("supply chain edges: %w", err)
+	}
+	if _, err := s.edgeRepo.ComputeNetworkEdges(ctx, cluster); err != nil {
+		return fmt.Errorf("network edges: %w", err)
+	}
+	log.Printf("analysis: edges refreshed for cluster=%s", cluster)
 	return nil
 }
