@@ -1,0 +1,72 @@
+# Rule schema v0
+# 매칭 단위: atomic permission triple (api_group, resource, verb)
+# 의미: PolicyRule이 triple (g, r, v)를 grant한다 ==
+#       (g in apiGroups OR "*" in apiGroups)
+#   AND (r in resources  OR "*" in resources)
+#   AND (v in verbs       OR "*" in verbs)
+# resourceNames: 매칭에서는 무시. evidence에만 기록.
+# nonResourceURLs: 무시.
+# match_any_of: triple 중 하나라도 grant되면 매치 (OR).
+#
+# R-INDIRECT-05 단독 매칭 결정 (2026-05-10):
+# 3 verb OR. get/list/watch 중 하나라도 secrets에 있으면 SA 토큰 secret(존재 시)
+# 또는 일반 민감 데이터 노출. 단독 매치로 충분.
+#
+# verb 결정 (get/list/watch):
+#   get  — 특정 secret 직접 읽기.
+#   list — namespace의 모든 secret을 데이터 포함하여 일괄 조회.
+#   watch — list와 동일한 데이터를 stream으로 수신. 데이터 노출 측면에서 list와 동등.
+#   create/update/patch는 별도 룰(R-INDIRECT-17)에서 SA token Secret 발급 시나리오로
+#   다룸 — 책임 분리.
+#
+# K8s 1.24+ 영향 (실효성 컨텍스트):
+#   1.24부터 SA 자동 토큰 Secret 생성 중단. 따라서 이 룰의 직접적 cluster-admin 도달
+#   효과는 다음 케이스로 한정:
+#     - 1.24 이전 클러스터
+#     - 1.24+이지만 수동으로 type=kubernetes.io/service-account-token Secret이 만들어진 NS
+#       (legacy 호환 / 외부 통합용)
+#     - 일반 Secret 안의 다른 자격증명(DB password, API key, TLS key 등) 도용
+#       (이건 cluster-admin 도달은 아니지만 NS 안 다른 경로로 권한 상승 가능)
+#   매처는 권한만 보고, "service-account-token 타입 Secret이 같은 NS에 존재하는지"는
+#   graph builder 단계에서 컨텍스트 가중치로 사용 — 그 시점에 false positive 줄임.
+#
+# subresource:
+#   secrets에 권한 상승 관련 subresource 없음 (status는 별도지만 데이터 노출 아님).
+
+schema_version: "0.1"
+id: R-INDIRECT-05
+description: "get/list/watch on secrets -> 수동 또는 1.23 이하 자동 SA token Secret 직접 읽기 가능"
+category: indirect
+severity: critical
+
+match_any_of:
+  - api_group: ""
+    resource:  "secrets"
+    verb:      "get"
+  - api_group: ""
+    resource:  "secrets"
+    verb:      "list"
+  - api_group: ""
+    resource:  "secrets"
+    verb:      "watch"
+
+# 5개 출처 매트릭스 매핑 (룰셋 검증 인덱스 2026-05-09 기준): K8s + KS + RT + KR + RP
+sources:
+  - type: official
+    name: "K8s - RBAC Good Practices: Listing secrets"
+    url:  "https://kubernetes.io/docs/concepts/security/rbac-good-practices/#listing-secrets"
+  - type: official
+    name: "K8s 1.24 release notes - SA token changes (자동 생성 중단)"
+    url:  "https://kubernetes.io/blog/2022/04/13/bound-service-account-tokens/"
+  - type: tool
+    name: "KubiScan (KS) - Get Secrets / List Secrets"
+    url:  "https://github.com/cyberark/KubiScan"
+  - type: tool
+    name: "rbac-tool (RT) - Read Secrets"
+    url:  "https://github.com/alcideio/rbac-tool"
+  - type: tool
+    name: "krane (KR) - risky-{get,list}-secrets / risky-any-verb-secrets (rules.yaml 직접 확인)"
+    url:  "https://github.com/appvia/krane/blob/master/config/rules.yaml"
+  - type: tool
+    name: "rbac-police (RP) - retrieve_token_secrets (archived 2025-04, 카탈로그 유효)"
+    url:  "https://github.com/PaloAltoNetworks/rbac-police"

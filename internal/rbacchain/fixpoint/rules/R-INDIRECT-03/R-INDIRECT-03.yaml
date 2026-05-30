@@ -1,0 +1,64 @@
+# Rule schema v0
+# 매칭 단위: atomic permission triple (api_group, resource, verb)
+# 의미: PolicyRule이 triple (g, r, v)를 grant한다 ==
+#       (g in apiGroups OR "*" in apiGroups)
+#   AND (r in resources  OR "*" in resources)
+#   AND (v in verbs       OR "*" in verbs)
+# resourceNames: 매칭에서는 무시. evidence에만 기록.
+# nonResourceURLs: 무시.
+# match_any_of: triple 중 하나라도 grant되면 매치 (OR).
+#
+# R-INDIRECT-03 단독 매칭 결정 (2026-05-10):
+# 1 subresource × 2 verb = 2 triple OR. ephemeralcontainers는 단일 subresource이고
+# update/patch 둘 중 하나만 있어도 디버그 컨테이너 주입 가능 → 단독 매치로 충분.
+#
+# verb 결정:
+#   K8s API에서 ephemeralContainers 추가는 pods/ephemeralcontainers subresource에
+#   대한 PUT(update) 또는 PATCH로 이루어짐. kubectl debug는 update를 씀.
+#   직접 API 호출 시 patch도 동작. 두 verb 모두 포함.
+#
+# subresource 매칭 (스키마 v0 한계):
+#   PolicyRule resources=["pods"]는 매치 안 됨 (의도대로 — pods와
+#   pods/ephemeralcontainers는 K8s RBAC에서 별개 리소스).
+#   PolicyRule resources=["*"]는 매치됨.
+#
+# 미고려 정밀화 (그래프 빌더 / Phase 후반):
+#   - victim Pod이 실행 중이고 강한 SA 마운트되어야 실제 권한 상승.
+#   - 현실에서 'kubectl debug'는 pods/log read 권한도 보통 함께 요구하지만,
+#     이는 도구 편의이고 RBAC상 ephemeralcontainers update만으로도 컨테이너 주입은
+#     가능하므로 룰 단독 위험으로 충분.
+#   - automountServiceAccountToken: false, PSA 제약 등은 RBAC 외부 정보.
+#
+# K8s 버전 종속성:
+#   ephemeral containers는 1.16 alpha → 1.23 GA. 1.22 이하 클러스터에는 이
+#   리소스 자체가 없으므로 룰이 매치할 PolicyRule도 존재하지 않음 (자연스러운 비매치).
+
+schema_version: "0.1"
+id: R-INDIRECT-03
+description: "update/patch on pods/ephemeralcontainers -> 실행 중 Pod에 디버그 컨테이너 주입, 그 Pod SA 토큰 획득"
+category: indirect
+severity: critical
+
+match_any_of:
+  - api_group: ""
+    resource:  "pods/ephemeralcontainers"
+    verb:      "update"
+  - api_group: ""
+    resource:  "pods/ephemeralcontainers"
+    verb:      "patch"
+
+# 5개 출처 매트릭스 매핑 (룰셋 검증 인덱스 2026-05-09 기준): K8s + RT + RP
+# (KS, KR은 별도 룰로 다루지 않음 — 매트릭스 검증에서 확인된 누락)
+sources:
+  - type: official
+    name: "K8s - Ephemeral Containers"
+    url:  "https://kubernetes.io/docs/concepts/workloads/pods/ephemeral-containers/"
+  - type: official
+    name: "K8s - Debugging running Pods (kubectl debug)"
+    url:  "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/"
+  - type: tool
+    name: "rbac-tool (RT) - ephemeralcontainers 권한"
+    url:  "https://github.com/alcideio/rbac-tool"
+  - type: tool
+    name: "rbac-police (RP) - inject_ephemeral_containers (archived 2025-04, 카탈로그로 유효)"
+    url:  "https://github.com/PaloAltoNetworks/rbac-police"
