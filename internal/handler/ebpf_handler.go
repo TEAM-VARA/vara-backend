@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -253,4 +254,29 @@ func (h *EbpfHandler) ProcessEvents(c *gin.Context) {
 		"received": len(req.Events),
 		"saved":    saved,
 	})
+}
+
+// GetProcessFeed : GET /api/v1/feed/process?since=<RFC3339>
+func (h *EbpfHandler) GetProcessFeed(c *gin.Context) {
+	customerID := c.GetHeader("X-Customer-ID")
+	if customerID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "X-Customer-ID header required"})
+		return
+	}
+
+	// since 미지정 시 최근 5분
+	since := time.Now().Add(-5 * time.Minute)
+	if s := c.Query("since"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			since = t
+		}
+	}
+
+	items, err := h.repo.QueryProcessFeed(c.Request.Context(), customerID, since, 100)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"events": items})
 }

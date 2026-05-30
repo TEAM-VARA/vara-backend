@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"   // ← 추가
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vara/backend/internal/domain/ebpf"
@@ -171,4 +172,70 @@ func (r *EbpfRepo) UpsertProcessEvents(ctx context.Context, customerID string, r
 		return 0, fmt.Errorf("tx commit: %w", err)
 	}
 	return saved, nil
+}
+
+// processWatchlist : 피드에 노출할 "의심 명령" 목록.
+// 하드코딩(시연용). 추후 DB 테이블/설정으로 승격 + ANOMALY 룰셋과 통합.
+var processWatchlist = []string{
+	"sh", "bash", "dash", "zsh", "ash",
+	"curl", "wget", "nc", "ncat", "socat",
+	"python", "python3", "perl", "ruby",
+	"id", "whoami", "uname", "ps", "netstat", "ss",
+}
+
+// ProcessFeedItem : FE 피드용 단일 항목
+type ProcessFeedItem struct {
+	Timestamp  time.Time `json:"timestamp"`
+	SrcPodID   string    `json:"src_pod_id"`
+	Comm       string    `json:"comm"`
+	Args       []string  `json:"args"`
+	ParentComm string    `json:"parent_comm"` // 8번 ANOMALY 판정에 쓸 단서 (parent가 java면 런타임 의심)
+}
+
+// QueryProcessFeed : watchlist + namespace 필터를 적용한 process 피드 조회
+func (r *EbpfRepo) QueryProcessFeed(
+	ctx context.Context, customerID string, since time.Time, limit int,
+) ([]ProcessFeedItem, error) {
+	const q = `
+		SELECT timestamp, src_pod_id, comm, args, parent_comm
+		FROM ebpf_process_events
+		WHERE customer_id = $1
+		  AND received_at > $2
+		  AND src_pod_id NOT LIKE 'default/vara-%'   -- VARA 셀프 노이즈 제외
+		  AND comm = ANY($3)                         -- watchlist만
+		ORDER BY timestamp DESC
+		LIMIT $4
+	`
+
+	rows, err := r.pg.Query(ctx, q, customerID, since, processWatchlist, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query process feed: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]ProcessFeedItem, 0)
+	for rows.Next() {
+		var (
+			it         ProcessFeedItem
+			argsRaw    []byte  // jsonb → 일단 raw bytes로 받음
+			parentComm *string // NULL 가능 (parent 없는 process)
+		)
+		if err := rows.Scan(&it.Timestamp, &it.SrcPodID, &it.Comm, &argsRaw, &parentComm); err != nil {
+			return nil, fmt.Errorf("scan process feed: %w", err)
+		}
+		if len(argsRaw) > 0 {
+			_ = json.Unmarshal(argsRaw, &it.Args) // jsonb([...]) → []string
+		}
+		if it.Args == nil {
+			it.Args = []string{}
+		}
+		if parentComm != nil {
+			it.ParentComm = *parentComm
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iter: %w", err)
+	}
+	return items, nil
 }
