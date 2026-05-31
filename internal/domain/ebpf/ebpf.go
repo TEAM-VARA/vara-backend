@@ -37,6 +37,7 @@ type NetworkFlowEvent struct {
 	Dst       NetworkFlowDst `json:"dst" binding:"required"`
 	Protocol  string         `json:"protocol" binding:"required,oneof=TCP UDP"`
 	Success   *bool          `json:"success"`
+	Size      int64          `json:"size,omitempty"`
 }
 
 type NetworkFlowSrc struct {

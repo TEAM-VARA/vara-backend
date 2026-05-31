@@ -32,21 +32,23 @@ func (r *EbpfRepo) UpsertNetworkFlows(ctx context.Context, customerID string, re
     defer tx.Rollback(ctx)
 
     const q = `
-        INSERT INTO ebpf_network_flows (
-            customer_id, cluster_name, node_name,
-            timestamp, event_type, protocol,
-            src_pod_id, src_ip, src_port, src_pid,
-            dst_ip, dst_port, success,
-            dst_pod_id, dst_pod_ip, mapping_status
-        ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-        )
-        ON CONFLICT (customer_id, node_name, timestamp, src_ip, src_port, dst_ip, dst_port, event_type) DO UPDATE SET
-            success = EXCLUDED.success,
-            dst_pod_id = EXCLUDED.dst_pod_id,
-            dst_pod_ip = EXCLUDED.dst_pod_ip,
-            mapping_status = EXCLUDED.mapping_status
-    `
+		INSERT INTO ebpf_network_flows (
+			customer_id, cluster_name, node_name,
+			timestamp, event_type, protocol,
+			src_pod_id, src_ip, src_port, src_pid,
+			dst_ip, dst_port, success,
+			dst_pod_id, dst_pod_ip, mapping_status,
+			size
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+		)
+		ON CONFLICT (customer_id, node_name, timestamp, src_ip, src_port, dst_ip, dst_port, event_type) DO UPDATE SET
+			success = EXCLUDED.success,
+			dst_pod_id = EXCLUDED.dst_pod_id,
+			dst_pod_ip = EXCLUDED.dst_pod_ip,
+			mapping_status = EXCLUDED.mapping_status,
+			size = EXCLUDED.size
+	`
 
     saved := 0
     for _, e := range req.Events {
@@ -55,12 +57,18 @@ func (r *EbpfRepo) UpsertNetworkFlows(ctx context.Context, customerID string, re
             success = *e.Success
         }
 
+		var size interface{} = nil
+		if e.Size > 0 {
+			size = e.Size
+		}
+
         _, err := tx.Exec(ctx, q,
             customerID, customerID, req.Node,
             e.Timestamp, e.EventType, e.Protocol,
             e.Src.PodID, e.Src.IP, e.Src.Port, e.Src.PID,
             e.Dst.IP, e.Dst.Port, success,
             e.Dst.PodID, e.Dst.PodIP, e.Dst.MappingStatus,
+			size,
         )
         if err != nil {
             return 0, fmt.Errorf("upsert network flow %s/%s:%d→%s:%d: %w",
