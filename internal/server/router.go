@@ -26,6 +26,7 @@ func newRouter(
 	podRefresh *handler.PodRefreshHandler,
 	notif *handler.NotificationHandler,
 	analysis *handler.AnalysisHandler,
+	rbacChain *handler.RBACChainHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -107,6 +108,11 @@ func newRouter(
 
 		// ── Pod Refresh: 단일 Pod의 5개 컴포넌트 통합 ──
 		api.POST("/scoring/pods/:pod_uid/refresh", podRefresh.Refresh)
+
+		// ── RBAC Chain (권한상승 분석, fixpoint) ──
+		api.POST("/scoring/rbac-chain/compute", rbacChain.Compute)
+		api.GET("/scoring/rbac-chain/clusters/:cluster_name", rbacChain.GetByCluster)
+		api.GET("/scoring/rbac-chain/clusters/:cluster_name/sa/:namespace/:name", rbacChain.GetSA)
 
 		// ── Toxic Combination (작업 B-4) ──
 		api.POST("/scoring/toxic/compute", toxic.Compute)

@@ -8,6 +8,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.6.1
 	gonum.org/v1/gonum v0.17.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -44,5 +45,4 @@ require (
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

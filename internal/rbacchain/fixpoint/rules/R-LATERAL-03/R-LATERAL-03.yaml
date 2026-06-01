@@ -1,0 +1,24 @@
+# R-LATERAL-03: delete on namespaces -> wipe security-tool namespaces.
+# Schema v0. See SOURCES.md for 5-source matrix verification notes.
+# Lateral category - not privilege escalation to cluster-admin, but denial of defenses.
+
+schema_version: "0.1"
+id: R-LATERAL-03
+description: "delete on namespaces -> security-tool NS wipe (kube-system, falco-system, etc.)"
+category: lateral
+severity: warning
+
+match_any_of:
+  - { api_group: "", resource: "namespaces", verb: "delete" }
+
+# 5-source mapping (verified against primary sources 2026-05-11):
+#   K8s official: partial (Namespace modification section covers *patch* only, NOT delete).
+#   KubiScan: NO, rbac-tool: NO, krane: NO, rbac-police: NO.
+#   No tool covers namespaces *delete* directly. VARA-original rule.
+sources:
+  - type: official
+    name: "K8s RBAC Good Practices - Namespace modification (covers patch only, delete not listed)"
+    url:  "https://kubernetes.io/docs/concepts/security/rbac-good-practices/#namespace-modification"
+  - type: writeup
+    name: "VARA 5-source matrix analysis 2026-05-11: namespaces delete is VARA-original"
+    url:  "https://www.notion.so/3593978ee48d81a4ad8dd3d77aaa095c"

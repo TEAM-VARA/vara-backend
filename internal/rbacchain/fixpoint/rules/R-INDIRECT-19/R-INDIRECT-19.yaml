@@ -1,0 +1,33 @@
+# Schema v1 (2026-05-16 신규, rbac-police steal_pods 발견).
+#
+# Multi-step 권한 상승:
+#   (a) delete/eviction pods + (b) update/patch nodes (taint/label로 unschedulable) 조합 →
+#   다른 노드의 강한 Pod이 본인 노드로 이동 → 그 Pod SA 토큰 흡수.
+#
+# 두 권한이 동시에 있어야 실제 공격 가능. 한 쪽만 있으면 무관 → schema v1 match_all_of 필수.
+#
+# 참고: 발동 권한 (a)와 (b)는 cluster-wide 또는 ns-scope 무관. 즉 ns-X에서만 delete pods
+# 가능하고 cluster-wide nodes update이면 ns-X 한정으로 효과. 룰은 ns 안 따짐.
+#
+# fixpoint transition 매핑 (1:1):
+#   transition_R_INDIRECT_19 → 흡수 대상 SA 결정 시 노드 ↔ Pod ↔ SA 매핑 필요 (Tier 2 콜렉터).
+
+schema_version: "1.0"
+id: R-INDIRECT-19
+description: "delete/eviction pods + nodes update/patch -> Pod 이주로 다른 SA 토큰 흡수"
+category: indirect
+severity: high
+
+match_all_of:
+  - match_any_of:
+      - { api_group: "", resource: "pods", verb: "delete" }
+      - { api_group: "", resource: "pods", verb: "deletecollection" }
+      - { api_group: "", resource: "pods/eviction", verb: "create" }
+  - match_any_of:
+      - { api_group: "", resource: "nodes", verb: "update" }
+      - { api_group: "", resource: "nodes", verb: "patch" }
+
+sources:
+  - type: tool
+    name: "rbac-police - steal_pods"
+    url:  "https://github.com/PaloAltoNetworks/rbac-police/blob/main/lib/steal_pods.rego"

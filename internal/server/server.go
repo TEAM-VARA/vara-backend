@@ -20,6 +20,7 @@ import (
 	"github.com/vara/backend/internal/platform/kev"
 	"github.com/vara/backend/internal/platform/nvd"
 	"github.com/vara/backend/internal/platform/osv"
+	"github.com/vara/backend/internal/rbacchain/loader"
 	"github.com/vara/backend/internal/repository/postgres"
 	"github.com/vara/backend/internal/scheduler"
 	"github.com/vara/backend/internal/service"
@@ -50,6 +51,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	edgesRepo := postgres.NewEdgesRepo(pg)                 // 신규 (runtime 분석)                     // 신규 (dev_v2 통합)
 	notifRepo := postgres.NewNotificationRepo(pg)          // 신규 (대시보드 알림)
 	analysisCacheRepo := postgres.NewAnalysisCacheRepo(pg) // 신규 (그래프 분석 캐시)
+	rbacChainRepo := postgres.NewRBACChainRepo(pg)         // 신규 (RBAC 권한상승 분석)
 
 	// ── 외부 API 클라이언트 ──
 	nvdAPIKey := os.Getenv("NVD_API_KEY")
@@ -96,6 +98,11 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	notifSvc := service.NewNotificationService(notifRepo)                                        // 신규 (대시보드 알림)
 	analysisSvc := service.NewAnalysisService(edgesRepo, analysisCacheRepo)                      // 신규 (그래프 분석)
 	edgeSvc := service.NewEdgeService(edgesRepo)                                                 // 신규 (blast radius)  ← 추가
+	// RBAC Chain: DB 직접 로더(PostgresLoader) + fixpoint 엔진
+	rbacChainLoader := loader.NewPostgresLoader(pg)
+	rbacChainSvc := service.NewRBACChainService(
+		rbacChainLoader, rbacChainRepo, os.Getenv("RBAC_CHAIN_INCLUDE_EKS") == "true",
+	)
 
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)
@@ -117,10 +124,11 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	podRefreshH := handler.NewPodRefreshHandler(exposureSvc, attackPathSvc, localScoringSvc, toxicSvc, finalScoringSvc)
 	notifH := handler.NewNotificationHandler(notifSvc)
 	analysisH := handler.NewAnalysisHandler(analysisCacheRepo)
+	rbacChainH := handler.NewRBACChainHandler(rbacChainSvc)
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH, podRefreshH,
-		notifH, analysisH)
+		notifH, analysisH, rbacChainH)
 	// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
 	// ENV로 ON/OFF, 기본 활성
 	if os.Getenv("DISABLE_VULN_SCANNER") != "true" {
