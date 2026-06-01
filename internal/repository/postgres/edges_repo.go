@@ -1103,16 +1103,123 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 		return nil, fmt.Errorf("insert routed_by: %w", err)
 	}
 
+	// ─────────────────────────────────────────────
+	// Step 4: connects_to (eBPF 관찰된 pod→pod 통신)
+	// IP 우선 매칭 + 서비스명(해시 제거) 폴백
+	// ─────────────────────────────────────────────
+	qConnectsTo := `
+		WITH latest_pods AS (
+			SELECT pod_uid, name, namespace, pod_ip,
+			       regexp_replace(name, '-[a-z0-9]+-[a-z0-9]+$', '') AS svc_name
+			FROM cluster_pods
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+		),
+		observed AS (
+			SELECT
+				regexp_replace(src_ip, '^::ffff:', '') AS src_ip,
+				dst_pod_ip,
+				split_part(src_pod_id, '/', 1) AS src_ns,
+				regexp_replace(split_part(src_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS src_svc,
+				split_part(dst_pod_id, '/', 1) AS dst_ns,
+				regexp_replace(split_part(dst_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS dst_svc,
+				MIN(timestamp) AS first_seen,
+				MAX(timestamp) AS last_seen
+			FROM ebpf_network_flows
+			WHERE mapping_status = 'mapped' AND cluster_name = $1
+			  AND src_pod_id IS NOT NULL AND dst_pod_id IS NOT NULL
+			  AND src_pod_id != dst_pod_id
+			GROUP BY 1,2,3,4,5,6
+		),
+		resolved AS (
+			SELECT
+				COALESCE(sp_ip.pod_uid, sp_svc.pod_uid)     AS src_uid,
+				COALESCE(sp_ip.name,    sp_svc.name)        AS src_name,
+				COALESCE(sp_ip.namespace, sp_svc.namespace) AS src_namespace,
+				COALESCE(dp_ip.pod_uid, dp_svc.pod_uid)     AS dst_uid,
+				COALESCE(dp_ip.name,    dp_svc.name)        AS dst_name,
+				COALESCE(dp_ip.namespace, dp_svc.namespace) AS dst_namespace,
+				MIN(o.first_seen) AS first_seen,
+				MAX(o.last_seen)  AS last_seen
+			FROM observed o
+			LEFT JOIN latest_pods sp_ip  ON sp_ip.pod_ip = o.src_ip
+			LEFT JOIN latest_pods sp_svc ON sp_svc.namespace = o.src_ns AND sp_svc.svc_name = o.src_svc
+			LEFT JOIN latest_pods dp_ip  ON dp_ip.pod_ip = o.dst_pod_ip
+			LEFT JOIN latest_pods dp_svc ON dp_svc.namespace = o.dst_ns AND dp_svc.svc_name = o.dst_svc
+			GROUP BY 1,2,3,4,5,6
+		)
+		INSERT INTO edges (
+			cluster_name,
+			source_pod_uid, target_pod_uid,
+			source_name, source_namespace,
+			target_name, target_namespace,
+			source_kind, target_kind,
+			target_type,
+			layer, edge_type, mode,
+			weight, traffic_weight,
+			first_seen_at, last_seen_at,
+			snapshot_at, computed_at
+		)
+		SELECT
+			$1,
+			src_uid, dst_uid,
+			src_name, src_namespace,
+			dst_name, dst_namespace,
+			'pod', 'pod',
+			'pod',
+			'network', 'connects_to', 'observed',
+			1, 0.8,
+			first_seen, last_seen,
+			$2::timestamptz, NOW()
+		FROM resolved
+		WHERE src_uid IS NOT NULL AND dst_uid IS NOT NULL
+		  AND src_uid != dst_uid
+		ON CONFLICT DO NOTHING
+	`
+	tag4, err := r.pool.Exec(ctx, qConnectsTo, clusterName, snapAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert connects_to: %w", err)
+	}
+
 	return &edge.NetworkComputeResult{
 		ClusterName: clusterName,
 		SelectedBy:  int(tag1.RowsAffected()),
 		Allows:      int(tag2.RowsAffected()),
 		RoutedBy:    int(tag3.RowsAffected()),
-		Total:       int(tag1.RowsAffected() + tag2.RowsAffected() + tag3.RowsAffected()),
+		ConnectsTo:  int(tag4.RowsAffected()),
+		Total:       int(tag1.RowsAffected() + tag2.RowsAffected() + tag3.RowsAffected() + tag4.RowsAffected()),
 		SnapshotAt:  snapAt,
 		ComputedAt:  time.Now(),
 		DurationMs:  time.Since(start).Milliseconds(),
 	}, nil
+}
+
+// kindToNodeType은 내부 kind를 FE용 NodeType(PascalCase)으로 변환합니다.
+func kindToNodeType(kind string) string {
+	switch kind {
+	case "pod":
+		return "Pod"
+	case "service":
+		return "Service"
+	case "workload":
+		return "Workload"
+	case "secret":
+		return "Secret"
+	case "configmap":
+		return "ConfigMap"
+	case "sa":
+		return "RBAC"
+	case "ingress":
+		return "Ingress"
+	case "networkpolicy":
+		return "NetworkPolicy"
+	case "namespace":
+		return "Namespace"
+	case "node":
+		return "Node"
+	default:
+		return kind
+	}
 }
 
 // BuildTopology — PM 명세서 B-1의 /api/v1/topology 응답 데이터
@@ -1134,7 +1241,24 @@ func (r *EdgesRepo) BuildTopology(ctx context.Context, cluster string) (*edge.To
 		return nil, fmt.Errorf("fetch topology edges: %w", err)
 	}
 
+	secretNodes, _ := r.fetchSecretNodes(ctx, cluster)
+	configmapNodes, _ := r.fetchConfigMapNodes(ctx, cluster)
+	ingressNodes, _ := r.fetchIngressNodes(ctx, cluster)
+	netpolNodes, _ := r.fetchNetworkPolicyNodes(ctx, cluster)
+	namespaceNodes, _ := r.fetchNamespaceNodes(ctx, cluster)
+	nodeNodes, _ := r.fetchNodeNodes(ctx, cluster)
+
 	nodes := append(podNodes, otherNodes...)
+	nodes = append(nodes, secretNodes...)
+	nodes = append(nodes, configmapNodes...)
+	nodes = append(nodes, ingressNodes...)
+	nodes = append(nodes, netpolNodes...)
+	nodes = append(nodes, namespaceNodes...)
+	nodes = append(nodes, nodeNodes...)
+
+	for i := range nodes {
+		nodes[i].NodeType = kindToNodeType(nodes[i].Kind)
+	}
 
 	return &edge.TopologyResponse{
 		Cluster: cluster,
@@ -1223,7 +1347,7 @@ func (r *EdgesRepo) fetchOtherNodes(ctx context.Context, cluster string) ([]edge
 				source_namespace AS ns
 			FROM edges
 			WHERE cluster_name = $1
-			  AND source_kind IN ('service_account', 'service', 'ingress', 'role', 'cluster_role')
+			  AND source_kind IN ('service_account', 'service', 'ingress')
 			  AND source_pod_uid IS NOT NULL
 			
 			UNION
@@ -1240,7 +1364,7 @@ func (r *EdgesRepo) fetchOtherNodes(ctx context.Context, cluster string) ([]edge
 				target_namespace AS ns
 			FROM edges
 			WHERE cluster_name = $1
-			  AND target_kind IN ('service_account', 'role', 'cluster_role', 'service', 'image', 'cve')
+			  AND target_kind IN ('service_account', 'service', 'image', 'cve')
 			  AND target_service_name IS NOT NULL
 			  AND target_service_name != ''
 			  AND target_pod_uid IS NULL
@@ -1326,4 +1450,98 @@ func (r *EdgesRepo) LatestPodSnapshot(ctx context.Context, cluster string) (time
 		FROM cluster_pods WHERE cluster_name = $1
 	`, cluster).Scan(&t)
 	return t, err
+}
+
+// fetchWorkloadNodes — cluster_workloads → Workload 노드
+func (r *EdgesRepo) fetchWorkloadNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT workload_uid AS id, name, namespace
+		FROM cluster_workloads
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_workloads WHERE cluster_name = $1)
+		  AND kind IN ('Deployment', 'StatefulSet', 'DaemonSet')
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "workload")
+}
+
+func (r *EdgesRepo) fetchSecretNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT secret_uid AS id, name, namespace
+		FROM cluster_secrets
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_secrets WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "secret")
+}
+
+func (r *EdgesRepo) fetchConfigMapNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT configmap_uid AS id, name, namespace
+		FROM cluster_configmaps
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_configmaps WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "configmap")
+}
+
+func (r *EdgesRepo) fetchIngressNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT ingress_uid AS id, name, namespace
+		FROM cluster_ingresses
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_ingresses WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "ingress")
+}
+
+func (r *EdgesRepo) fetchNetworkPolicyNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT policy_uid AS id, name, namespace
+		FROM cluster_network_policies
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_network_policies WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "networkpolicy")
+}
+
+// Node — namespace 없음 (클러스터 레벨)
+func (r *EdgesRepo) fetchNodeNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT node_uid AS id, name, '' AS namespace
+		FROM cluster_nodes
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_nodes WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "node")
+}
+
+// Namespace — uid 없음, namespace 값을 ID로
+func (r *EdgesRepo) fetchNamespaceNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT namespace AS id, namespace AS name, namespace
+		FROM cluster_namespaces
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_namespaces WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "namespace")
+}
+
+// 공통 스캔 헬퍼
+func (r *EdgesRepo) scanSimpleNodes(ctx context.Context, q, cluster, kind string) ([]edge.TopologyNode, error) {
+	rows, err := r.pool.Query(ctx, q, cluster)
+	if err != nil {
+		return nil, fmt.Errorf("fetch %s nodes: %w", kind, err)
+	}
+	defer rows.Close()
+
+	var result []edge.TopologyNode
+	for rows.Next() {
+		var n edge.TopologyNode
+		n.Kind = kind
+		if err := rows.Scan(&n.ID, &n.Label, &n.Namespace); err != nil {
+			return nil, err
+		}
+		result = append(result, n)
+	}
+	return result, rows.Err()
 }

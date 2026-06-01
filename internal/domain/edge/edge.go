@@ -217,6 +217,7 @@ type NetworkComputeResult struct {
 	SelectedBy  int       `json:"selectedBy"`
 	Allows      int       `json:"allows"`
 	RoutedBy    int       `json:"routedBy"`
+	ConnectsTo  int       `json:"connectsTo"`
 	Total       int       `json:"total"`
 	SnapshotAt  time.Time `json:"snapshotAt"`
 	ComputedAt  time.Time `json:"computedAt"`
@@ -237,6 +238,7 @@ type TopologyResponse struct {
 type TopologyNode struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
+	NodeType  string `json:"nodeType"`
 	Label     string `json:"label"`
 	Namespace string `json:"namespace,omitempty"`
 
