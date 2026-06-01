@@ -238,3 +238,27 @@ func (s *AnalysisService) refreshEdges(ctx context.Context, cluster string) erro
 	log.Printf("analysis: edges refreshed for cluster=%s", cluster)
 	return nil
 }
+
+// PrecomputeIfStale은 새 데이터가 있을 때만 재계산합니다.
+// 반환: (재계산했는지, error)
+func (s *AnalysisService) PrecomputeIfStale(ctx context.Context, cluster string) (bool, error) {
+	latestData, err := s.edgeRepo.LatestPodSnapshot(ctx, cluster)
+	if err != nil {
+		return false, fmt.Errorf("latest snapshot: %w", err)
+	}
+	lastComputed, err := s.cacheRepo.LastComputedAt(ctx, cluster)
+	if err != nil {
+		return false, fmt.Errorf("last computed: %w", err)
+	}
+
+	// 캐시가 최신 데이터를 이미 반영했으면 skip
+	if lastComputed.After(latestData) {
+		return false, nil
+	}
+
+	// 새 데이터 있음 → 재계산
+	if err := s.PrecomputeAll(ctx, cluster); err != nil {
+		return false, err
+	}
+	return true, nil
+}

@@ -123,7 +123,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	edgeH := handler.NewEdgeHandler(edgeSvc)
 	podRefreshH := handler.NewPodRefreshHandler(exposureSvc, attackPathSvc, localScoringSvc, toxicSvc, finalScoringSvc)
 	notifH := handler.NewNotificationHandler(notifSvc)
-	analysisH := handler.NewAnalysisHandler(analysisCacheRepo)
+	analysisH := handler.NewAnalysisHandler(analysisCacheRepo, analysisSvc)
 	rbacChainH := handler.NewRBACChainHandler(rbacChainSvc)
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,

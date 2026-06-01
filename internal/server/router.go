@@ -68,6 +68,7 @@ func newRouter(
 		api.GET("/analysis/blast-radius", analysis.GetBlastRadius)
 		api.GET("/analysis/centrality", analysis.GetCentrality)
 		api.GET("/analysis/attack-paths", analysis.GetAttackPaths)
+		api.POST("/analysis/refresh", analysis.Refresh)
 
 		// ── 기존 Risk Scoring ──
 		api.POST("/pods/:pod_id/risk", scoring.ComputeRisk)
