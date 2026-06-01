@@ -45,7 +45,7 @@ func (s *BreakdownService) GetBreakdown(ctx context.Context, clusterName, podUID
 		PodName:    f.PodName,
 		FinalScore: f.FinalScore,
 		RiskLevel:  f.RiskLevel,
-		RiskLabel:  f.RiskLabel,
+		RiskLabel:  riskLabelKR(f.RiskLevel),
 		Formula: fmt.Sprintf("(%.2f × 0.6 + %.2f × 0.4) × %.2f = %.2f",
 			f.GlobalImageScore, f.LocalScore, f.ToxicMultiplier, f.FinalScore),
 	}

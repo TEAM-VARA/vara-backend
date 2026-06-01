@@ -144,3 +144,19 @@ func joinRules(rules []string) string {
 	}
 	return out
 }
+
+// risk_level → 한국어 라벨
+func riskLabelKR(level string) string {
+	switch level {
+	case "emergency":
+		return "긴급"
+	case "warning":
+		return "경고"
+	case "caution":
+		return "주의"
+	case "safe":
+		return "안전"
+	default:
+		return level
+	}
+}
