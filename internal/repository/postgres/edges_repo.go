@@ -1270,7 +1270,7 @@ func (r *EdgesRepo) fetchOtherNodes(ctx context.Context, cluster string) ([]edge
 				source_namespace AS ns
 			FROM edges
 			WHERE cluster_name = $1
-			  AND source_kind IN ('service_account', 'service', 'ingress', 'role', 'cluster_role')
+			  AND source_kind IN ('service_account', 'service', 'ingress')
 			  AND source_pod_uid IS NOT NULL
 			
 			UNION
@@ -1287,7 +1287,7 @@ func (r *EdgesRepo) fetchOtherNodes(ctx context.Context, cluster string) ([]edge
 				target_namespace AS ns
 			FROM edges
 			WHERE cluster_name = $1
-			  AND target_kind IN ('service_account', 'role', 'cluster_role', 'service', 'image', 'cve')
+			  AND target_kind IN ('service_account', 'service', 'image', 'cve')
 			  AND target_service_name IS NOT NULL
 			  AND target_service_name != ''
 			  AND target_pod_uid IS NULL
@@ -1382,6 +1382,7 @@ func (r *EdgesRepo) fetchWorkloadNodes(ctx context.Context, cluster string) ([]e
 		FROM cluster_workloads
 		WHERE cluster_name = $1
 		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_workloads WHERE cluster_name = $1)
+		  AND kind IN ('Deployment', 'StatefulSet', 'DaemonSet')
 	`
 	return r.scanSimpleNodes(ctx, q, cluster, "workload")
 }
