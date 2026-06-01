@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -237,4 +238,14 @@ func (r *AnalysisCacheRepo) GetAttackPaths(ctx context.Context, cluster string) 
 		result = append(result, row)
 	}
 	return result, rows.Err()
+}
+
+// LastComputedAt은 마지막 분석 계산 시각을 반환합니다.
+func (r *AnalysisCacheRepo) LastComputedAt(ctx context.Context, cluster string) (time.Time, error) {
+	var t time.Time
+	err := r.pool.QueryRow(ctx, `
+		SELECT COALESCE(MAX(computed_at), 'epoch'::timestamptz)
+		FROM node_centrality WHERE cluster_name = $1
+	`, cluster).Scan(&t)
+	return t, err
 }

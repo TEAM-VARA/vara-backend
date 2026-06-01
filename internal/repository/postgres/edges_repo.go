@@ -1317,3 +1317,13 @@ func (r *EdgesRepo) fetchTopologyEdges(ctx context.Context, cluster string) ([]e
 	}
 	return result, latestSnap, nil
 }
+
+// LatestPodSnapshot은 cluster_pods의 최신 snapshot 시각을 반환합니다.
+func (r *EdgesRepo) LatestPodSnapshot(ctx context.Context, cluster string) (time.Time, error) {
+	var t time.Time
+	err := r.pool.QueryRow(ctx, `
+		SELECT COALESCE(MAX(snapshot_at), 'epoch'::timestamptz)
+		FROM cluster_pods WHERE cluster_name = $1
+	`, cluster).Scan(&t)
+	return t, err
+}

@@ -6,15 +6,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/vara/backend/internal/repository/postgres"
+	"github.com/vara/backend/internal/service"
 )
 
 // AnalysisHandler는 사전 계산된 그래프 분석 캐시를 조회합니다.
 type AnalysisHandler struct {
-	cacheRepo *postgres.AnalysisCacheRepo
+	cacheRepo   *postgres.AnalysisCacheRepo
+	analysisSvc *service.AnalysisService
 }
 
-func NewAnalysisHandler(cacheRepo *postgres.AnalysisCacheRepo) *AnalysisHandler {
-	return &AnalysisHandler{cacheRepo: cacheRepo}
+func NewAnalysisHandler(cacheRepo *postgres.AnalysisCacheRepo, analysisSvc *service.AnalysisService) *AnalysisHandler {
+	return &AnalysisHandler{cacheRepo: cacheRepo, analysisSvc: analysisSvc}
 }
 
 // GetBlastRadius — 캐시된 Pod 영향 범위
@@ -96,5 +98,20 @@ func (h *AnalysisHandler) GetAttackPaths(c *gin.Context) {
 		"cluster": cluster,
 		"count":   len(rows),
 		"paths":   rows,
+	})
+}
+
+// Refresh — 데이터 변경 시에만 재계산
+// POST /api/v1/analysis/refresh?cluster=
+func (h *AnalysisHandler) Refresh(c *gin.Context) {
+	cluster := c.DefaultQuery("cluster", "vara-eks-test")
+	recomputed, err := h.analysisSvc.PrecomputeIfStale(c.Request.Context(), cluster)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"cluster":    cluster,
+		"recomputed": recomputed, // true=새로계산, false=캐시그대로
 	})
 }
