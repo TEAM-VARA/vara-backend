@@ -1115,6 +1115,30 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 	}, nil
 }
 
+// kindToNodeType은 내부 kind를 FE용 NodeType(PascalCase)으로 변환합니다.
+func kindToNodeType(kind string) string {
+	switch kind {
+	case "pod":
+		return "Pod"
+	case "service":
+		return "Service"
+	case "sa":
+		return "ServiceAccount"
+	case "role":
+		return "Role"
+	case "crole":
+		return "ClusterRole"
+	case "ingress":
+		return "Ingress"
+	case "image":
+		return "Image"
+	case "cve":
+		return "CVE"
+	default:
+		return kind // 미지정은 그대로
+	}
+}
+
 // BuildTopology — PM 명세서 B-1의 /api/v1/topology 응답 데이터
 func (r *EdgesRepo) BuildTopology(ctx context.Context, cluster string) (*edge.TopologyResponse, error) {
 	start := time.Now()
@@ -1135,6 +1159,10 @@ func (r *EdgesRepo) BuildTopology(ctx context.Context, cluster string) (*edge.To
 	}
 
 	nodes := append(podNodes, otherNodes...)
+
+	for i := range nodes {
+		nodes[i].NodeType = kindToNodeType(nodes[i].Kind)
+	}
 
 	return &edge.TopologyResponse{
 		Cluster: cluster,

@@ -237,6 +237,7 @@ type TopologyResponse struct {
 type TopologyNode struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
+	NodeType  string `json:"nodeType"`
 	Label     string `json:"label"`
 	Namespace string `json:"namespace,omitempty"`
 
