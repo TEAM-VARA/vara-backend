@@ -127,7 +127,11 @@ type FinalComputeResponse struct {
 	Details []FinalScoreResult `json:"details"`
 }
 
-// ScoreBreakdown은 Final Score의 구성 근거를 분해한 응답입니다.
+// ─────────────────────────────────────────
+// Score Breakdown (점수 구성 분해 + 설명)
+// ─────────────────────────────────────────
+
+// ScoreBreakdown은 Final Score의 구성과 각 항목의 의미·해석을 담습니다.
 type ScoreBreakdown struct {
 	PodUID     string  `json:"podUid"`
 	PodName    string  `json:"podName"`
@@ -135,11 +139,30 @@ type ScoreBreakdown struct {
 	RiskLevel  string  `json:"riskLevel"`
 	RiskLabel  string  `json:"riskLabel"`
 
-	Global BreakdownGlobal `json:"global"`
-	Local  BreakdownLocal  `json:"local"`
-	Toxic  BreakdownToxic  `json:"toxic"`
+	Global BreakdownSection `json:"global"`
+	Local  BreakdownSection `json:"local"`
+	Toxic  BreakdownSection `json:"toxic"`
 
 	Formula string `json:"formula"`
+}
+
+// BreakdownSection은 한 항목(Global/Local/Toxic)의 점수·설명·해석·세부요인입니다.
+type BreakdownSection struct {
+	Label          string            `json:"label"`                  // "Global Score"
+	RawScore       float64           `json:"rawScore"`               // 원점수 (Toxic은 multiplier)
+	Weight         float64           `json:"weight,omitempty"`       // 0.6 / 0.4 (Toxic 없음)
+	Contribution   float64           `json:"contribution,omitempty"` // 가중 기여분
+	Description    string            `json:"description"`            // 항목 정의 (고정)
+	Interpretation string            `json:"interpretation"`         // 값별 해석 (다)
+	Factors        []BreakdownFactor `json:"factors,omitempty"`      // 세부 지표
+}
+
+// BreakdownFactor는 항목 내 개별 지표(CVSS, EPSS, exposure 등)입니다.
+type BreakdownFactor struct {
+	Name           string `json:"name"`           // "CVSS"
+	Value          string `json:"value"`          // "9.8 (CRITICAL)"
+	Description    string `json:"description"`    // 지표 정의 (고정)
+	Interpretation string `json:"interpretation"` // 값별 해석 (다)
 }
 
 type BreakdownGlobal struct {
