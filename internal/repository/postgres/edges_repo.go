@@ -1116,31 +1116,37 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
 		),
 		observed AS (
-			SELECT DISTINCT
+			SELECT
 				regexp_replace(src_ip, '^::ffff:', '') AS src_ip,
 				dst_pod_ip,
 				split_part(src_pod_id, '/', 1) AS src_ns,
 				regexp_replace(split_part(src_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS src_svc,
 				split_part(dst_pod_id, '/', 1) AS dst_ns,
-				regexp_replace(split_part(dst_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS dst_svc
+				regexp_replace(split_part(dst_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS dst_svc,
+				MIN(timestamp) AS first_seen,
+				MAX(timestamp) AS last_seen
 			FROM ebpf_network_flows
 			WHERE mapping_status = 'mapped' AND cluster_name = $1
 			  AND src_pod_id IS NOT NULL AND dst_pod_id IS NOT NULL
 			  AND src_pod_id != dst_pod_id
+			GROUP BY 1,2,3,4,5,6
 		),
 		resolved AS (
-			SELECT DISTINCT
+			SELECT
 				COALESCE(sp_ip.pod_uid, sp_svc.pod_uid)     AS src_uid,
 				COALESCE(sp_ip.name,    sp_svc.name)        AS src_name,
 				COALESCE(sp_ip.namespace, sp_svc.namespace) AS src_namespace,
 				COALESCE(dp_ip.pod_uid, dp_svc.pod_uid)     AS dst_uid,
 				COALESCE(dp_ip.name,    dp_svc.name)        AS dst_name,
-				COALESCE(dp_ip.namespace, dp_svc.namespace) AS dst_namespace
+				COALESCE(dp_ip.namespace, dp_svc.namespace) AS dst_namespace,
+				MIN(o.first_seen) AS first_seen,
+				MAX(o.last_seen)  AS last_seen
 			FROM observed o
 			LEFT JOIN latest_pods sp_ip  ON sp_ip.pod_ip = o.src_ip
 			LEFT JOIN latest_pods sp_svc ON sp_svc.namespace = o.src_ns AND sp_svc.svc_name = o.src_svc
 			LEFT JOIN latest_pods dp_ip  ON dp_ip.pod_ip = o.dst_pod_ip
 			LEFT JOIN latest_pods dp_svc ON dp_svc.namespace = o.dst_ns AND dp_svc.svc_name = o.dst_svc
+			GROUP BY 1,2,3,4,5,6
 		)
 		INSERT INTO edges (
 			cluster_name,
@@ -1151,9 +1157,10 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			target_type,
 			layer, edge_type, mode,
 			weight, traffic_weight,
+			first_seen_at, last_seen_at,
 			snapshot_at, computed_at
 		)
-		SELECT DISTINCT
+		SELECT
 			$1,
 			src_uid, dst_uid,
 			src_name, src_namespace,
@@ -1162,6 +1169,7 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			'pod',
 			'network', 'connects_to', 'observed',
 			1, 0.8,
+			first_seen, last_seen,
 			$2::timestamptz, NOW()
 		FROM resolved
 		WHERE src_uid IS NOT NULL AND dst_uid IS NOT NULL
