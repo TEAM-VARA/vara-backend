@@ -63,6 +63,7 @@ func newRouter(
 		api.POST("/edges/clusters/:cluster_name/identity/compute", edge.ComputeIdentity)
 		api.POST("/edges/clusters/:cluster_name/supply-chain/compute", edge.ComputeSupplyChain)
 		api.POST("/edges/clusters/:cluster_name/network/compute", edge.ComputeNetwork)
+		api.POST("/edges/clusters/:cluster_name/host/compute", edge.ComputeHost)
 		api.GET("/topology", edge.GetTopology)
 		api.GET("/topology/blast-radius", edge.GetBlastRadius)
 		api.GET("/topology/criticality", edge.GetCriticality)

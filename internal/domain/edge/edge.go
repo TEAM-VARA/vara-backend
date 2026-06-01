@@ -224,6 +224,16 @@ type NetworkComputeResult struct {
 	DurationMs  int64     `json:"durationMs"`
 }
 
+type HostComputeResult struct {
+	ClusterName string    `json:"clusterName"`
+	RunsOn      int       `json:"runsOn"`
+	EscapePath  int       `json:"escapePath"`
+	Total       int       `json:"total"`
+	SnapshotAt  time.Time `json:"snapshotAt"`
+	ComputedAt  time.Time `json:"computedAt"`
+	DurationMs  int64     `json:"durationMs"`
+}
+
 // ────────────────────────────────────────────────────
 // Topology API 응답 (PM 명세서 v1.0 호환)
 // ────────────────────────────────────────────────────
