@@ -1103,12 +1103,83 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 		return nil, fmt.Errorf("insert routed_by: %w", err)
 	}
 
+	// ─────────────────────────────────────────────
+	// Step 4: connects_to (eBPF 관찰된 pod→pod 통신)
+	// IP 우선 매칭 + 서비스명(해시 제거) 폴백
+	// ─────────────────────────────────────────────
+	qConnectsTo := `
+		WITH latest_pods AS (
+			SELECT pod_uid, name, namespace, pod_ip,
+			       regexp_replace(name, '-[a-z0-9]+-[a-z0-9]+$', '') AS svc_name
+			FROM cluster_pods
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+		),
+		observed AS (
+			SELECT DISTINCT
+				regexp_replace(src_ip, '^::ffff:', '') AS src_ip,
+				dst_pod_ip,
+				split_part(src_pod_id, '/', 1) AS src_ns,
+				regexp_replace(split_part(src_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS src_svc,
+				split_part(dst_pod_id, '/', 1) AS dst_ns,
+				regexp_replace(split_part(dst_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS dst_svc
+			FROM ebpf_network_flows
+			WHERE mapping_status = 'mapped' AND cluster_name = $1
+			  AND src_pod_id IS NOT NULL AND dst_pod_id IS NOT NULL
+			  AND src_pod_id != dst_pod_id
+		),
+		resolved AS (
+			SELECT DISTINCT
+				COALESCE(sp_ip.pod_uid, sp_svc.pod_uid)     AS src_uid,
+				COALESCE(sp_ip.name,    sp_svc.name)        AS src_name,
+				COALESCE(sp_ip.namespace, sp_svc.namespace) AS src_namespace,
+				COALESCE(dp_ip.pod_uid, dp_svc.pod_uid)     AS dst_uid,
+				COALESCE(dp_ip.name,    dp_svc.name)        AS dst_name,
+				COALESCE(dp_ip.namespace, dp_svc.namespace) AS dst_namespace
+			FROM observed o
+			LEFT JOIN latest_pods sp_ip  ON sp_ip.pod_ip = o.src_ip
+			LEFT JOIN latest_pods sp_svc ON sp_svc.namespace = o.src_ns AND sp_svc.svc_name = o.src_svc
+			LEFT JOIN latest_pods dp_ip  ON dp_ip.pod_ip = o.dst_pod_ip
+			LEFT JOIN latest_pods dp_svc ON dp_svc.namespace = o.dst_ns AND dp_svc.svc_name = o.dst_svc
+		)
+		INSERT INTO edges (
+			cluster_name,
+			source_pod_uid, target_pod_uid,
+			source_name, source_namespace,
+			target_name, target_namespace,
+			source_kind, target_kind,
+			target_type,
+			layer, edge_type, mode,
+			weight, traffic_weight,
+			snapshot_at, computed_at
+		)
+		SELECT DISTINCT
+			$1,
+			src_uid, dst_uid,
+			src_name, src_namespace,
+			dst_name, dst_namespace,
+			'pod', 'pod',
+			'pod',
+			'network', 'connects_to', 'observed',
+			1, 0.8,
+			$2::timestamptz, NOW()
+		FROM resolved
+		WHERE src_uid IS NOT NULL AND dst_uid IS NOT NULL
+		  AND src_uid != dst_uid
+		ON CONFLICT DO NOTHING
+	`
+	tag4, err := r.pool.Exec(ctx, qConnectsTo, clusterName, snapAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert connects_to: %w", err)
+	}
+
 	return &edge.NetworkComputeResult{
 		ClusterName: clusterName,
 		SelectedBy:  int(tag1.RowsAffected()),
 		Allows:      int(tag2.RowsAffected()),
 		RoutedBy:    int(tag3.RowsAffected()),
-		Total:       int(tag1.RowsAffected() + tag2.RowsAffected() + tag3.RowsAffected()),
+		ConnectsTo:  int(tag4.RowsAffected()),
+		Total:       int(tag1.RowsAffected() + tag2.RowsAffected() + tag3.RowsAffected() + tag4.RowsAffected()),
 		SnapshotAt:  snapAt,
 		ComputedAt:  time.Now(),
 		DurationMs:  time.Since(start).Milliseconds(),

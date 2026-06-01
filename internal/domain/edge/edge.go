@@ -217,6 +217,7 @@ type NetworkComputeResult struct {
 	SelectedBy  int       `json:"selectedBy"`
 	Allows      int       `json:"allows"`
 	RoutedBy    int       `json:"routedBy"`
+	ConnectsTo  int       `json:"connectsTo"`
 	Total       int       `json:"total"`
 	SnapshotAt  time.Time `json:"snapshotAt"`
 	ComputedAt  time.Time `json:"computedAt"`
