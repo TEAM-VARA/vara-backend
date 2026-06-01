@@ -1122,20 +1122,24 @@ func kindToNodeType(kind string) string {
 		return "Pod"
 	case "service":
 		return "Service"
+	case "workload":
+		return "Workload"
+	case "secret":
+		return "Secret"
+	case "configmap":
+		return "ConfigMap"
 	case "sa":
-		return "ServiceAccount"
-	case "role":
-		return "Role"
-	case "crole":
-		return "ClusterRole"
+		return "RBAC"
 	case "ingress":
 		return "Ingress"
-	case "image":
-		return "Image"
-	case "cve":
-		return "CVE"
+	case "networkpolicy":
+		return "NetworkPolicy"
+	case "namespace":
+		return "Namespace"
+	case "node":
+		return "Node"
 	default:
-		return kind // 미지정은 그대로
+		return kind
 	}
 }
 
@@ -1158,7 +1162,22 @@ func (r *EdgesRepo) BuildTopology(ctx context.Context, cluster string) (*edge.To
 		return nil, fmt.Errorf("fetch topology edges: %w", err)
 	}
 
+	workloadNodes, _ := r.fetchWorkloadNodes(ctx, cluster)
+	secretNodes, _ := r.fetchSecretNodes(ctx, cluster)
+	configmapNodes, _ := r.fetchConfigMapNodes(ctx, cluster)
+	ingressNodes, _ := r.fetchIngressNodes(ctx, cluster)
+	netpolNodes, _ := r.fetchNetworkPolicyNodes(ctx, cluster)
+	namespaceNodes, _ := r.fetchNamespaceNodes(ctx, cluster)
+	nodeNodes, _ := r.fetchNodeNodes(ctx, cluster)
+
 	nodes := append(podNodes, otherNodes...)
+	nodes = append(nodes, workloadNodes...)
+	nodes = append(nodes, secretNodes...)
+	nodes = append(nodes, configmapNodes...)
+	nodes = append(nodes, ingressNodes...)
+	nodes = append(nodes, netpolNodes...)
+	nodes = append(nodes, namespaceNodes...)
+	nodes = append(nodes, nodeNodes...)
 
 	for i := range nodes {
 		nodes[i].NodeType = kindToNodeType(nodes[i].Kind)
@@ -1354,4 +1373,97 @@ func (r *EdgesRepo) LatestPodSnapshot(ctx context.Context, cluster string) (time
 		FROM cluster_pods WHERE cluster_name = $1
 	`, cluster).Scan(&t)
 	return t, err
+}
+
+// fetchWorkloadNodes — cluster_workloads → Workload 노드
+func (r *EdgesRepo) fetchWorkloadNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT workload_uid AS id, name, namespace
+		FROM cluster_workloads
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_workloads WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "workload")
+}
+
+func (r *EdgesRepo) fetchSecretNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT secret_uid AS id, name, namespace
+		FROM cluster_secrets
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_secrets WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "secret")
+}
+
+func (r *EdgesRepo) fetchConfigMapNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT configmap_uid AS id, name, namespace
+		FROM cluster_configmaps
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_configmaps WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "configmap")
+}
+
+func (r *EdgesRepo) fetchIngressNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT ingress_uid AS id, name, namespace
+		FROM cluster_ingresses
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_ingresses WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "ingress")
+}
+
+func (r *EdgesRepo) fetchNetworkPolicyNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT policy_uid AS id, name, namespace
+		FROM cluster_network_policies
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_network_policies WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "networkpolicy")
+}
+
+// Node — namespace 없음 (클러스터 레벨)
+func (r *EdgesRepo) fetchNodeNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT node_uid AS id, name, '' AS namespace
+		FROM cluster_nodes
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_nodes WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "node")
+}
+
+// Namespace — uid 없음, namespace 값을 ID로
+func (r *EdgesRepo) fetchNamespaceNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
+	const q = `
+		SELECT namespace AS id, namespace AS name, namespace
+		FROM cluster_namespaces
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_namespaces WHERE cluster_name = $1)
+	`
+	return r.scanSimpleNodes(ctx, q, cluster, "namespace")
+}
+
+// 공통 스캔 헬퍼
+func (r *EdgesRepo) scanSimpleNodes(ctx context.Context, q, cluster, kind string) ([]edge.TopologyNode, error) {
+	rows, err := r.pool.Query(ctx, q, cluster)
+	if err != nil {
+		return nil, fmt.Errorf("fetch %s nodes: %w", kind, err)
+	}
+	defer rows.Close()
+
+	var result []edge.TopologyNode
+	for rows.Next() {
+		var n edge.TopologyNode
+		n.Kind = kind
+		if err := rows.Scan(&n.ID, &n.Label, &n.Namespace); err != nil {
+			return nil, err
+		}
+		result = append(result, n)
+	}
+	return result, rows.Err()
 }
