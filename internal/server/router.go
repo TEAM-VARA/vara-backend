@@ -28,6 +28,7 @@ func newRouter(
 	analysis *handler.AnalysisHandler,
 	rbacChain *handler.RBACChainHandler,
 	grc *handler.GRCHandler,
+	breakdownH *handler.BreakdownHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -107,7 +108,7 @@ func newRouter(
 		api.GET("/scoring/final/pods/:pod_uid", finalScoring.GetByPod)
 		api.POST("/scoring/final/pods/:pod_uid", finalScoring.ComputeForPod)
 		api.GET("/scoring/final/clusters/:cluster_name", finalScoring.GetByCluster)
-		api.GET("/scoring/breakdown", finalScoring.GetBreakdown)
+		api.GET("/scoring/breakdown", breakdownH.GetBreakdown)
 
 		// ── Pod Refresh: 단일 Pod의 5개 컴포넌트 통합 ──
 		api.POST("/scoring/pods/:pod_uid/refresh", podRefresh.Refresh)
