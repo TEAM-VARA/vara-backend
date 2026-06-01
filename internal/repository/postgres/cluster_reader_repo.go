@@ -114,16 +114,18 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 		INSERT INTO cluster_pods (
 			cluster_name, snapshot_at, pod_uid, name, namespace,
 			node, pod_ip, phase, restart_count, service_account,
-			labels, annotations, containers, volumes
+			labels, annotations, containers, volumes,
+			host_network
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 		)
 		ON CONFLICT (cluster_name, snapshot_at, pod_uid) DO UPDATE SET
 			phase             = EXCLUDED.phase,
 			restart_count     = EXCLUDED.restart_count,
 			pod_ip            = EXCLUDED.pod_ip,
 			containers        = EXCLUDED.containers,
-			volumes           = EXCLUDED.volumes
+			volumes           = EXCLUDED.volumes,
+			host_network      = EXCLUDED.host_network
 	`
 
 	saved := 0
@@ -137,6 +139,7 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 			req.Cluster, req.SnapshotAt, p.UID, p.Name, p.Namespace,
 			p.Node, p.PodIP, p.Phase, p.RestartCount, p.ServiceAccount,
 			labelsJSON, annotationsJSON, containersJSON, volumesJSON,
+			p.HostNetwork,
 		)
 		if err != nil {
 			return 0, 0, fmt.Errorf("upsert pod %s: %w", p.Name, err)

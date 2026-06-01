@@ -18,14 +18,16 @@ vara-backend/
 │   ├── repository/
 │   │   ├── postgres/               # RDB 저장소
 │   │   └── vector/                 # pgvector 저장소
-│   └── platform/                   # 외부 시스템 어댑터
-│       ├── cache/                  # Redis
-│       ├── trivy/ ebpf/ embedding/ k8s/ provisioner/
+│   ├── platform/                   # 외부 시스템 어댑터
+│   │   ├── cache/                  # Redis
+│   │   ├── trivy/ ebpf/ embedding/ k8s/ provisioner/
+│   └── rbacchain/                  # RBAC 권한상승 분석 엔진 (snapshot/directperm/fixpoint/sareport/loader, rules 내장)
 ├── pkg/                            # 외부 공개 가능 유틸 (jwt / crypto / errs)
 ├── api/openapi.yaml                # API 명세
-├── migrations/                     # golang-migrate
+├── migrations/                     # 001 ~ 020 (cluster-reader / scoring / rbac-chain 등)
 │   ├── 001_init.up.sql
-│   └── 002_pgvector.up.sql
+│   ├── 002_pgvector.up.sql
+│   └── 020_rbac_chain.up.sql       # RBAC 권한상승 분석 4개 테이블
 ├── deployments/
 │   ├── docker/Dockerfile
 │   └── k8s/                        # Helm chart / manifests
@@ -65,6 +67,9 @@ make run
 | POST | `/api/v1/agents/cluster-reader/pod-events` | Cluster Reader Agent |
 | POST | `/api/v1/agents/ebpf/traffic` | eBPF Agent |
 | POST | `/api/v1/agents/sbom` | SBOM 적재 |
+| POST | `/api/v1/scoring/rbac-chain/compute` | RBAC 권한상승 분석 실행 (body: `{"cluster_name":"..."}`) |
+| GET | `/api/v1/scoring/rbac-chain/clusters/:cluster_name` | 분석 요약 + SA별 결과 |
+| GET | `/api/v1/scoring/rbac-chain/clusters/:cluster_name/sa/:namespace/:name` | SA 1개 상세(경로 포함) |
 
 전체 API 명세는 [api/openapi.yaml](api/openapi.yaml) 참고.
 

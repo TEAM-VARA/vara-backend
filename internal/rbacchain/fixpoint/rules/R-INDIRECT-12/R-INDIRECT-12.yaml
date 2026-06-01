@@ -1,0 +1,28 @@
+# R-INDIRECT-12: patch on namespaces -> label modification, PodSecurity / NetworkPolicy bypass.
+# Schema v0. See SOURCES.md for 5-source matrix verification notes.
+# Different from R-LATERAL-03 (namespaces delete) - patch is bypass-via-label,
+# delete is wipe. Different threat model and outcome.
+
+schema_version: "0.1"
+id: R-INDIRECT-12
+description: "patch on namespaces -> label modification (PodSecurity bypass, NetworkPolicy bypass)"
+category: indirect
+severity: high
+
+match_any_of:
+  - { api_group: "", resource: "namespaces", verb: "patch" }
+
+# 5-source mapping (verified against primary sources 2026-05-11):
+#   K8s official: YES (RBAC Good Practices - Namespace modification section).
+#   KubiScan: NO (1차 확인 - namespaces 룰 없음).
+#   rbac-tool: NO (1차 확인).
+#   krane: NO (1차 확인).
+#   rbac-police: NO (1차 확인 - lib/*.rego 23개 정책에 namespaces patch 룰 없음).
+#   Single-tool source: K8s official only.
+sources:
+  - type: official
+    name: "K8s RBAC Good Practices - Namespace modification (patch verb)"
+    url:  "https://kubernetes.io/docs/concepts/security/rbac-good-practices/#namespace-modification"
+  - type: writeup
+    name: "VARA 5-source matrix analysis 2026-05-11: only K8s official covers namespaces patch"
+    url:  "https://www.notion.so/3593978ee48d81a4ad8dd3d77aaa095c"
