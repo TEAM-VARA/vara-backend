@@ -66,9 +66,9 @@ type FinalScoreResult struct {
 	PodNamespace string `json:"pod_namespace"`
 
 	// 종합
-	FinalScore float64 `json:"final_score"`        // 0~100 (Toxic=1.0)
-	RiskLevel  string  `json:"risk_level"`         // emergency/warning/caution/safe
-	RiskLabel  string  `json:"risk_label"`         // 긴급/경고/주의/안전
+	FinalScore float64 `json:"final_score"` // 0~100 (Toxic=1.0)
+	RiskLevel  string  `json:"risk_level"`  // emergency/warning/caution/safe
+	RiskLabel  string  `json:"risk_label"`  // 긴급/경고/주의/안전
 
 	// 기여도
 	GlobalContribution float64 `json:"global_contribution"`
@@ -125,6 +125,38 @@ type FinalComputeResponse struct {
 	MissingSBOM        int `json:"missing_sbom,omitempty"`
 
 	Details []FinalScoreResult `json:"details"`
+}
+
+// ScoreBreakdown은 Final Score의 구성 근거를 분해한 응답입니다.
+type ScoreBreakdown struct {
+	PodUID     string  `json:"podUid"`
+	PodName    string  `json:"podName"`
+	FinalScore float64 `json:"finalScore"`
+	RiskLevel  string  `json:"riskLevel"`
+	RiskLabel  string  `json:"riskLabel"`
+
+	Global BreakdownGlobal `json:"global"`
+	Local  BreakdownLocal  `json:"local"`
+	Toxic  BreakdownToxic  `json:"toxic"`
+
+	Formula string `json:"formula"`
+}
+
+type BreakdownGlobal struct {
+	RawScore     float64 `json:"rawScore"`
+	Weight       float64 `json:"weight"`
+	Contribution float64 `json:"contribution"`
+	TopCVE       string  `json:"topCve,omitempty"`
+}
+
+type BreakdownLocal struct {
+	RawScore     float64 `json:"rawScore"`
+	Weight       float64 `json:"weight"`
+	Contribution float64 `json:"contribution"`
+}
+
+type BreakdownToxic struct {
+	Multiplier float64 `json:"multiplier"`
 }
 
 // ─────────────────────────────────────────

@@ -107,6 +107,7 @@ func newRouter(
 		api.GET("/scoring/final/pods/:pod_uid", finalScoring.GetByPod)
 		api.POST("/scoring/final/pods/:pod_uid", finalScoring.ComputeForPod)
 		api.GET("/scoring/final/clusters/:cluster_name", finalScoring.GetByCluster)
+		api.GET("/scoring/breakdown", finalScoring.GetBreakdown)
 
 		// ── Pod Refresh: 단일 Pod의 5개 컴포넌트 통합 ──
 		api.POST("/scoring/pods/:pod_uid/refresh", podRefresh.Refresh)
@@ -196,7 +197,7 @@ func newRouter(
 		api.GET("/compliance/findings", grc.ListFindings)
 		api.POST("/compliance/findings/evaluate-cluster", grc.EvaluateClusterFindings)
 		api.GET("/compliance/findings/summaries", grc.ListFindingClusterSummaries)
-		api.GET("/compliance/findings/summary", grc.GetFindingsSummary)   // 변경 3-B: 전체 뷰 집계
+		api.GET("/compliance/findings/summary", grc.GetFindingsSummary) // 변경 3-B: 전체 뷰 집계
 
 		// ── Rule Catalog (변경 2) ──
 		api.GET("/compliance/rulesets/catalog", grc.GetRuleCatalog)

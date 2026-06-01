@@ -151,3 +151,50 @@ func (h *FinalScoringHandler) GetByCluster(c *gin.Context) {
 		"results":         results,
 	})
 }
+
+// GetBreakdown — Final Score 구성 근거 분해
+// GET /api/v1/scoring/breakdown?cluster=&pod=
+func (h *FinalScoringHandler) GetBreakdown(c *gin.Context) {
+	cluster := c.DefaultQuery("cluster", "vara-eks-test")
+	pod := c.Query("pod")
+	if pod == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pod query param required"})
+		return
+	}
+
+	r, err := h.service.GetByPodUID(c.Request.Context(), cluster, pod)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if r == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+
+	bd := scoring.ScoreBreakdown{
+		PodUID:     r.PodUID,
+		PodName:    r.PodName,
+		FinalScore: r.FinalScore,
+		RiskLevel:  r.RiskLevel,
+		RiskLabel:  r.RiskLabel,
+		Global: scoring.BreakdownGlobal{
+			RawScore:     r.GlobalImageScore,
+			Weight:       0.6,
+			Contribution: r.GlobalContribution,
+			TopCVE:       r.UsedTopCVE,
+		},
+		Local: scoring.BreakdownLocal{
+			RawScore:     r.LocalScore,
+			Weight:       0.4,
+			Contribution: r.LocalContribution,
+		},
+		Toxic: scoring.BreakdownToxic{
+			Multiplier: r.ToxicMultiplier,
+		},
+		Formula: fmt.Sprintf("(%.2f × 0.6 + %.2f × 0.4) × %.2f = %.2f",
+			r.GlobalImageScore, r.LocalScore, r.ToxicMultiplier, r.FinalScore),
+	}
+
+	c.JSON(http.StatusOK, bd)
+}
