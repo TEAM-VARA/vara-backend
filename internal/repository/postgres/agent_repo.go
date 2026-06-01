@@ -1,3 +1,6 @@
+// GRC 보조: Pod 라이프사이클 이벤트, SBOM(Trivy), eBPF 트래픽 데이터를 저장.
+// GRC 자산 인벤토리(Finding F-1.2.1-K8S-01)와 이미지 취약점 평가(F-2.10.8-K8S-04)에
+// 활용되는 원시 데이터를 제공한다.
 package postgres
 
 import (

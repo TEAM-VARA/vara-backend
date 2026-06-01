@@ -27,6 +27,7 @@ func newRouter(
 	notif *handler.NotificationHandler,
 	analysis *handler.AnalysisHandler,
 	rbacChain *handler.RBACChainHandler,
+	grc *handler.GRCHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -54,7 +55,7 @@ func newRouter(
 		api.POST("/agents/ebpf/process-events", ebpf.ProcessEvents)
 		api.GET("/feed/process", ebpf.GetProcessFeed)
 
-		// ── Edges (Blast Radius 그래프) ──         ← 이 4줄 추가
+		// ── Edges (Blast Radius 그래프) ──
 		api.POST("/edges/compute", edge.Compute)
 		api.GET("/edges/clusters/:cluster_name", edge.GetByCluster)
 		api.GET("/edges/clusters/:cluster_name/pods/:pod_uid", edge.GetByPod)
@@ -130,7 +131,7 @@ func newRouter(
 		api.POST("/sboms/packages/backfill", sbomPackage.Backfill)
 		api.POST("/sboms/packages/extract/:digest", sbomPackage.Extract)
 
-		// ── Dashboard Notifications (Phase 4) ──  ⭐ 추가
+		// ── Dashboard Notifications (Phase 4) ──
 		api.GET("/notifications", notif.List)
 		api.GET("/notifications/counts", notif.GetCounts)
 		api.POST("/notifications/:id/read", notif.MarkRead)
@@ -165,6 +166,49 @@ func newRouter(
 		api.POST("/isms-p/mappings/run", ismsp.RunMapping)
 		api.GET("/isms-p/mappings", ismsp.ListMappings)
 		api.GET("/isms-p/mappings/:mapping_id", ismsp.GetMapping)
+
+		// ── GRC Compliance Check (v2) ──
+		api.POST("/compliance/checks", grc.CreateCheck)
+		api.GET("/compliance/checks", grc.ListChecks)
+		api.GET("/compliance/checks/:check_id", grc.GetCheck)
+		api.GET("/compliance/checks/:check_id/evidence", grc.ListEvidence)
+		api.GET("/rulesets", grc.ListRulesets)
+		api.GET("/rulesets/:item_id", grc.GetRuleset)
+
+		// ── Guidelines (지침) ──
+		api.POST("/compliance/guidelines", grc.UploadGuideline)
+		api.GET("/compliance/guidelines", grc.ListGuidelines)
+		api.DELETE("/compliance/guidelines/:id", grc.DeleteGuideline)
+
+		// ── Cloud Environments ──
+		api.POST("/compliance/cloud-environments", grc.CreateCloudEnvironments)
+		api.GET("/compliance/cloud-environments", grc.ListCloudEnvironments)
+
+		// ── Pod Graph Evaluation ──
+		api.POST("/compliance/pod-graph/evaluate", grc.EvaluatePodGraph)
+		api.POST("/compliance/pod-graph/evaluate-cluster", grc.EvaluateCluster)
+		api.GET("/compliance/pod-graph/evaluations", grc.ListPodGraphEvaluations)
+		api.GET("/compliance/pod-graph/evaluations/:eval_id", grc.GetPodGraphEvaluation)
+		api.GET("/compliance/pod-graph/rulesets", grc.ListPodRulesets)
+		api.GET("/compliance/pod-graph/rulesets/:item_id", grc.GetPodRuleset)
+
+		// ── Compliance Findings (F-X.X.X-K8S-NN) ──
+		api.GET("/compliance/findings", grc.ListFindings)
+		api.POST("/compliance/findings/evaluate-cluster", grc.EvaluateClusterFindings)
+		api.GET("/compliance/findings/summaries", grc.ListFindingClusterSummaries)
+		api.GET("/compliance/findings/summary", grc.GetFindingsSummary)   // 변경 3-B: 전체 뷰 집계
+
+		// ── Rule Catalog (변경 2) ──
+		api.GET("/compliance/rulesets/catalog", grc.GetRuleCatalog)
+
+		// ── Pod Compliance (변경 3-A: Pod 상세 뷰) ──
+		api.GET("/compliance/pods/:pod_name/compliance", grc.GetPodCompliance)
+
+		// ── Backward-compat aliases (deprecated) ──
+		api.POST("/compliance/check", grc.CreateCheck)
+		api.GET("/compliance/check/:check_id", grc.GetCheck)
+		api.GET("/compliance/scans", grc.ListChecks)
+		api.GET("/compliance/scans/:check_id", grc.GetCheck)
 	}
 
 	return r

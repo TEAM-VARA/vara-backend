@@ -1,0 +1,128 @@
+{
+  "schema_version": "3.1.0-pod",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA Pod Graph - ISMS-P Pod 단위 자동 점검",
+  "module": "pod-graph",
+  "judgment_source_legend": {
+    "k8s_native": "K8s API만으로 자동 판단 (VARA가 수집)",
+    "manual_evidence": "회사가 캡처/문서를 직접 업로드 (VLM 추출 후 판단)",
+    "hybrid": "k8s_native + manual_evidence 조합 — 둘 다 통과해야 PASS"
+  },
+  "item": {
+    "id": "2.5.1",
+    "name": "사용자 계정 관리",
+    "category_path": "2. 보호대책 요구사항 > 2.5 인증 및 권한관리 > 2.5.1 사용자 계정 관리",
+    "description": "정보시스템과 개인정보 및 중요정보에 대한 사용자 계정 발급 시 업무상 필요한 최소한의 접근 권한을 부여하고, 불필요한 계정은 삭제하여야 한다."
+  },
+  "legal_references": [
+    { "law": "개인정보 보호법", "article": "제29조", "summary": "안전조치의무" },
+    { "law": "개인정보의 안전성 확보조치 기준", "article": "제5조", "summary": "접근 권한의 관리" }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.5.1-POD-01",
+      "name": "default ServiceAccount 사용",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "Pod의 default ServiceAccount 사용 여부 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        {
+          "resource_type": "pod",
+          "api_endpoint": "GET /api/v1/namespaces/{ns}/pods/{name}",
+          "fields": [".spec.serviceAccountName"],
+          "python_client": "v1.read_namespaced_pod(name, ns)"
+        }
+      ],
+      "compliance_indicators": [
+        { "field": "pod.spec.serviceAccountName", "op": "!=", "value": "default", "description": "Pod가 전용 ServiceAccount를 사용 (default SA 미사용)" }
+      ],
+      "deficiency_indicators": [
+        { "field": "pod.spec.serviceAccountName", "op": "==", "value": "default", "description": "default ServiceAccount 사용 — 공용 계정으로 권한 분리 불가, 최소 권한 원칙 위반" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["Pod명", "사용 중인 ServiceAccount명"]
+    },
+    {
+      "rule_id": "R-2.5.1-POD-02",
+      "name": "ServiceAccount owner 라벨 부재",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "ServiceAccount 소유자 라벨 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        {
+          "resource_type": "serviceaccount",
+          "api_endpoint": "GET /api/v1/namespaces/{ns}/serviceaccounts/{name}",
+          "fields": [".metadata.labels", ".metadata.annotations"],
+          "python_client": "v1.read_namespaced_service_account(name, ns)"
+        }
+      ],
+      "compliance_indicators": [
+        { "field": "serviceaccount.metadata.labels.isms-p/owner", "op": "!=", "value": null, "description": "ServiceAccount에 소유자(owner) 라벨 존재" },
+        { "field": "serviceaccount.metadata.labels.isms-p/purpose", "op": "!=", "value": null, "description": "ServiceAccount에 용도(purpose) 라벨 존재" }
+      ],
+      "deficiency_indicators": [
+        { "field": "serviceaccount.metadata.labels.isms-p/owner", "op": "==", "value": null, "description": "owner 라벨 누락 — 계정 소유자 미식별로 퇴직·이동 시 잔존 계정 관리 불가" },
+        { "field": "serviceaccount.metadata.labels.isms-p/purpose", "op": "==", "value": null, "description": "purpose 라벨 누락 — 계정 발급 사유 미기록" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["ServiceAccount명", "누락된 라벨 항목", "현재 라벨 값"]
+    },
+    {
+      "rule_id": "R-2.5.1-POD-03",
+      "name": "팀 간 ServiceAccount 공유",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "ServiceAccount 교차 팀 공유 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        {
+          "resource_type": "pod",
+          "api_endpoint": "GET /api/v1/namespaces/{ns}/pods",
+          "fields": [".spec.serviceAccountName", ".metadata.labels.team"],
+          "python_client": "v1.list_namespaced_pod(ns)"
+        },
+        {
+          "resource_type": "serviceaccount",
+          "api_endpoint": "GET /api/v1/namespaces/{ns}/serviceaccounts/{name}",
+          "fields": [".metadata.labels.isms-p/owner-team"],
+          "python_client": "v1.read_namespaced_service_account(name, ns)"
+        }
+      ],
+      "compliance_indicators": [
+        { "field": "sa_shared_across_teams", "op": "==", "value": false, "description": "동일 ServiceAccount를 서로 다른 팀의 워크로드가 공유하지 않음" }
+      ],
+      "deficiency_indicators": [
+        { "field": "sa_shared_across_teams", "op": "==", "value": true, "description": "ServiceAccount가 다른 팀의 Pod에서 공유 사용됨 — 계정 책임 소재 불명확, 권한 분리 미흡" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["공유된 ServiceAccount명", "사용 중인 팀 목록", "관련 Pod 목록"]
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "default SA 미사용 + SA owner/purpose 라벨 존재 + 팀 간 SA 미공유 시 PASS"
+  }
+}

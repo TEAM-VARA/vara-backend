@@ -1,3 +1,6 @@
+// GRC 보조: Cluster Reader 에이전트가 수집한 K8s 리소스(노드, Pod, 서비스, 워크로드, 인그레스,
+// 네트워크폴리시, RBAC, Secret/ConfigMap 등)를 수신하여 DB에 저장.
+// GRC Finding 평가(grc_finding_evaluator)와 PodGraph 평가(grc_pod_graph_evaluator)의 데이터 소스를 제공한다.
 package handler
 
 import (

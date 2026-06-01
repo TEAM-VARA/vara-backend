@@ -1,3 +1,5 @@
+// GRC 보조: Trivy를 통해 컨테이너 이미지 SBOM과 CVE 취약점 데이터를 수집·저장.
+// GRC Finding 이미지 취약점 평가(F-2.10.8-K8S-04, cve_vulnerability_check)의 데이터 소스를 제공한다.
 package service
 
 import (
@@ -189,17 +191,24 @@ func isCacheLockError(err error) bool {
 
 // performScan은 락 + 동시성 제한 + trivy 호출 + DB 저장을 수행합니다.
 func (s *SBOMService) performScan(ctx context.Context, req ScanRequest) error {
-	// Redis 분산 락
+	// Redis 분산 락 (Redis가 nil이면 스킵)
 	lockKey := "sbom:scan:lock:" + req.Digest
-	ok, err := s.rdb.SetNX(ctx, lockKey, "1", 10*time.Minute).Result()
-	if err != nil {
-		fmt.Printf("warn: redis lock acquire failed digest=%s err=%v\n", req.Digest, err)
-	} else if !ok {
-		fmt.Printf("info: scan already in progress on another instance digest=%s\n", req.Digest)
-		return nil
+	redisLocked := false
+	if s.rdb != nil {
+		ok, err := s.rdb.SetNX(ctx, lockKey, "1", 10*time.Minute).Result()
+		if err != nil {
+			fmt.Printf("warn: redis lock acquire failed digest=%s err=%v\n", req.Digest, err)
+		} else if !ok {
+			fmt.Printf("info: scan already in progress on another instance digest=%s\n", req.Digest)
+			return nil
+		} else {
+			redisLocked = true
+		}
 	}
 	defer func() {
-		_ = s.rdb.Del(context.Background(), lockKey).Err()
+		if redisLocked && s.rdb != nil {
+			_ = s.rdb.Del(context.Background(), lockKey).Err()
+		}
 	}()
 
 	// 동시성 제한 (semaphore)

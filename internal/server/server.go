@@ -15,6 +15,7 @@ import (
 	"github.com/vara/backend/internal/config"
 	"github.com/vara/backend/internal/external/trivy"
 	"github.com/vara/backend/internal/handler"
+	"github.com/vara/backend/internal/platform/embedding"
 	"github.com/vara/backend/internal/platform/epss"
 	"github.com/vara/backend/internal/platform/exploitdb"
 	"github.com/vara/backend/internal/platform/kev"
@@ -104,6 +105,12 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		rbacChainLoader, rbacChainRepo, os.Getenv("RBAC_CHAIN_INCLUDE_EKS") == "true",
 	)
 
+	// ── GRC Compliance Check ──
+	grcRepo := postgres.NewGRCRepo(pg)
+	rulesetStore := service.NewRulesetStore("rulesets")
+	embClient := embedding.NewClient(os.Getenv("EMBEDDING_SERVER_URL"))
+	grcSvc := service.NewGRCService(grcRepo, clusterReaderRepo, rulesetStore, embClient)
+
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)
 	agentH := handler.NewAgent(pg, rdb, agentSvc)
@@ -125,10 +132,11 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	notifH := handler.NewNotificationHandler(notifSvc)
 	analysisH := handler.NewAnalysisHandler(analysisCacheRepo, analysisSvc)
 	rbacChainH := handler.NewRBACChainHandler(rbacChainSvc)
+	grcH := handler.NewGRC(grcSvc, rulesetStore)
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH, podRefreshH,
-		notifH, analysisH, rbacChainH)
+		notifH, analysisH, rbacChainH, grcH)
 	// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
 	// ENV로 ON/OFF, 기본 활성
 	if os.Getenv("DISABLE_VULN_SCANNER") != "true" {

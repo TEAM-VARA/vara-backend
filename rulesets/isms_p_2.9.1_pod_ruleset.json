@@ -1,0 +1,93 @@
+{
+  "schema_version": "3.1.0-pod",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA Pod Graph - ISMS-P Pod 단위 자동 점검",
+  "module": "pod-graph",
+  "judgment_source_legend": {
+    "k8s_native": "K8s API만으로 자동 판단 (VARA가 수집)",
+    "manual_evidence": "회사가 캡처/문서를 직접 업로드 (VLM 추출 후 판단)",
+    "hybrid": "k8s_native + manual_evidence 조합 — 둘 다 통과해야 PASS"
+  },
+  "item": {
+    "id": "2.9.1",
+    "name": "변경관리",
+    "category_path": "2. 보호대책 요구사항 > 2.9 시스템 및 서비스 운영관리 > 2.9.1 변경관리",
+    "description": "정보시스템의 변경(OS, 미들웨어, 응용프로그램, 네트워크 장비 등)에 대한 절차를 수립하여 변경 이력을 관리하고, 변경 전 시스템에 미치는 영향을 분석하여야 한다."
+  },
+  "legal_references": [],
+  "rules": [
+    {
+      "rule_id": "R-2.9.1-POD-01",
+      "name": "change-cause annotation 부재",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "Deployment change-cause annotation 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        {
+          "resource_type": "deployment",
+          "api_endpoint": "GET /apis/apps/v1/namespaces/{ns}/deployments/{name}",
+          "fields": [".metadata.annotations.kubernetes\\.io/change-cause", ".spec.template.metadata.annotations"],
+          "python_client": "apps.read_namespaced_deployment(name, ns)"
+        },
+        {
+          "resource_type": "replicaset",
+          "api_endpoint": "GET /apis/apps/v1/namespaces/{ns}/replicasets",
+          "fields": [".metadata.annotations.kubernetes\\.io/change-cause"],
+          "python_client": "apps.list_namespaced_replica_set(ns)"
+        }
+      ],
+      "compliance_indicators": [
+        { "field": "deployment.metadata.annotations.kubernetes.io/change-cause", "op": "!=", "value": null, "description": "Deployment에 change-cause annotation 존재 — 변경 사유 기록됨" },
+        { "field": "latest_replicaset_has_change_cause", "op": "==", "value": true, "description": "최신 ReplicaSet에 change-cause annotation 전파됨" }
+      ],
+      "deficiency_indicators": [
+        { "field": "deployment.metadata.annotations.kubernetes.io/change-cause", "op": "==", "value": null, "description": "Deployment에 change-cause annotation 부재 — 변경 사유 추적 불가" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["Deployment 이름", "change-cause annotation 값", "최근 ReplicaSet revision 목록"]
+    },
+    {
+      "rule_id": "R-2.9.1-POD-02",
+      "name": "revisionHistoryLimit=0 (롤백 불가)",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "Deployment revisionHistoryLimit 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        {
+          "resource_type": "deployment",
+          "api_endpoint": "GET /apis/apps/v1/namespaces/{ns}/deployments/{name}",
+          "fields": [".spec.revisionHistoryLimit"],
+          "python_client": "apps.read_namespaced_deployment(name, ns)"
+        }
+      ],
+      "compliance_indicators": [
+        { "field": "deployment.spec.revisionHistoryLimit", "op": ">", "value": 0, "description": "revisionHistoryLimit > 0 — 이전 ReplicaSet 보존으로 롤백 가능" }
+      ],
+      "deficiency_indicators": [
+        { "field": "deployment.spec.revisionHistoryLimit", "op": "==", "value": 0, "description": "revisionHistoryLimit=0 — 이전 ReplicaSet 즉시 삭제되어 롤백 불가, 변경 이력 소실" }
+      ],
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["Deployment 이름", "revisionHistoryLimit 값", "현존 ReplicaSet 수"]
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "Deployment에 change-cause annotation이 존재하고, revisionHistoryLimit > 0으로 롤백 가능 상태여야 PASS"
+  }
+}

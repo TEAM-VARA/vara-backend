@@ -1,0 +1,70 @@
+{
+  "schema_version": "3.1.0-pod",
+  "isms_p_revision": "2023.11",
+  "generated_for": "VARA Pod Graph - ISMS-P Pod 단위 자동 점검",
+  "module": "pod-graph",
+  "judgment_source_legend": {
+    "k8s_native": "K8s API만으로 자동 판단 (VARA가 수집)",
+    "manual_evidence": "회사가 캡처/문서를 직접 업로드 (VLM 추출 후 판단)",
+    "hybrid": "k8s_native + manual_evidence 조합 — 둘 다 통과해야 PASS"
+  },
+  "item": {
+    "id": "2.6.7",
+    "name": "인터넷 접속 통제",
+    "category_path": "2. 보호대책 요구사항 > 2.6 접근통제 > 2.6.7 인터넷 접속 통제",
+    "description": "업무용 단말기 등에서 인터넷에 접속할 경우 정보유출 등의 보안사고를 예방하기 위하여 인터넷 접속 통제 정책을 수립·이행하여야 한다."
+  },
+  "legal_references": [
+    { "law": "개인정보 보호법", "article": "제29조", "summary": "안전조치의무" },
+    { "law": "개인정보의 안전성 확보조치 기준", "article": "제6조", "summary": "접근통제" }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.6.7-POD-01",
+      "name": "egress NetworkPolicy 미적용",
+      "judgment_source": "k8s_native",
+      "check_category": "pod_graph",
+      "evidence_type": "Pod egress NetworkPolicy 적용 여부 점검",
+      "system": "AWS EKS",
+      "evidence_format": "json",
+      "extraction_method": "k8s_api",
+      "auto_collectable": true,
+      "data_sources": [
+        {
+          "resource_type": "networkpolicy",
+          "api_endpoint": "GET /apis/networking.k8s.io/v1/namespaces/{ns}/networkpolicies",
+          "fields": [".spec.podSelector", ".spec.policyTypes", ".spec.egress"],
+          "python_client": "networking.list_namespaced_network_policy(ns)"
+        },
+        {
+          "resource_type": "pod",
+          "api_endpoint": "GET /api/v1/namespaces/{ns}/pods/{name}",
+          "fields": [".metadata.labels"],
+          "python_client": "v1.read_namespaced_pod(name, ns)"
+        }
+      ],
+      "compliance_indicators": [
+        { "field": "has_egress_policy", "op": "==", "value": true, "description": "Pod에 매칭되는 Egress NetworkPolicy 존재 — 아웃바운드 트래픽 통제 적용" },
+        { "field": "egress_default_deny_exists", "op": "==", "value": true, "description": "namespace에 Egress default-deny NetworkPolicy 존재" }
+      ],
+      "deficiency_indicators": [
+        { "field": "has_egress_policy", "op": "==", "value": false, "description": "Pod에 Egress NetworkPolicy 미적용 — 인터넷 포함 모든 외부 대상으로 무제한 아웃바운드 통신 가능" },
+        { "field": "egress_default_deny_exists", "op": "==", "value": false, "description": "namespace에 Egress default-deny 미존재 — 기본 차단 없이 전체 허용 상태" }
+      ],
+      "exception_check": {
+        "annotation": "security-exception/egress-justification",
+        "system_namespaces": ["kube-system", "kube-node-lease", "amazon-cloudwatch"]
+      },
+      "judgement_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "report": ["Egress 정책 미적용 Pod 목록", "namespace Egress default-deny 존재 여부", "예외 사유 존재 여부"]
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "namespace Egress default-deny 존재 + Pod에 매칭되는 Egress NetworkPolicy 적용 시 PASS"
+  }
+}

@@ -3,31 +3,24 @@ vara-backend
 /out/
 .idea/
 .vscode/
-
 build.log
 bin/
 *.exe
-.idea/
-.vscode/
 
+# Excel files
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+*.csv~
 
-build.log
-bin/
-*.exe
-.idea/
-.vscode/
+# 테스트/개발용 데이터 (프로덕션 불필요)
+testdata/
+tests/
+scripts/
+ISMS-P_rule_testdata/
+tmp/
 
-
-build.log
-bin/
-*.exe
-.idea/
-.vscode/
-
-
-build.log
-bin/
-*.exe
-.idea/
-.vscode/
-
+# 바이너리 증적 (별도 스토리지 관리)
+evidence_samples/*.pdf
+evidence_samples/*.zip

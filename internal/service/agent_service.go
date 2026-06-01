@@ -1,3 +1,5 @@
+// GRC 보조: Cluster Reader / eBPF / CI 파이프라인이 보낸 K8s 데이터를 수신·저장하는 서비스.
+// GRC Finding 평가와 PodGraph 평가에 필요한 클러스터 자산 데이터를 제공하는 데이터 수집 계층이다.
 package service
 
 import (
