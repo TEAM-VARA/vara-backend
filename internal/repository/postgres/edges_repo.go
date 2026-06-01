@@ -1162,7 +1162,6 @@ func (r *EdgesRepo) BuildTopology(ctx context.Context, cluster string) (*edge.To
 		return nil, fmt.Errorf("fetch topology edges: %w", err)
 	}
 
-	workloadNodes, _ := r.fetchWorkloadNodes(ctx, cluster)
 	secretNodes, _ := r.fetchSecretNodes(ctx, cluster)
 	configmapNodes, _ := r.fetchConfigMapNodes(ctx, cluster)
 	ingressNodes, _ := r.fetchIngressNodes(ctx, cluster)
@@ -1171,7 +1170,6 @@ func (r *EdgesRepo) BuildTopology(ctx context.Context, cluster string) (*edge.To
 	nodeNodes, _ := r.fetchNodeNodes(ctx, cluster)
 
 	nodes := append(podNodes, otherNodes...)
-	nodes = append(nodes, workloadNodes...)
 	nodes = append(nodes, secretNodes...)
 	nodes = append(nodes, configmapNodes...)
 	nodes = append(nodes, ingressNodes...)
