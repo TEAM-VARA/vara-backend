@@ -596,6 +596,77 @@ func (h *GRCHandler) ListFindingClusterSummaries(c *gin.Context) {
 	})
 }
 
+// GET /compliance/rulesets/catalog
+func (h *GRCHandler) GetRuleCatalog(c *gin.Context) {
+	catalog, err := h.svc.GetRuleCatalog(c.Request.Context())
+	if err != nil {
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, catalog)
+}
+
+// GET /compliance/findings/summary
+func (h *GRCHandler) GetFindingsSummary(c *gin.Context) {
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+	clusterName := c.Query("cluster_name")
+	if clusterName == "" {
+		// fall back to cluster_id for convenience
+		clusterName = c.Query("cluster_id")
+	}
+	if clusterName == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "cluster_name 필수")
+		return
+	}
+
+	summary, err := h.svc.GetLatestFindingClusterSummary(c.Request.Context(), companyID, clusterName)
+	if err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, summary)
+}
+
+// GET /compliance/pods/:pod_name/compliance
+func (h *GRCHandler) GetPodCompliance(c *gin.Context) {
+	podName := c.Param("pod_name")
+	if podName == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "pod_name 필수")
+		return
+	}
+
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+	clusterName := c.Query("cluster_name")
+	if clusterName == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "cluster_name 필수")
+		return
+	}
+	namespace := c.Query("namespace")
+
+	result, err := h.svc.GetPodCompliance(c.Request.Context(), companyID, clusterName, namespace, podName)
+	if err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 func grcError(c *gin.Context, status int, code, message string) {
 	c.JSON(status, gin.H{
 		"error": gin.H{

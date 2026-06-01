@@ -273,6 +273,206 @@ func (s *GRCService) ListActiveFindings(ctx context.Context) ([]grc.Finding, err
 	return s.repo.LoadActiveFindings(ctx)
 }
 
+// ── Rule Catalog ──
+
+// FindingCatalogItem is metadata for a single finding definition.
+type FindingCatalogItem struct {
+	FindingID      string `json:"finding_id"`
+	ISMSPItemID    string `json:"isms_p_item_id"`
+	Title          string `json:"title"`
+	VerdictType    string `json:"verdict_type"`
+	TargetResource string `json:"target_resource"`
+}
+
+// RuleCatalogItem is metadata for a single ruleset rule.
+type RuleCatalogItem struct {
+	RuleID         string `json:"rule_id"`
+	ISMSPItemID    string `json:"isms_p_item_id"`
+	Name           string `json:"name"`
+	CheckCategory  string `json:"check_category"`
+	JudgmentSource string `json:"judgment_source,omitempty"`
+	EvidenceType   string `json:"evidence_type,omitempty"`
+}
+
+// RuleCatalogResponse is the response for GET /compliance/rulesets/catalog.
+type RuleCatalogResponse struct {
+	Findings []FindingCatalogItem `json:"findings"`
+	Rules    []RuleCatalogItem    `json:"rules"`
+}
+
+// GetRuleCatalog returns all finding definitions and rule definitions as a catalog.
+func (s *GRCService) GetRuleCatalog(ctx context.Context) (*RuleCatalogResponse, error) {
+	// Load all finding definitions from DB
+	findings, err := s.repo.LoadActiveFindings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load findings: %w", err)
+	}
+
+	findingItems := make([]FindingCatalogItem, 0, len(findings))
+	for _, f := range findings {
+		findingItems = append(findingItems, FindingCatalogItem{
+			FindingID:      f.FindingID,
+			ISMSPItemID:    f.ISMSPItemID,
+			Title:          f.Title,
+			VerdictType:    f.VerdictType,
+			TargetResource: f.TargetResource,
+		})
+	}
+
+	// Load all rules from rulesets on disk
+	var ruleItems []RuleCatalogItem
+	rulesets := s.rulesetStore.LoadAll()
+	for _, rs := range rulesets {
+		for _, r := range rs.Rules {
+			ruleItems = append(ruleItems, RuleCatalogItem{
+				RuleID:         r.RuleID,
+				ISMSPItemID:    rs.Item.ID,
+				Name:           r.Name,
+				CheckCategory:  r.CheckCategory,
+				JudgmentSource: r.JudgmentSource,
+				EvidenceType:   r.EvidenceType,
+			})
+		}
+	}
+
+	return &RuleCatalogResponse{
+		Findings: findingItems,
+		Rules:    ruleItems,
+	}, nil
+}
+
+// ── Findings Summary (전체 뷰) ──
+
+// GetLatestFindingClusterSummary returns the most recent cluster finding summary.
+func (s *GRCService) GetLatestFindingClusterSummary(ctx context.Context, companyID, clusterName string) (*grc.FindingClusterResult, error) {
+	items, _, err := s.repo.ListFindingClusterSummaries(ctx, companyID, 1, 1)
+	if err != nil {
+		return nil, err
+	}
+	// Find the one matching clusterName
+	for i := range items {
+		if items[i].ClusterName == clusterName {
+			return &items[i], nil
+		}
+	}
+	// Try broader search with larger page
+	items, _, err = s.repo.ListFindingClusterSummaries(ctx, companyID, 1, 200)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].ClusterName == clusterName {
+			return &items[i], nil
+		}
+	}
+	return nil, &GRCError{Code: "NOT_FOUND", Message: fmt.Sprintf("클러스터 '%s' finding summary 없음", clusterName), HTTPStatus: 404}
+}
+
+// ── Pod Compliance (Pod 상세 뷰) ──
+
+// PodComplianceFindingItem is a finding that affects a specific pod.
+type PodComplianceFindingItem struct {
+	FindingID   string `json:"finding_id"`
+	ISMSPItemID string `json:"isms_p_item_id"`
+	Title       string `json:"title"`
+	VerdictType string `json:"verdict_type"`
+	Matched     bool   `json:"matched"`
+	Observation string `json:"observation"`
+}
+
+// RuleComplianceSummary holds R-rule pass/fail/skip counts for a pod.
+// Evaluated = Compliant + NonCompliant (Skipped is excluded from the denominator).
+type RuleComplianceSummary struct {
+	Evaluated    int `json:"evaluated"`
+	Compliant    int `json:"compliant"`
+	NonCompliant int `json:"non_compliant"`
+	Skipped      int `json:"skipped"`
+}
+
+// RelatedFindingsSummary counts F-rule findings for a pod by verdict type.
+type RelatedFindingsSummary struct {
+	PotentialFinding   int `json:"potential_finding"`
+	NeedsReview        int `json:"needs_review"`
+	CompliantIndicator int `json:"compliant_indicator"`
+}
+
+// PodComplianceSummary aggregates pod-level compliance with strict R/F separation.
+type PodComplianceSummary struct {
+	RuleCompliance  RuleComplianceSummary  `json:"rule_compliance"`
+	RelatedFindings RelatedFindingsSummary `json:"related_findings"`
+}
+
+// PodComplianceResult is the response for GET /compliance/pods/:pod_name/compliance.
+type PodComplianceResult struct {
+	PodName         string                     `json:"pod_name"`
+	Namespace       string                     `json:"namespace"`
+	ClusterName     string                     `json:"cluster_name"`
+	ClusterFindings []PodComplianceFindingItem `json:"cluster_findings"`
+	Summary         PodComplianceSummary       `json:"summary"`
+}
+
+// GetPodCompliance filters the latest cluster finding summary for findings
+// that affect the specified pod, based on AffectedResources.
+func (s *GRCService) GetPodCompliance(ctx context.Context, companyID, clusterName, namespace, podName string) (*PodComplianceResult, error) {
+	result := &PodComplianceResult{
+		PodName:     podName,
+		Namespace:   namespace,
+		ClusterName: clusterName,
+	}
+
+	// Load latest cluster summary
+	summary, err := s.GetLatestFindingClusterSummary(ctx, companyID, clusterName)
+	if err != nil {
+		// No summary yet is ok — return empty result
+		if ge, ok := err.(*GRCError); ok && ge.HTTPStatus == 404 {
+			return result, nil
+		}
+		return nil, err
+	}
+
+	// Filter F-rule findings that mention this pod in AffectedResources
+	for _, fr := range summary.Findings {
+		for _, ar := range fr.AffectedResources {
+			if ar.Kind == "Pod" && ar.Name == podName && (namespace == "" || ar.Namespace == namespace) {
+				result.ClusterFindings = append(result.ClusterFindings, PodComplianceFindingItem{
+					FindingID:   fr.FindingID,
+					ISMSPItemID: fr.ISMSPItemID,
+					Title:       fr.Title,
+					VerdictType: fr.VerdictType,
+					Matched:     fr.Matched,
+					Observation: fr.Observation,
+				})
+				break
+			}
+		}
+	}
+
+	// Build related_findings counts from F-rules (by verdict_type)
+	for _, f := range result.ClusterFindings {
+		switch f.VerdictType {
+		case VerdictPotentialFinding:
+			result.Summary.RelatedFindings.PotentialFinding++
+		case VerdictNeedsReview:
+			result.Summary.RelatedFindings.NeedsReview++
+		case VerdictCompliantIndicator:
+			result.Summary.RelatedFindings.CompliantIndicator++
+		}
+	}
+
+	// Build rule_compliance from R-rule pod graph evaluation (most recent snapshot)
+	podEval, err := s.repo.GetLatestPodGraphEvalByPod(ctx, companyID, clusterName, namespace, podName)
+	if err == nil && podEval != nil {
+		result.Summary.RuleCompliance = RuleComplianceSummary{
+			Compliant:    podEval.Passed,
+			NonCompliant: podEval.Failed,
+			Skipped:      podEval.Skipped,
+			Evaluated:    podEval.Passed + podEval.Failed,
+		}
+	}
+	// If no pod graph eval exists yet, rule_compliance stays zero-valued (acceptable).
+
+	return result, nil
+}
 
 func envOrDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {

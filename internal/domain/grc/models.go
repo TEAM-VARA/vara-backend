@@ -313,7 +313,7 @@ type Finding struct {
 	FindingID             string          `json:"finding_id"`
 	ISMSPItemID           string          `json:"isms_p_item_id"`
 	Title                 string          `json:"title"`
-	VerdictType           string          `json:"verdict_type"` // compliant_indicator | potential_finding | needs_review | additional_evidence
+	VerdictType           string          `json:"verdict_type"` // compliant_indicator | potential_finding | needs_review
 	ObservationTemplate   string          `json:"observation_template"`
 	TargetResource        string          `json:"target_resource"`
 	RequiredData          json.RawMessage `json:"required_data"`
@@ -331,6 +331,13 @@ type Finding struct {
 	DeferredReason        string          `json:"deferred_reason,omitempty"`
 }
 
+// AffectedResource is a K8s resource affected by a finding evaluation.
+type AffectedResource struct {
+	Kind      string `json:"kind"`                // Pod | ServiceAccount | Namespace | Ingress | Service | Node
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
 // FindingResult is the evaluation output for a single finding.
 type FindingResult struct {
 	FindingID             string          `json:"finding_id"`
@@ -346,6 +353,7 @@ type FindingResult struct {
 	ManualCheckAreas      json.RawMessage `json:"manual_check_areas,omitempty"`
 	AutomationCoverage    json.RawMessage `json:"automation_coverage,omitempty"`
 	AlternativeControls   json.RawMessage `json:"alternative_controls,omitempty"`
+	AffectedResources     []AffectedResource `json:"affected_resources,omitempty"`
 	Deferred              bool            `json:"deferred,omitempty"`
 	DeferredReason        string          `json:"deferred_reason,omitempty"`
 }

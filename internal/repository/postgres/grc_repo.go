@@ -32,7 +32,7 @@ func (r *GRCRepo) CreateCheck(ctx context.Context, chk *grc.Check) error {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, chk.CheckID, chk.CompanyID, chk.ISMSPItemID, chk.RulesetVersion,
 		chk.Status, chk.ProgressPct, chk.AutoCollect, chk.SubmittedAt,
-		nilIfEmpty(chk.CheckSource))
+		nilStrPtr(chk.CheckSource))
 	return err
 }
 
@@ -126,9 +126,9 @@ func (r *GRCRepo) SaveCheckResult(ctx context.Context, result *grc.ComplianceChe
 			`, rrID, v.Field, v.Pattern,
 				fmt.Sprintf("%v", v.Expected), fmt.Sprintf("%v", v.Actual),
 				v.Description, v.Severity,
-				nilIfEmpty(v.K8sSource.ClusterName), nilIfEmpty(v.K8sSource.Namespace),
-				nilIfEmpty(v.K8sSource.ResourceKind), nilIfEmpty(v.K8sSource.ResourceName),
-				nilIfEmpty(v.K8sSource.ContainerName))
+				nilStrPtr(v.K8sSource.ClusterName), nilStrPtr(v.K8sSource.Namespace),
+				nilStrPtr(v.K8sSource.ResourceKind), nilStrPtr(v.K8sSource.ResourceName),
+				nilStrPtr(v.K8sSource.ContainerName))
 			if err != nil {
 				return fmt.Errorf("insert violation for %s: %w", rr.RuleID, err)
 			}
@@ -470,7 +470,7 @@ func (r *GRCRepo) InsertEvidenceFile(ctx context.Context, ef *grc.EvidenceFile) 
 			 storage_path, file_size_bytes, target_rule_ids, content_hash, k8s_source)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, ef.CheckID, ef.Filename, ef.EvidenceType, ef.System, ef.Description,
-		ef.StoragePath, ef.FileSizeBytes, ef.TargetRuleIDs, nilIfEmpty(ef.ContentHash), k8sArg)
+		ef.StoragePath, ef.FileSizeBytes, ef.TargetRuleIDs, nilStrPtr(ef.ContentHash), k8sArg)
 	return err
 }
 
@@ -493,7 +493,7 @@ func (r *GRCRepo) FindExtractedTextByHash(ctx context.Context, contentHash strin
 	return "", false, nil
 }
 
-func nilIfEmpty(s string) *string {
+func nilStrPtr(s string) *string {
 	if s == "" {
 		return nil
 	}
@@ -608,7 +608,7 @@ func (r *GRCRepo) UpdateEvidenceEmbeddings(ctx context.Context, checkID, filenam
 		    evidence_embedding = $4::vector,
 		    guideline_embedding = $5::vector
 		WHERE check_id = $1 AND filename = $2
-	`, checkID, filename, nilIfEmpty(guidelineText), vectorToString(evidenceEmb), vectorToString(guidelineEmb))
+	`, checkID, filename, nilStrPtr(guidelineText), vectorToString(evidenceEmb), vectorToString(guidelineEmb))
 	return err
 }
 
@@ -732,9 +732,9 @@ func (r *GRCRepo) InsertCloudEnvironment(ctx context.Context, env *grc.CloudEnvi
 			 namespace, cluster_name, raw_data, extracted_text, embedding)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector)
 		RETURNING id, created_at
-	`, env.CompanyID, nilIfEmpty(env.CheckID), env.ResourceType, env.ResourceName,
-		nilIfEmpty(env.Namespace), nilIfEmpty(env.ClusterName),
-		rawJSON, nilIfEmpty(env.ExtractedText), vectorToString(env.Embedding),
+	`, env.CompanyID, nilStrPtr(env.CheckID), env.ResourceType, env.ResourceName,
+		nilStrPtr(env.Namespace), nilStrPtr(env.ClusterName),
+		rawJSON, nilStrPtr(env.ExtractedText), vectorToString(env.Embedding),
 	).Scan(&env.ID, &env.CreatedAt)
 	return err
 }
@@ -827,7 +827,7 @@ func (r *GRCRepo) SavePodGraphEvaluation(ctx context.Context, companyID, cluster
 			 total_rules, passed, failed, skipped, rule_results, summary)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id
-	`, companyID, nilIfEmpty(clusterName), podName, nilIfEmpty(namespace),
+	`, companyID, nilStrPtr(clusterName), podName, nilStrPtr(namespace),
 		verdict, totalRules, passed, failed, skipped, ruleResultsJSON, summaryJSON).Scan(&id)
 	return id, err
 }
@@ -924,6 +924,39 @@ func (r *GRCRepo) GetPodGraphEvaluation(ctx context.Context, id int64) (*grc.Pod
 	return &item, ruleResultsRaw, nil
 }
 
+// GetLatestPodGraphEvalByPod returns the most recent pod graph evaluation for a
+// specific pod (identified by companyID + clusterName + namespace + podName).
+func (r *GRCRepo) GetLatestPodGraphEvalByPod(ctx context.Context, companyID, clusterName, namespace, podName string) (*grc.PodGraphEvalListItem, error) {
+	var item grc.PodGraphEvalListItem
+	var clusterNamePtr, namespacePtr *string
+
+	err := r.pg.QueryRow(ctx, `
+		SELECT id, company_id, cluster_name, pod_name, namespace,
+		       overall_verdict, total_rules, passed, failed, skipped, created_at
+		FROM grc_pod_graph_evaluations
+		WHERE company_id = $1
+		  AND cluster_name = $2
+		  AND namespace = $3
+		  AND pod_name = $4
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, companyID, nilStrPtr(clusterName), nilStrPtr(namespace), podName).Scan(
+		&item.ID, &item.CompanyID, &clusterNamePtr, &item.PodName, &namespacePtr,
+		&item.OverallVerdict, &item.TotalRules, &item.Passed, &item.Failed,
+		&item.Skipped, &item.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if clusterNamePtr != nil {
+		item.ClusterName = *clusterNamePtr
+	}
+	if namespacePtr != nil {
+		item.Namespace = *namespacePtr
+	}
+	return &item, nil
+}
+
 // ── Guidelines ──
 
 // InsertGuideline inserts a new guideline record.
@@ -935,8 +968,8 @@ func (r *GRCRepo) InsertGuideline(ctx context.Context, g *grc.Guideline) error {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)
 		RETURNING id, uploaded_at, updated_at
 	`, g.CompanyID, g.ISMSPItemID, g.Filename, g.StoragePath,
-		g.FileSizeBytes, nilIfEmpty(g.ContentHash),
-		nilIfEmpty(g.ExtractedText), vectorToString(g.Embedding),
+		g.FileSizeBytes, nilStrPtr(g.ContentHash),
+		nilStrPtr(g.ExtractedText), vectorToString(g.Embedding),
 	).Scan(&g.ID, &g.UploadedAt, &g.UpdatedAt)
 }
 
@@ -946,7 +979,7 @@ func (r *GRCRepo) UpdateGuidelineText(ctx context.Context, id int64, text string
 		UPDATE grc_guidelines
 		SET extracted_text = $2, embedding = $3::vector, updated_at = NOW()
 		WHERE id = $1
-	`, id, nilIfEmpty(text), vectorToString(emb))
+	`, id, nilStrPtr(text), vectorToString(emb))
 	return err
 }
 
@@ -1202,8 +1235,8 @@ func (r *GRCRepo) SaveFindingEvaluation(ctx context.Context, findingID, companyI
 			(finding_id, company_id, cluster_name, namespace, pod_name, matched, observation_text, evidence)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id
-	`, findingID, companyID, clusterName, nilIfEmpty(namespace), nilIfEmpty(podName),
-		matched, nilIfEmpty(observation), evidenceJSON).Scan(&id)
+	`, findingID, companyID, clusterName, nilStrPtr(namespace), nilStrPtr(podName),
+		matched, nilStrPtr(observation), evidenceJSON).Scan(&id)
 	return id, err
 }
 

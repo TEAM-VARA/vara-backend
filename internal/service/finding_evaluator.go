@@ -261,6 +261,11 @@ func evalOwnerIndicatorExists(base grc.FindingResult, snap *ClusterSnapshot, con
 			if len(missingList) < 10 {
 				missingList = append(missingList, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
 			}
+			base.AffectedResources = append(base.AffectedResources, grc.AffectedResource{
+				Kind:      "Pod",
+				Name:      pod.Name,
+				Namespace: pod.Namespace,
+			})
 		}
 	}
 
@@ -332,6 +337,11 @@ func evalInSet(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]an
 				if len(matchedPods) < 10 {
 					matchedPods = append(matchedPods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
 				}
+				base.AffectedResources = append(base.AffectedResources, grc.AffectedResource{
+					Kind:      "Pod",
+					Name:      pod.Name,
+					Namespace: pod.Namespace,
+				})
 				break
 			}
 		}
@@ -789,6 +799,11 @@ func evalEgressPolicyApplied(base grc.FindingResult, snap *ClusterSnapshot) grc.
 			if len(podList) < 10 {
 				podList = append(podList, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
 			}
+			base.AffectedResources = append(base.AffectedResources, grc.AffectedResource{
+				Kind:      "Pod",
+				Name:      pod.Name,
+				Namespace: pod.Namespace,
+			})
 		}
 	}
 
@@ -1181,6 +1196,7 @@ func evalTagMutableCheck(base grc.FindingResult, snap *ClusterSnapshot, cond map
 	totalCount := 0
 	mutableCount := 0
 	var mutableList []string
+	affectedPods := map[string]bool{} // dedup
 
 	for _, pod := range snap.Pods {
 		if isSystemNS(pod.Namespace) {
@@ -1202,6 +1218,15 @@ func evalTagMutableCheck(base grc.FindingResult, snap *ClusterSnapshot, cond map
 					mutableCount++
 					if len(mutableList) < 10 {
 						mutableList = append(mutableList, fmt.Sprintf("%s/%s:%s", pod.Namespace, pod.Name, image))
+					}
+					podKey := pod.Namespace + "/" + pod.Name
+					if !affectedPods[podKey] {
+						affectedPods[podKey] = true
+						base.AffectedResources = append(base.AffectedResources, grc.AffectedResource{
+							Kind:      "Pod",
+							Name:      pod.Name,
+							Namespace: pod.Namespace,
+						})
 					}
 					break
 				}
@@ -1235,6 +1260,7 @@ func evalDigestPresent(base grc.FindingResult, snap *ClusterSnapshot) grc.Findin
 	totalCount := 0
 	missingCount := 0
 	var list []string
+	affectedPods := map[string]bool{} // dedup
 
 	for _, pod := range snap.Pods {
 		if isSystemNS(pod.Namespace) {
@@ -1254,6 +1280,15 @@ func evalDigestPresent(base grc.FindingResult, snap *ClusterSnapshot) grc.Findin
 				missingCount++
 				if len(list) < 10 {
 					list = append(list, fmt.Sprintf("%s/%s:%s", pod.Namespace, pod.Name, image))
+				}
+				podKey := pod.Namespace + "/" + pod.Name
+				if !affectedPods[podKey] {
+					affectedPods[podKey] = true
+					base.AffectedResources = append(base.AffectedResources, grc.AffectedResource{
+						Kind:      "Pod",
+						Name:      pod.Name,
+						Namespace: pod.Namespace,
+					})
 				}
 			}
 		}
