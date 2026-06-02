@@ -3,6 +3,9 @@ package server
 import (
 	"github.com/gin-gonic/gin"
 
+	"time"
+
+	"github.com/gin-contrib/cors"
 	"github.com/vara/backend/internal/handler"
 )
 
@@ -31,6 +34,15 @@ func newRouter(
 	breakdownH *handler.BreakdownHandler,
 ) *gin.Engine {
 	r := gin.Default()
+
+	// ── CORS (라우트 등록 전에!) ──
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:  []string{"*"},
+		AllowMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:  []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders: []string{"Content-Length"},
+		MaxAge:        12 * time.Hour,
+	}))
 
 	r.GET("/healthz", health.Healthz)
 
