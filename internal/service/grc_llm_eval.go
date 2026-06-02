@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sort"
@@ -48,16 +49,16 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	}
 
 	// ── Step 1: Collect sentences ──
-	// GL-rule (guideline_rag): sentences from DB guidelines
-	// R-rule (evidence-based): sentences from uploaded evidence text
+	// text_extraction (GL-rule): sentences from DB guidelines
+	// k8s_api / other: sentences from uploaded evidence text
 	var sentences []string
-	if rule.JudgmentSource == "guideline_rag" {
+	if rule.JudgmentSource == "text_extraction" {
 		sentences = splitGuidelineSentences(dbGuidelines, rule)
 	} else {
 		sentences = splitEvidenceSentences(evidenceData)
 	}
 	if len(sentences) == 0 {
-		if rule.JudgmentSource == "guideline_rag" {
+		if rule.JudgmentSource == "text_extraction" {
 			base.Verdict = "skipped"
 			base.SkipReason = "지침 문장 없음 (DB 지침 미등록)"
 		} else {
@@ -134,6 +135,11 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 		RetrievedSentences: retrieved,
 	}
 
+	// ── Debug: VLM 요청 로깅 ──
+	if reqJSON, err := json.Marshal(judgeReq); err == nil {
+		log.Printf("[grc-rag] VLM REQUEST rule=%s:\n%s", rule.RuleID, string(reqJSON))
+	}
+
 	// ── Step 6: Call VLM for entailment judgment ──
 	judgeResp, err := s.vlmClient.Judge(ctx, judgeReq)
 	if err != nil {
@@ -146,6 +152,11 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 		base.Verdict = "skipped"
 		base.SkipReason = "VLM 서버 응답 없음 (연결 실패)"
 		return base
+	}
+
+	// ── Debug: VLM 응답 로깅 ──
+	if respJSON, err := json.Marshal(judgeResp); err == nil {
+		log.Printf("[grc-rag] VLM RESPONSE rule=%s:\n%s", rule.RuleID, string(respJSON))
 	}
 
 	// ── Step 7: Map VLM verdict → grc.RuleResult ──

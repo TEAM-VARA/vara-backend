@@ -31,7 +31,7 @@
       ],
       "judgment_logic": {
         "type": "semantic_match",
-        "method": "rag_entailment"
+        "method": "llm_rag_entailment"
       }
     },
     {
@@ -45,7 +45,7 @@
       ],
       "judgment_logic": {
         "type": "semantic_match",
-        "method": "rag_entailment"
+        "method": "llm_rag_entailment"
       }
     },
     {
@@ -59,7 +59,7 @@
       ],
       "judgment_logic": {
         "type": "semantic_match",
-        "method": "rag_entailment"
+        "method": "llm_rag_entailment"
       }
     },
     {
@@ -73,7 +73,7 @@
       ],
       "judgment_logic": {
         "type": "semantic_match",
-        "method": "rag_entailment"
+        "method": "llm_rag_entailment"
       }
     },
     {
@@ -87,7 +87,7 @@
       ],
       "judgment_logic": {
         "type": "semantic_match",
-        "method": "rag_entailment"
+        "method": "llm_rag_entailment"
       }
     },
     {
@@ -101,7 +101,7 @@
       ],
       "judgment_logic": {
         "type": "semantic_match",
-        "method": "rag_entailment"
+        "method": "llm_rag_entailment"
       }
     },
     {
