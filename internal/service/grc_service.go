@@ -1193,7 +1193,7 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 			}
 		} else if len(matched) == 0 && isGuidelineRAG {
 			// Guideline RAG: no evidence files needed, evaluate directly.
-			result = s.evaluateRule(ctx, rule, nil, nil, dbGuidelines)
+			result = s.evaluateRule(ctx, rule, nil, []string{}, dbGuidelines)
 		} else {
 			filenames := make([]string, len(matched))
 			var extractedData []any
