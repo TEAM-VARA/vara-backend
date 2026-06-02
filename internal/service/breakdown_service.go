@@ -81,6 +81,12 @@ func (s *BreakdownService) GetBreakdown(ctx context.Context, clusterName, podUID
 					Interpretation: interpretKEV(cve.InKEV),
 				},
 				{
+					Name:           "ExploitDB",
+					Value:          exploitDBValue(cve.InExploitDB),
+					Description:    descExploitDB,
+					Interpretation: interpretExploitDB(cve.InExploitDB),
+				},
+				{
 					Name:           "SSVC",
 					Value:          cve.SSVCExploitation,
 					Description:    descSSVC,
@@ -140,6 +146,13 @@ func kevValue(in bool) string {
 		return "등재됨"
 	}
 	return "미등재"
+}
+
+func exploitDBValue(in bool) string {
+	if in {
+		return "공개 PoC 있음"
+	}
+	return "없음"
 }
 
 func exposureValue(exposed bool, raw int) string {
