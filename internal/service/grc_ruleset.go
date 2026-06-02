@@ -221,12 +221,14 @@ func (s *RulesetStore) searchDirs() []string {
 }
 
 // LoadAll loads all rulesets from disk.
+// Unified rulesets (isms_p_X.json) are loaded first; if a pod ruleset
+// (isms_p_X_pod_ruleset.json) exists for the same item, its rules are
+// merged so that both guideline and k8s_native rules are available.
 func (s *RulesetStore) LoadAll() []*Ruleset {
-	seen := map[string]bool{}
+	seen := map[string]*Ruleset{}
 	var rulesets []*Ruleset
 
 	for _, dir := range s.searchDirs() {
-		// v4.0.0: isms_p_*.json (항목당 1파일)
 		matches, _ := filepath.Glob(filepath.Join(dir, "isms_p_*.json"))
 		for _, m := range matches {
 			data, err := os.ReadFile(m)
@@ -237,11 +239,13 @@ func (s *RulesetStore) LoadAll() []*Ruleset {
 			if err := json.Unmarshal(data, &rs); err != nil || rs.Item.ID == "" {
 				continue
 			}
-			if seen[rs.Item.ID] {
+			if existing, ok := seen[rs.Item.ID]; ok {
+				// Merge rules from the second file (e.g. pod_ruleset) into the first
+				existing.Rules = append(existing.Rules, rs.Rules...)
 				continue
 			}
-			seen[rs.Item.ID] = true
 			stored := rs
+			seen[rs.Item.ID] = &stored
 			s.mu.Lock()
 			s.cache[rs.Item.ID] = &stored
 			s.mu.Unlock()

@@ -112,9 +112,12 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 
 	for _, rs := range rulesets {
 		for _, rule := range rs.Rules {
-			// Skip non-k8s_native rules (e.g. manual_evidence, hybrid) in pod graph evaluation
-			if rule.JudgmentSource != "" && rule.JudgmentSource != "k8s_native" {
-				log.Printf("[pod-graph] skip rule=%s (judgment_source=%s)", rule.RuleID, rule.JudgmentSource)
+			// Skip non-k8s rules (e.g. text_extraction, guideline_rag) in pod graph evaluation
+			if rule.JudgmentSource != "" && rule.JudgmentSource != "k8s_native" && rule.JudgmentSource != "k8s_api" {
+				continue
+			}
+			// Skip F- (finding) rules — handled by finding_evaluator
+			if strings.HasPrefix(rule.RuleID, "F-") {
 				continue
 			}
 			rr := evaluatePodRule(rule, rs.Item.ID, rs.Item.Name, req)
@@ -197,101 +200,103 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 
 	switch rule.RuleID {
 	// 1.2.1 정보자산 식별
-	case "R-1.2.1-POD-01":
+	case "R-1.2.1-POD-01", "R-1.2.1-01":
 		return evalNamespaceLabels(rule, req, base)
-	case "R-1.2.1-POD-02":
+	case "R-1.2.1-POD-02", "R-1.2.1-02":
 		return evalAssetClassificationPolicy(rule, req, base)
 	// 1.2.2 현황 및 흐름분석
-	case "R-1.2.2-POD-01":
+	case "R-1.2.2-POD-01", "R-1.2.2-01":
 		return evalExternalDepLabel(rule, req, base)
-	case "R-1.2.2-POD-02":
+	case "R-1.2.2-POD-02", "R-1.2.2-02":
 		return evalIngressFlowRegistered(rule, req, base)
 	// 2.1.3 정보자산 관리
-	case "R-2.1.3-POD-01":
+	case "R-2.1.3-POD-01", "R-2.1.3-01":
 		return evalWorkloadOwnerAnnotation(rule, req, base)
-	case "R-2.1.3-POD-02":
+	case "R-2.1.3-POD-02", "R-2.1.3-02":
 		return evalSecurityClassLabel(rule, req, base)
 	// 2.5.1 사용자 계정 관리
-	case "R-2.5.1-POD-01":
+	case "R-2.5.1-POD-01", "R-2.5.1-01":
 		return evalDefaultServiceAccount(rule, req, base)
-	case "R-2.5.1-POD-02":
+	case "R-2.5.1-POD-02", "R-2.5.1-02":
 		return evalSAOwnerLabel(rule, req, base)
-	case "R-2.5.1-POD-03":
+	case "R-2.5.1-POD-03", "R-2.5.1-03":
 		return evalCrossTeamSASharing(rule, req, base)
 	// 2.5.2 사용자 식별
-	case "R-2.5.2-POD-01":
+	case "R-2.5.2-POD-01", "R-2.5.2-01":
 		return evalPredictableSAName(rule, req, base)
-	case "R-2.5.2-POD-02":
+	case "R-2.5.2-POD-02", "R-2.5.2-02":
 		return evalGenericSANamePattern(rule, req, base)
 	// 2.5.5 특수 계정 및 권한 관리
-	case "R-2.5.5-POD-01":
+	case "R-2.5.5-POD-01", "R-2.5.5-01":
 		return evalServiceAccountPrivileges(rule, req, base)
-	case "R-2.5.5-POD-02":
+	case "R-2.5.5-POD-02", "R-2.5.5-02":
 		return evalDangerousVerbCombos(rule, req, base)
 	// 2.6.1 네트워크 접근
-	case "R-2.6.1-POD-01":
+	case "R-2.6.1-POD-01", "R-2.6.1-01":
 		return evalHostNamespace(rule, req, base)
-	case "R-2.6.1-POD-02":
+	case "R-2.6.1-POD-02", "R-2.6.1-02":
 		return evalNetworkPolicy(rule, req, base)
-	case "R-2.6.1-POD-03":
+	case "R-2.6.1-POD-03", "R-2.6.1-03":
 		return evalCNIDaemonSet(rule, req, base)
-	case "R-2.6.1-POD-04":
+	case "R-2.6.1-POD-04", "R-2.6.1-04":
 		return evalCrossNSTraffic(rule, req, base)
 	// 2.6.3 응용프로그램 접근
-	case "R-2.6.3-POD-01":
+	case "R-2.6.3-POD-01", "R-2.6.3-01":
 		return evalIngressAuth(rule, req, base)
-	case "R-2.6.3-POD-02":
+	case "R-2.6.3-POD-02", "R-2.6.3-02":
 		return evalMTLS(rule, req, base)
 	// 2.6.7 인터넷 접속 통제
-	case "R-2.6.7-POD-01":
+	case "R-2.6.7-POD-01", "R-2.6.7-01":
 		return evalEgressPolicy(rule, req, base)
 	// 2.7.1 암호정책 적용
-	case "R-2.7.1-POD-01":
+	case "R-2.7.1-POD-01", "R-2.7.1-01":
 		return evalSecretEncryption(rule, req, base)
-	case "R-2.7.1-POD-02":
+	case "R-2.7.1-POD-02", "R-2.7.1-02":
 		return evalConfigMapSecrets(rule, req, base)
-	case "R-2.7.1-POD-03":
+	case "R-2.7.1-POD-03", "R-2.7.1-03":
 		return evalIngressTLS(rule, req, base)
+	case "R-2.7.1-04":
+		return evalIngressTLS(rule, req, base) // TLS 관련 추가 룰
 	// 2.8.3 시험과 운영 환경 분리
-	case "R-2.8.3-POD-01":
+	case "R-2.8.3-POD-01", "R-2.8.3-01":
 		return evalWorkloadEnvLabel(rule, req, base)
-	case "R-2.8.3-POD-02":
+	case "R-2.8.3-POD-02", "R-2.8.3-02":
 		return evalNSEnvMixing(rule, req, base)
-	case "R-2.8.3-POD-03":
+	case "R-2.8.3-POD-03", "R-2.8.3-03":
 		return evalCrossEnvSecretRef(rule, req, base)
 	// 2.9.1 변경관리
-	case "R-2.9.1-POD-01":
+	case "R-2.9.1-POD-01", "R-2.9.1-01":
 		return evalChangeCause(rule, req, base)
-	case "R-2.9.1-POD-02":
+	case "R-2.9.1-POD-02", "R-2.9.1-02":
 		return evalRevisionHistoryLimit(rule, req, base)
 	// 2.10.2 클라우드 보안
-	case "R-2.10.2-POD-08":
+	case "R-2.10.2-POD-08", "R-2.10.2-08":
 		return evalNamespacePSA(rule, req, base)
 	// 2.10.3 공개서버 보안
-	case "R-2.10.3-POD-01":
+	case "R-2.10.3-POD-01", "R-2.10.3-01":
 		return evalLBSourceRange(rule, req, base)
-	case "R-2.10.3-POD-02":
+	case "R-2.10.3-POD-02", "R-2.10.3-02":
 		return evalIngressWAF(rule, req, base)
-	case "R-2.10.3-POD-03":
+	case "R-2.10.3-POD-03", "R-2.10.3-03":
 		return evalNodePortExposureLabel(rule, req, base)
-	case "R-2.10.3-POD-04":
+	case "R-2.10.3-POD-04", "R-2.10.3-04":
 		return evalIngressRateLimit(rule, req, base)
-	case "R-2.10.3-POD-05":
+	case "R-2.10.3-POD-05", "R-2.10.3-05":
 		return evalLBExposureLabel(rule, req, base)
 	// 2.10.5 정보전송 보안
-	case "R-2.10.5-POD-01":
+	case "R-2.10.5-POD-01", "R-2.10.5-01":
 		return evalExternalIngressTLS(rule, req, base)
-	case "R-2.10.5-POD-03":
+	case "R-2.10.5-POD-03", "R-2.10.5-03":
 		return evalExternalNamePlaintext(rule, req, base)
 	// 2.10.8 패치관리
-	case "R-2.10.8-POD-01":
+	case "R-2.10.8-POD-01", "R-2.10.8-01":
 		return evalNodeKubeletVersion(rule, req, base)
-	case "R-2.10.8-POD-02":
+	case "R-2.10.8-POD-02", "R-2.10.8-02":
 		return evalImageTagMutable(rule, req, base)
-	case "R-2.10.8-POD-03":
+	case "R-2.10.8-POD-03", "R-2.10.8-03":
 		return evalImageDigest(rule, req, base)
 	// 2.11.3 이상행위 분석 및 모니터링
-	case "R-2.11.3-POD-01":
+	case "R-2.11.3-POD-01", "R-2.11.3-01":
 		return evalProdShellExec(rule, req, base)
 	default:
 		base.Verdict = "skip"
