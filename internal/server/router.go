@@ -67,6 +67,8 @@ func newRouter(
 		api.POST("/agents/ebpf/dns-queries", ebpf.DNSQueries)
 		api.POST("/agents/ebpf/process-events", ebpf.ProcessEvents)
 		api.GET("/feed/process", ebpf.GetProcessFeed)
+		api.GET("/feed/flow", ebpf.GetFlowFeed)
+		api.GET("/events", ebpf.GetEvents)
 
 		// ── Edges (Blast Radius 그래프) ──
 		api.POST("/edges/compute", edge.Compute)

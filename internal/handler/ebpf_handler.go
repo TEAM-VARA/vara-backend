@@ -280,3 +280,48 @@ func (h *EbpfHandler) GetProcessFeed(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"events": items})
 }
+
+// GetFlowFeed : GET /api/v1/feed/flow?since=<RFC3339>
+func (h *EbpfHandler) GetFlowFeed(c *gin.Context) {
+	customerID := c.GetHeader("X-Customer-ID")
+	if customerID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "X-Customer-ID header required"})
+		return
+	}
+	since := time.Now().Add(-5 * time.Minute)
+	if s := c.Query("since"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			since = t
+		}
+	}
+	items, err := h.repo.QueryFlowFeed(c.Request.Context(), customerID, since, 100)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"events": items})
+}
+
+// GetEvents : GET /api/v1/events?since=&type=&anomaly_only=&q=
+func (h *EbpfHandler) GetEvents(c *gin.Context) {
+	customerID := c.GetHeader("X-Customer-ID")
+	if customerID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "X-Customer-ID header required"})
+		return
+	}
+	since := time.Now().Add(-2 * time.Minute) // 라이브 기본: 최근 2분
+	if s := c.Query("since"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			since = t
+		}
+	}
+	events, err := h.repo.QueryEvents(
+		c.Request.Context(), customerID, since,
+		c.Query("type"), c.Query("anomaly_only") == "true", c.Query("q"), 200,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"events": events})
+}
