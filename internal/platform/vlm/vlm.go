@@ -11,6 +11,8 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -61,10 +63,40 @@ type JudgeRequest struct {
 
 // JudgeResponse is returned by the Colab server.
 type JudgeResponse struct {
-	Verdict     string `json:"verdict"`  // 충족|부분|불충족|판정불가
-	BasisIdx    []int  `json:"근거문장"`
-	MissingElem string `json:"누락요소"`
-	Modality    string `json:"양태"` // 의무|권고|없음
+	Verdict     string          `json:"verdict"` // 충족|부분|불충족|판정불가
+	RawBasis    json.RawMessage `json:"근거문장"`
+	BasisIdx    []int           `json:"-"`
+	MissingElem string          `json:"누락요소"`
+	Modality    string          `json:"양태"` // 의무|권고|없음
+}
+
+// parseBasisIdx converts RawBasis (may be []int, string, or single int) into BasisIdx.
+func (r *JudgeResponse) parseBasisIdx() {
+	if len(r.RawBasis) == 0 {
+		return
+	}
+	// Try []int first
+	var arr []int
+	if err := json.Unmarshal(r.RawBasis, &arr); err == nil {
+		r.BasisIdx = arr
+		return
+	}
+	// Try single int
+	var single int
+	if err := json.Unmarshal(r.RawBasis, &single); err == nil {
+		r.BasisIdx = []int{single}
+		return
+	}
+	// Try string like "1" or "1,2"
+	var s string
+	if err := json.Unmarshal(r.RawBasis, &s); err == nil {
+		for _, part := range strings.Split(s, ",") {
+			part = strings.TrimSpace(part)
+			if v, err := strconv.Atoi(part); err == nil {
+				r.BasisIdx = append(r.BasisIdx, v)
+			}
+		}
+	}
 }
 
 // Judge sends a judgment request to the VLM server and returns the verdict.
@@ -120,6 +152,7 @@ func (c *Client) Judge(ctx context.Context, req JudgeRequest) (*JudgeResponse, e
 			return nil, fmt.Errorf("vlm response decode: %w", err)
 		}
 		resp.Body.Close()
+		result.parseBasisIdx()
 
 		// Validate verdict value.
 		switch result.Verdict {
