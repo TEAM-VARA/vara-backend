@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
 
   ollama:
-    # Qwen 2.5 LLM 추론 서버. 첫 부팅 시 모델 ~2GB 다운로드 후 캐시.
+    # Qwen 2.5 7B LLM 추론 서버. 첫 부팅 시 모델 ~4.7GB 다운로드 후 캐시.
     image: ollama/ollama
     expose:
       - "11434"
@@ -42,7 +42,7 @@ services:
       - ollama-models:/root/.ollama
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      test: ["CMD-SHELL", "ollama list"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -55,7 +55,7 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["sh", "-c", "ollama pull qwen2.5:3b"]
+    entrypoint: ["sh", "-c", "ollama pull qwen2.5:7b"]
     restart: "no"
 
   backend:
@@ -84,7 +84,7 @@ services:
       REDIS_ADDR: redis:6379
       EMBEDDING_SERVER_URL: http://embedding:9000/embed
       VLM_SERVER_URL: ${VLM_SERVER_URL:-http://ollama:11434}
-      VLM_MODEL: ${VLM_MODEL:-qwen2.5:3b}
+      VLM_MODEL: ${VLM_MODEL:-qwen2.5:7b}
     ports:
       - "8080:8080"
     volumes:

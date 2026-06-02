@@ -12,7 +12,7 @@ import (
 	"github.com/vara/backend/internal/platform/vlm"
 )
 
-const defaultRAGTopK = 3
+const defaultRAGTopK = 5
 
 // scoredSentence holds a guideline sentence with its cosine similarity score.
 type scoredSentence struct {
