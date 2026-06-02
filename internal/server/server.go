@@ -17,6 +17,7 @@ import (
 	"github.com/vara/backend/internal/handler"
 	"github.com/vara/backend/internal/platform/embedding"
 	"github.com/vara/backend/internal/platform/epss"
+	"github.com/vara/backend/internal/platform/vlm"
 	"github.com/vara/backend/internal/platform/exploitdb"
 	"github.com/vara/backend/internal/platform/kev"
 	"github.com/vara/backend/internal/platform/nvd"
@@ -111,7 +112,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	grcRepo := postgres.NewGRCRepo(pg)
 	rulesetStore := service.NewRulesetStore("rulesets")
 	embClient := embedding.NewClient(os.Getenv("EMBEDDING_SERVER_URL"))
-	grcSvc := service.NewGRCService(grcRepo, clusterReaderRepo, rulesetStore, embClient)
+	vlmClient := vlm.NewClient(os.Getenv("VLM_SERVER_URL"))
+	grcSvc := service.NewGRCService(grcRepo, clusterReaderRepo, rulesetStore, embClient, vlmClient)
 
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)

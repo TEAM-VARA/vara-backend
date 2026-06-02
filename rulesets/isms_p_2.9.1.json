@@ -1,0 +1,61 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.9.1",
+    "name": "변경관리",
+    "category_path": "2. 보호대책 요구사항 > 2.9 시스템 및 서비스 운영관리 > 2.9.1 변경관리",
+    "description": "정보시스템의 변경(OS, 미들웨어, 응용프로그램, 네트워크 장비 등)에 대한 절차를 수립하여 변경 이력을 관리하고, 변경 전 시스템에 미치는 영향을 분석하여야 한다."
+  },
+  "legal_references": [],
+  "rules": [
+    {
+      "rule_id": "R-2.9.1-01",
+      "name": "change-cause annotation 부재",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "deployment.metadata.annotations.kubernetes.io/change-cause",
+          "op": "!=",
+          "value": null,
+          "description": "Deployment에 change-cause annotation 존재 — 변경 사유 기록됨"
+        },
+        {
+          "field": "latest_replicaset_has_change_cause",
+          "op": "==",
+          "value": true,
+          "description": "최신 ReplicaSet에 change-cause annotation 전파됨"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.9.1-02",
+      "name": "revisionHistoryLimit=0 (롤백 불가)",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "deployment.spec.revisionHistoryLimit",
+          "op": ">",
+          "value": 0,
+          "description": "revisionHistoryLimit > 0 — 이전 ReplicaSet 보존으로 롤백 가능"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "Deployment에 change-cause annotation이 존재하고, revisionHistoryLimit > 0으로 롤백 가능 상태여야 PASS"
+  }
+}

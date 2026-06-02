@@ -42,6 +42,7 @@
   "rules": [
     {
       "rule_id": "2.5.4-R001",
+      "name": "정보보호 지침서에 비밀번호/패스워드 관리 정책이 구체적으로 규정되어 있는지 확인",
       "check_category": "정책_문서_존재",
       "evidence_type": "정보보호 지침서 (PDF)",
       "system": "Policy Document",
@@ -78,13 +79,14 @@
       ],
       "judgement_logic": {
         "type": "semantic_match",
-        "method": "embedding_similarity_with_threshold",
+        "method": "llm_rag_entailment",
         "min_keyword_matches": 2,
         "any_deficiency_fails": true
       }
     },
     {
       "rule_id": "2.5.4-R002",
+      "name": "비밀번호 작성규칙(길이·복잡도·추측금지·반복제한)과 관리절차(초기변경·마스킹·저장제한·침해시변경·재발급·변경주기·관리자별도·단방향암호화) 8개 항목이 지침서에 모두 규정되어 있는지 확인",
       "check_category": "정책_문서_충실도",
       "evidence_type": "정보보호 지침서 (PDF) - 작성규칙 및 관리절차",
       "system": "Policy Document",
@@ -269,10 +271,9 @@
       ],
       "judgement_logic": {
         "type": "semantic_match",
-        "method": "element_coverage_check",
+        "method": "llm_rag_entailment",
         "required_coverage_pct": 100,
-        "similarity_threshold": 0.75,
-        "description": "writing_rules 3개 + management_procedures 8개 = 총 11개 요소를 PDF 임베딩으로 semantic search. 모든 요소가 threshold 이상 매칭되어야 PASS"
+        "description": "writing_rules 3개 + management_procedures 8개 = 총 11개 요소를 LLM RAG 함의 판정으로 확인. 모든 요소가 지침서에 명시되어야 PASS"
       }
     },
     {
@@ -1219,11 +1220,196 @@
         "any_deficiency_fails": true,
         "min_compliance_signals": 2
       }
+    },
+    {
+      "rule_id": "2.5.4-GL001",
+      "name": "비밀번호 관리 정책 문서가 존재하고 비밀번호 생성 규칙·변경 주기·저장 방법을 포함하도록 규정",
+      "judgment_source": "guideline_rag",
+      "check_category": "지침_RAG_함의판정",
+      "evidence_type": "정보보호 지침서 (DB 등록 텍스트)",
+      "system": "Policy Document",
+      "related_checkpoints": ["CP-01", "CP-02"],
+      "evidence_format": "text",
+      "extraction_method": "llm_rag_entailment",
+      "auto_collectable": false,
+      "identification_keywords": ["비밀번호 관리", "생성 규칙", "변경 주기", "저장 방법", "패스워드 정책"],
+      "compliance_indicators": [
+        {"description": "지침서에 비밀번호 생성규칙, 변경주기, 저장방법이 모두 명시"}
+      ],
+      "deficiency_indicators": [
+        {"description": "비밀번호 관련 정책 문서 자체가 부재하거나 세 가지 요소 중 하나 이상 누락"}
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "2.5.4-GL002",
+      "name": "비밀번호 최소 길이를 8자 이상으로 설정하도록 규정",
+      "judgment_source": "guideline_rag",
+      "check_category": "지침_RAG_함의판정",
+      "evidence_type": "정보보호 지침서 (DB 등록 텍스트)",
+      "system": "Policy Document",
+      "related_checkpoints": ["CP-01", "CP-02"],
+      "evidence_format": "text",
+      "extraction_method": "llm_rag_entailment",
+      "auto_collectable": false,
+      "identification_keywords": ["최소 길이", "8자", "자릿수", "복잡도"],
+      "compliance_indicators": [
+        {"field": "최소길이", "op": ">=", "value": 8, "description": "비밀번호 최소 8자 이상 규정"}
+      ],
+      "deficiency_indicators": [
+        {"description": "최소 길이 기준 미명시 또는 8자 미만으로 설정"}
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "2.5.4-GL003",
+      "name": "비밀번호 최대 사용 기간을 90일 이하로 설정하도록 규정",
+      "judgment_source": "guideline_rag",
+      "check_category": "지침_RAG_함의판정",
+      "evidence_type": "정보보호 지침서 (DB 등록 텍스트)",
+      "system": "Policy Document",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "text",
+      "extraction_method": "llm_rag_entailment",
+      "auto_collectable": false,
+      "identification_keywords": ["변경 주기", "최대 사용 기간", "90일", "유효기간"],
+      "compliance_indicators": [
+        {"field": "최대사용일수", "op": "<=", "value": 90, "description": "비밀번호 최대 사용기간 90일 이하 규정"}
+      ],
+      "deficiency_indicators": [
+        {"description": "변경 주기 미명시 또는 90일 초과로 설정"}
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "2.5.4-GL004",
+      "name": "초기(임시) 비밀번호 발급 시 최초 로그인 시 변경을 강제하도록 규정",
+      "judgment_source": "guideline_rag",
+      "check_category": "지침_RAG_함의판정",
+      "evidence_type": "정보보호 지침서 (DB 등록 텍스트)",
+      "system": "Policy Document",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "text",
+      "extraction_method": "llm_rag_entailment",
+      "auto_collectable": false,
+      "identification_keywords": ["초기 비밀번호", "임시 비밀번호", "최초 로그인", "강제 변경"],
+      "compliance_indicators": [
+        {"description": "초기/임시 비밀번호 발급 시 최초 로그인 시 강제 변경 규정"}
+      ],
+      "deficiency_indicators": [
+        {"description": "초기/임시 비밀번호 강제 변경 규정 미명시"}
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "2.5.4-GL005",
+      "name": "비밀번호를 일방향 암호화(bcrypt, argon2, PBKDF2 등)하여 저장하도록 규정",
+      "judgment_source": "guideline_rag",
+      "check_category": "지침_RAG_함의판정",
+      "evidence_type": "정보보호 지침서 (DB 등록 텍스트)",
+      "system": "Policy Document",
+      "related_checkpoints": ["CP-01", "CP-02"],
+      "evidence_format": "text",
+      "extraction_method": "llm_rag_entailment",
+      "auto_collectable": false,
+      "identification_keywords": ["일방향 암호화", "단방향 암호화", "해시", "bcrypt", "argon2", "PBKDF2", "평문 저장 금지"],
+      "compliance_indicators": [
+        {"description": "비밀번호 일방향 암호화 저장 및 평문 저장 금지 규정"}
+      ],
+      "deficiency_indicators": [
+        {"description": "암호화 저장 방식 미명시 또는 양방향 암호화만 언급"}
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "2.5.4-GL006",
+      "name": "비밀번호 입력 오류 시 계정 잠금 처리하도록 규정",
+      "judgment_source": "guideline_rag",
+      "check_category": "지침_RAG_함의판정",
+      "evidence_type": "정보보호 지침서 (DB 등록 텍스트)",
+      "system": "Policy Document",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "text",
+      "extraction_method": "llm_rag_entailment",
+      "auto_collectable": false,
+      "identification_keywords": ["잠금", "lockout", "입력 오류", "실패 횟수", "5회"],
+      "compliance_indicators": [
+        {"field": "잠금횟수", "op": "<=", "value": 5, "description": "5회 이내 입력 오류 시 계정 잠금 규정"}
+      ],
+      "deficiency_indicators": [
+        {"description": "계정 잠금 규정 미명시 또는 잠금 횟수 미설정"}
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "2.5.4-GL007",
+      "name": "관리자 및 중요 시스템 접근 시 다중인증(MFA)을 적용하도록 규정",
+      "judgment_source": "guideline_rag",
+      "check_category": "지침_RAG_함의판정",
+      "evidence_type": "정보보호 지침서 (DB 등록 텍스트)",
+      "system": "Policy Document",
+      "related_checkpoints": ["CP-03"],
+      "evidence_format": "text",
+      "extraction_method": "llm_rag_entailment",
+      "auto_collectable": false,
+      "identification_keywords": ["다중인증", "MFA", "이중 인증", "2FA", "OTP", "관리자 인증"],
+      "compliance_indicators": [
+        {"description": "관리자·중요 시스템 접근 시 다중인증(MFA) 적용 규정"}
+      ],
+      "deficiency_indicators": [
+        {"description": "다중인증 적용 규정 미명시"}
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "2.5.4-GL008",
+      "name": "로그인 실패 메시지에서 아이디·비밀번호 구분 노출을 금지하도록 규정",
+      "judgment_source": "guideline_rag",
+      "check_category": "지침_RAG_함의판정",
+      "evidence_type": "정보보호 지침서 (DB 등록 텍스트)",
+      "system": "Policy Document",
+      "related_checkpoints": ["CP-01"],
+      "evidence_format": "text",
+      "extraction_method": "llm_rag_entailment",
+      "auto_collectable": false,
+      "identification_keywords": ["로그인 실패", "오류 메시지", "정보 노출", "아이디 구분"],
+      "compliance_indicators": [
+        {"description": "로그인 실패 시 아이디·비밀번호 구분 정보 미노출 규정"}
+      ],
+      "deficiency_indicators": [
+        {"description": "아이디·비밀번호 구분 노출을 금지하는 규정 미명시"},
+        {"description": "로그인 실패 메시지에서 구분 노출을 불허하지 않음"}
+      ],
+      "judgement_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
     }
   ],
   "evaluation_strategy": {
     "overall_verdict_logic": "all_rules_pass_required",
-    "description": "모든 15개 rule이 PASS여야 2.5.4 항목 전체 준수로 판정. 하나라도 FAIL 시 미준수.",
+    "description": "모든 23개 rule(증적 15개 + 지침 RAG 8개)이 PASS여야 2.5.4 항목 전체 준수로 판정. 하나라도 FAIL 시 미준수.",
     "evidence_collection_priority": [
       "auto_collectable_first",
       "structured_parse_next",

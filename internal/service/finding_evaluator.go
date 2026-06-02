@@ -12,6 +12,16 @@ import (
 	"github.com/vara/backend/internal/repository/postgres"
 )
 
+// toRawJSON marshals a []string slice to json.RawMessage.
+// Returns nil if the slice is empty.
+func toRawJSON(ss []string) json.RawMessage {
+	if len(ss) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal(ss)
+	return b
+}
+
 // ClusterSnapshot holds all cluster data needed for finding evaluation.
 type ClusterSnapshot struct {
 	ClusterName string
@@ -29,116 +39,184 @@ type FindingEvalRequest struct {
 	Namespace   string `json:"namespace,omitempty"` // optional filter
 }
 
-// EvaluateFindings evaluates all active findings against a cluster snapshot.
-func EvaluateFindings(findings []grc.Finding, snap *ClusterSnapshot) []grc.FindingResult {
-	var results []grc.FindingResult
-	for _, f := range findings {
-		fr := evaluateSingleFinding(f, snap)
-		results = append(results, fr)
+// EvaluateManualRules evaluates all manual-judgment rules against a cluster snapshot.
+func EvaluateManualRules(rules []Rule, snap *ClusterSnapshot) []grc.RuleResult {
+	var results []grc.RuleResult
+	for _, r := range rules {
+		rr := evaluateSingleManualRule(r, snap)
+		results = append(results, rr)
 	}
 	return results
 }
 
-func evaluateSingleFinding(f grc.Finding, snap *ClusterSnapshot) grc.FindingResult {
-	base := grc.FindingResult{
-		FindingID:             f.FindingID,
-		ISMSPItemID:           f.ISMSPItemID,
-		Title:                 f.Title,
-		VerdictType:           f.VerdictType,
-		ComplianceMappings:    f.ComplianceMappings,
-		KisaDefectCaseRefs:    f.KisaDefectCaseRefs,
-		AdditionalReviewItems: f.AdditionalReviewItems,
-		ManualCheckAreas:      f.ManualCheckAreas,
-		AutomationCoverage:    f.AutomationCoverage,
-		AlternativeControls:   f.AlternativeControls,
-		Deferred:              f.Deferred,
-		DeferredReason:        f.DeferredReason,
+func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
+	var meta *ManualRuleMeta
+	if rule.ManualMeta != nil {
+		meta = rule.ManualMeta
+	} else {
+		meta = &ManualRuleMeta{}
 	}
 
-	if !f.Enabled {
-		base.Matched = false
-		base.Observation = "[비활성] DB 컬럼 미수신으로 비활성화된 룰"
-		return base
+	base := grc.RuleResult{
+		RuleID:       rule.RuleID,
+		JudgmentMode: "manual",
+		VerdictType:  rule.VerdictType,
 	}
 
-	if f.Deferred {
+	// Copy manual meta fields
+	base.ComplianceMappings    = meta.ComplianceMappings
+	base.KisaDefectCaseRefs    = meta.KisaDefectCaseRefs
+	base.AdditionalReviewItems = toRawJSON(meta.AdditionalReviewItems)
+	base.ManualCheckAreas      = toRawJSON(meta.ManualCheckAreas)
+	base.AutomationCoverage    = meta.AutomationCoverage
+	base.AlternativeControls   = meta.AlternativeControls
+	base.Deferred               = meta.Deferred
+	base.DeferredReason         = meta.DeferredReason
+
+	if meta.Deferred {
 		base.Matched = false
-		base.Observation = fmt.Sprintf("[보류] %s", f.DeferredReason)
+		base.Verdict = "skipped"
+		base.Observation = fmt.Sprintf("[보류] %s", meta.DeferredReason)
 		return base
 	}
 
 	// Parse condition
+	if len(meta.Condition) == 0 {
+		base.Observation = "조건 미정의 (manual_meta.condition 없음)"
+		base.Verdict = "skipped"
+		return base
+	}
 	var cond map[string]any
-	if err := json.Unmarshal(f.Condition, &cond); err != nil {
+	if err := json.Unmarshal(meta.Condition, &cond); err != nil {
 		base.Observation = fmt.Sprintf("조건 파싱 오류: %v", err)
+		base.Verdict = "skipped"
 		return base
 	}
 
 	op, _ := cond["operator"].(string)
-	log.Printf("[finding] evaluating %s operator=%s", f.FindingID, op)
+	log.Printf("[finding] evaluating %s operator=%s", rule.RuleID, op)
 
+	// reportOperators always produce informational output regardless of matched.
+	// They contribute verdict="준수" and never trigger 검토필요.
+	reportOperators := map[string]bool{
+		"inventory_report":               true,
+		"traffic_graph_report":           true,
+		"external_dependency_report":     true,
+		"change_activity_report":         true,
+		"default_deny_coverage_report":   true,
+		"cross_ns_traffic_control_report": true,
+		"external_domain_traffic_report": true,
+	}
+
+	var result grc.RuleResult
 	switch op {
 	case "inventory_report":
-		return evalInventoryReport(base, snap)
+		result = evalInventoryReport(base, snap)
 	case "traffic_graph_report":
-		return evalTrafficGraphReport(base, snap)
+		result = evalTrafficGraphReport(base, snap)
 	case "external_dependency_report":
-		return evalExternalDependencyReport(base, snap)
+		result = evalExternalDependencyReport(base, snap)
 	case "any_owner_indicator_exists":
-		return evalOwnerIndicatorExists(base, snap, cond)
+		result = evalOwnerIndicatorExists(base, snap, cond)
 	case "change_activity_report":
-		return evalChangeActivityReport(base, snap)
+		result = evalChangeActivityReport(base, snap)
 	case "in_set":
-		return evalInSet(base, snap, cond)
+		result = evalInSet(base, snap, cond)
 	case "orphan_serviceaccount":
-		return evalOrphanServiceAccount(base, snap)
+		result = evalOrphanServiceAccount(base, snap)
 	case "regex_match":
-		return evalRegexMatch(base, snap, cond)
+		result = evalRegexMatch(base, snap, cond)
 	case "any_of":
-		return evalAnyOfPrivileged(base, snap, cond)
+		result = evalAnyOfPrivileged(base, snap, cond)
 	case "any_dangerous_verb":
-		return evalAnyDangerousVerb(base, snap, cond)
+		result = evalAnyDangerousVerb(base, snap, cond)
 	case "default_deny_coverage_report":
-		return evalDefaultDenyCoverage(base, snap)
+		result = evalDefaultDenyCoverage(base, snap)
 	case "daemonset_exists":
-		return evalDaemonsetExists(base, snap, cond)
+		result = evalDaemonsetExists(base, snap, cond)
 	case "cross_ns_traffic_control_report":
-		return evalCrossNSTrafficControl(base, snap)
+		result = evalCrossNSTrafficControl(base, snap)
 	case "egress_policy_applied":
-		return evalEgressPolicyApplied(base, snap)
+		result = evalEgressPolicyApplied(base, snap)
 	case "external_domain_traffic_report":
-		return evalExternalDomainTraffic(base, snap)
+		result = evalExternalDomainTraffic(base, snap)
 	case "field_non_empty":
-		return evalFieldNonEmpty(base, snap, cond)
+		result = evalFieldNonEmpty(base, snap, cond)
 	case "label_value_in":
-		return evalLabelValueIn(base, snap, cond)
+		result = evalLabelValueIn(base, snap, cond)
 	case "namespace_env_homogeneous":
-		return evalNamespaceEnvHomogeneous(base, snap)
+		result = evalNamespaceEnvHomogeneous(base, snap)
 	case "all_of":
-		return evalAllOf(base, snap, cond)
+		result = evalAllOf(base, snap, cond)
 	case "field_equals":
-		return evalFieldEquals(base, snap, cond)
+		result = evalFieldEquals(base, snap, cond)
 	case "kubelet_version_check":
-		return evalKubeletVersionCheck(base, snap)
+		result = evalKubeletVersionCheck(base, snap)
 	case "tag_mutable_check":
-		return evalTagMutableCheck(base, snap, cond)
+		result = evalTagMutableCheck(base, snap, cond)
 	case "digest_present":
-		return evalDigestPresent(base, snap)
+		result = evalDigestPresent(base, snap)
 	case "cve_vulnerability_check":
-		return evalCVEVulnerabilityCheck(base, snap, cond)
+		result = evalCVEVulnerabilityCheck(base, snap, cond)
 	case "prod_shell_exec_detection":
-		return findingProdShellExec(base, snap, cond)
+		result = findingProdShellExec(base, snap, cond)
 	default:
 		base.Observation = fmt.Sprintf("미지원 operator: %s", op)
+		base.Verdict = "skipped"
 		return base
 	}
+
+	if reportOperators[op] {
+		result.Verdict = "준수"
+		return result
+	}
+	return deriveManualVerdict(result)
+}
+
+// deriveManualVerdict maps verdict_type + matched → verdict for manual rules.
+//
+//   potential_finding  + matched=true  → 검토필요
+//   potential_finding  + matched=false → 준수
+//   compliant_indicator + matched=true → 준수
+//   compliant_indicator + matched=false → 검토필요
+//   needs_review       (any)           → 검토필요
+//   additional_evidence (any)          → 준수  (informational only)
+func deriveManualVerdict(rr grc.RuleResult) grc.RuleResult {
+	switch rr.VerdictType {
+	case "potential_finding":
+		if rr.Matched {
+			rr.Verdict = "검토필요"
+		} else {
+			rr.Verdict = "준수"
+		}
+	case "compliant_indicator":
+		if rr.Matched {
+			rr.Verdict = "준수"
+		} else {
+			rr.Verdict = "검토필요"
+		}
+	case "needs_review":
+		rr.Verdict = "검토필요"
+	case "additional_evidence":
+		rr.Verdict = "준수"
+	default:
+		// Unknown or empty verdict_type: treat as informational.
+		rr.Verdict = "준수"
+	}
+	return rr
+}
+
+// EvaluateFindings is kept for backward compatibility.
+// Deprecated: Use EvaluateManualRules instead.
+func EvaluateFindings(rules []Rule, snap *ClusterSnapshot) []grc.RuleResult {
+	return EvaluateManualRules(rules, snap)
 }
 
 // ─────────────────────────────────────────────
 // F-1.2.1-K8S-01: 클러스터 자산 인벤토리
 // ─────────────────────────────────────────────
 
-func evalInventoryReport(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalInventoryReport(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	nsCount := len(snap.Namespaces)
 	podCount := len(snap.Pods)
 	svcCount := len(snap.Related.Services)
@@ -161,7 +239,7 @@ func evalInventoryReport(base grc.FindingResult, snap *ClusterSnapshot) grc.Find
 // F-1.2.2-K8S-01: 클러스터 내부 통신 관계 인벤토리
 // ─────────────────────────────────────────────
 
-func evalTrafficGraphReport(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalTrafficGraphReport(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	svcCount := len(snap.Related.Services)
 	ingCount := len(snap.Related.Ingresses)
 	npCount := len(snap.Related.NetworkPolicies)
@@ -183,7 +261,7 @@ func evalTrafficGraphReport(base grc.FindingResult, snap *ClusterSnapshot) grc.F
 // F-1.2.2-K8S-02: 외부 의존성 발견
 // ─────────────────────────────────────────────
 
-func evalExternalDependencyReport(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalExternalDependencyReport(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	var extSvcs []string
 	for _, svc := range snap.Related.Services {
 		svcType := jsonStr(svc, "spec", "type")
@@ -215,7 +293,7 @@ func evalExternalDependencyReport(base grc.FindingResult, snap *ClusterSnapshot)
 // F-2.1.3-K8S-01: Pod 책임자 정보 부재
 // ─────────────────────────────────────────────
 
-func evalOwnerIndicatorExists(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalOwnerIndicatorExists(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	fields := condStringSlice(cond, "fields")
 	if len(fields) == 0 {
 		fields = []string{"annotations.owner", "annotations.contact", "labels.team"}
@@ -288,7 +366,7 @@ func evalOwnerIndicatorExists(base grc.FindingResult, snap *ClusterSnapshot, con
 // F-2.1.3-K8S-02: 자산 변경 활동 감지
 // ─────────────────────────────────────────────
 
-func evalChangeActivityReport(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalChangeActivityReport(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	// Snapshot-based, no history available → report current state
 	base.Matched = true
 	base.Observation = fmt.Sprintf("현재 스냅샷 기준 워크로드 %d개 존재. 변경 이력은 스냅샷 비교 필요",
@@ -305,13 +383,13 @@ func evalChangeActivityReport(base grc.FindingResult, snap *ClusterSnapshot) grc
 // F-2.5.1-K8S-01: default ServiceAccount 사용 발견
 // ─────────────────────────────────────────────
 
-func evalInSet(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalInSet(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	field, _ := cond["field"].(string)
 	values := condStringSlice(cond, "values")
 
 	// Parse exception namespaces from finding
 	var excNS []string
-	if base.FindingID == "F-2.5.1-K8S-01" {
+	if base.RuleID == "F-2.5.1-K8S-01" {
 		excNS = []string{"kube-system", "kube-public", "kube-node-lease"}
 	}
 
@@ -368,7 +446,7 @@ func evalInSet(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]an
 // F-2.5.1-K8S-02: 미사용(orphan) ServiceAccount 발견
 // ─────────────────────────────────────────────
 
-func evalOrphanServiceAccount(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalOrphanServiceAccount(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	// Build set of SA names referenced in bindings
 	boundSAs := map[string]bool{}
 	for _, rb := range snap.Related.RoleBindings {
@@ -423,7 +501,7 @@ func evalOrphanServiceAccount(base grc.FindingResult, snap *ClusterSnapshot) grc
 // F-2.5.2-K8S-01/02: 추측 가능한 명칭의 SA
 // ─────────────────────────────────────────────
 
-func evalRegexMatch(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalRegexMatch(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	field, _ := cond["field"].(string)
 	pattern, _ := cond["pattern"].(string)
 	re, err := regexp.Compile(pattern)
@@ -470,7 +548,7 @@ func evalRegexMatch(base grc.FindingResult, snap *ClusterSnapshot, cond map[stri
 // F-2.5.5-K8S-01: 클러스터 최고 권한 보유 SA
 // ─────────────────────────────────────────────
 
-func evalAnyOfPrivileged(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalAnyOfPrivileged(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	var clusterAdminSAs, wildcardSAs, secretFullSAs []string
 
 	// Check ClusterRoleBindings
@@ -533,7 +611,7 @@ func evalAnyOfPrivileged(base grc.FindingResult, snap *ClusterSnapshot, cond map
 // F-2.5.5-K8S-02: 위험 RBAC 권한 보유 SA
 // ─────────────────────────────────────────────
 
-func evalAnyDangerousVerb(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalAnyDangerousVerb(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	type dangerPattern struct {
 		Name     string
 		Resource string
@@ -637,7 +715,7 @@ func identifyWildcardSAs(snap *ClusterSnapshot) map[string]bool {
 // F-2.6.1-K8S-01: NetworkPolicy 적용 현황
 // ─────────────────────────────────────────────
 
-func evalDefaultDenyCoverage(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalDefaultDenyCoverage(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	nsTotal := 0
 	appliedCount := 0
 	var missingNS []string
@@ -700,7 +778,7 @@ func evalDefaultDenyCoverage(base grc.FindingResult, snap *ClusterSnapshot) grc.
 // F-2.6.1-K8S-02: CNI NetworkPolicy 강제 상태
 // ─────────────────────────────────────────────
 
-func evalDaemonsetExists(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalDaemonsetExists(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	targetNS, _ := cond["namespace"].(string)
 	namePatterns := condStringSlice(cond, "name_patterns")
 	if len(namePatterns) == 0 {
@@ -740,7 +818,7 @@ func evalDaemonsetExists(base grc.FindingResult, snap *ClusterSnapshot, cond map
 // F-2.6.1-K8S-03: Cross-namespace 통신 통제 현황
 // ─────────────────────────────────────────────
 
-func evalCrossNSTrafficControl(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalCrossNSTrafficControl(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	nsWithIngress := map[string]bool{}
 	for _, np := range snap.Related.NetworkPolicies {
 		npNS := jsonStr(np, "metadata", "namespace")
@@ -777,7 +855,7 @@ func evalCrossNSTrafficControl(base grc.FindingResult, snap *ClusterSnapshot) gr
 // F-2.6.7-K8S-01: Pod egress 통제 현황
 // ─────────────────────────────────────────────
 
-func evalEgressPolicyApplied(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalEgressPolicyApplied(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	// Find namespaces with egress policies
 	nsWithEgress := map[string]bool{}
 	for _, np := range snap.Related.NetworkPolicies {
@@ -826,7 +904,7 @@ func evalEgressPolicyApplied(base grc.FindingResult, snap *ClusterSnapshot) grc.
 // F-2.6.7-K8S-02: 실제 외부 도메인 접속 관찰 (eBPF)
 // ─────────────────────────────────────────────
 
-func evalExternalDomainTraffic(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalExternalDomainTraffic(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	eventCount := len(snap.Related.EBPFProcessEvents)
 
 	base.Matched = eventCount > 0
@@ -843,7 +921,7 @@ func evalExternalDomainTraffic(base grc.FindingResult, snap *ClusterSnapshot) gr
 // F-2.10.5-K8S-01: 외부 공개 Ingress TLS 현황 (scope=external_only)
 // ─────────────────────────────────────────────
 
-func evalFieldNonEmpty(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalFieldNonEmpty(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	field, _ := cond["field"].(string)
 
 	if field == "spec.tls" {
@@ -855,7 +933,7 @@ func evalFieldNonEmpty(base grc.FindingResult, snap *ClusterSnapshot, cond map[s
 	return base
 }
 
-func evalIngressTLSReport(base grc.FindingResult, snap *ClusterSnapshot, scope string) grc.FindingResult {
+func evalIngressTLSReport(base grc.RuleResult, snap *ClusterSnapshot, scope string) grc.RuleResult {
 	totalCount := 0
 	tlsCount := 0
 	var missingList []string
@@ -925,7 +1003,7 @@ func isExternalIngress(ing map[string]any) bool {
 // F-2.8.3-K8S-01: 환경 라벨 적용 현황
 // ─────────────────────────────────────────────
 
-func evalLabelValueIn(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalLabelValueIn(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	field, _ := cond["field"].(string)
 	values := condStringSlice(cond, "values")
 
@@ -937,7 +1015,7 @@ func evalLabelValueIn(base grc.FindingResult, snap *ClusterSnapshot, cond map[st
 	return base
 }
 
-func evalWorkloadEnvLabelReport(base grc.FindingResult, snap *ClusterSnapshot, values []string) grc.FindingResult {
+func evalWorkloadEnvLabelReport(base grc.RuleResult, snap *ClusterSnapshot, values []string) grc.RuleResult {
 	totalCount := 0
 	appliedCount := 0
 	missingNS := map[string]bool{}
@@ -994,7 +1072,7 @@ func evalWorkloadEnvLabelReport(base grc.FindingResult, snap *ClusterSnapshot, v
 // F-2.8.3-K8S-02: 환경 혼재 namespace 발견
 // ─────────────────────────────────────────────
 
-func evalNamespaceEnvHomogeneous(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalNamespaceEnvHomogeneous(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	nsEnvs := map[string]map[string]int{} // ns → env → count
 
 	for _, pod := range snap.Pods {
@@ -1045,7 +1123,7 @@ func evalNamespaceEnvHomogeneous(base grc.FindingResult, snap *ClusterSnapshot) 
 // F-2.10.5-K8S-02: ExternalName Service 평문 호출
 // ─────────────────────────────────────────────
 
-func evalAllOf(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalAllOf(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	conditions, _ := cond["conditions"].([]any)
 	if len(conditions) < 2 {
 		base.Observation = "all_of 조건 불충분"
@@ -1066,7 +1144,7 @@ func evalAllOf(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]an
 // F-2.10.3-K8S-03: NodePort 노출 현황
 // ─────────────────────────────────────────────
 
-func evalFieldEquals(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalFieldEquals(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	field, _ := cond["field"].(string)
 	value, _ := cond["value"].(string)
 
@@ -1078,7 +1156,7 @@ func evalFieldEquals(base grc.FindingResult, snap *ClusterSnapshot, cond map[str
 	return base
 }
 
-func evalNodePortReport(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalNodePortReport(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	count := 0
 	var nodeportList []string
 
@@ -1106,7 +1184,7 @@ func evalNodePortReport(base grc.FindingResult, snap *ClusterSnapshot) grc.Findi
 	return base
 }
 
-func findingExternalNamePlaintext(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func findingExternalNamePlaintext(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	totalCount := 0
 	plaintextCount := 0
 	var list []string
@@ -1147,7 +1225,7 @@ func findingExternalNamePlaintext(base grc.FindingResult, snap *ClusterSnapshot)
 // F-2.10.8-K8S-01: Node Kubernetes 버전 현황
 // ─────────────────────────────────────────────
 
-func evalKubeletVersionCheck(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalKubeletVersionCheck(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	totalCount := len(snap.Related.Nodes)
 	versionDist := map[string]int{}
 	eolCount := 0
@@ -1187,7 +1265,7 @@ func evalKubeletVersionCheck(base grc.FindingResult, snap *ClusterSnapshot) grc.
 // F-2.10.8-K8S-02: 이미지 태그 안정성 현황
 // ─────────────────────────────────────────────
 
-func evalTagMutableCheck(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalTagMutableCheck(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	mutablePatterns := condStringSlice(cond, "mutable_patterns")
 	if len(mutablePatterns) == 0 {
 		mutablePatterns = []string{"latest", "stable", "prod", "main", "master"}
@@ -1256,7 +1334,7 @@ func evalTagMutableCheck(base grc.FindingResult, snap *ClusterSnapshot, cond map
 // F-2.10.8-K8S-03: 이미지 디지스트 고정 현황
 // ─────────────────────────────────────────────
 
-func evalDigestPresent(base grc.FindingResult, snap *ClusterSnapshot) grc.FindingResult {
+func evalDigestPresent(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResult {
 	totalCount := 0
 	missingCount := 0
 	var list []string
@@ -1314,7 +1392,7 @@ func evalDigestPresent(base grc.FindingResult, snap *ClusterSnapshot) grc.Findin
 // F-2.10.8-K8S-04: 실행 중 이미지 알려진 취약점(CVE) 현황
 // ─────────────────────────────────────────────
 
-func evalCVEVulnerabilityCheck(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func evalCVEVulnerabilityCheck(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	minSeverity := "HIGH"
 	if v, ok := cond["min_severity"].(string); ok {
 		minSeverity = v
@@ -1378,7 +1456,7 @@ func evalCVEVulnerabilityCheck(base grc.FindingResult, snap *ClusterSnapshot, co
 // F-2.11.3-K8S-01: 운영 환경 Shell 활동 관찰
 // ─────────────────────────────────────────────
 
-func findingProdShellExec(base grc.FindingResult, snap *ClusterSnapshot, cond map[string]any) grc.FindingResult {
+func findingProdShellExec(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	binaryPatterns := condStringSlice(cond, "binary_patterns")
 	if len(binaryPatterns) == 0 {
 		binaryPatterns = []string{"/bin/sh", "/bin/bash", "/usr/bin/sh", "/usr/bin/bash", "/bin/zsh"}

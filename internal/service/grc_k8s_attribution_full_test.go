@@ -230,7 +230,7 @@ func TestGenerateRecommendations_MultipleK8sSources(t *testing.T) {
 		},
 	}
 	ruleset := &Ruleset{
-		Rules:     []Rule{{RuleID: "R005", CheckCategory: "정책_시스템_설정"}},
+		Rules:     []Rule{{RuleID: "R005", Name: "비밀번호 정책 점검"}},
 		LegalRefs: []LegalReference{{Law: "개인정보의 안전성 확보조치 기준", Article: "제5조"}},
 	}
 	recs := generateRecommendations(results, ruleset)
@@ -262,7 +262,7 @@ func TestGenerateRecommendations_NoK8sNoPrefix(t *testing.T) {
 		},
 	}
 	ruleset := &Ruleset{
-		Rules:     []Rule{{RuleID: "R005", CheckCategory: "정책_시스템_설정"}},
+		Rules:     []Rule{{RuleID: "R005", Name: "비밀번호 정책 점검"}},
 		LegalRefs: []LegalReference{{Law: "법", Article: "조"}},
 	}
 	recs := generateRecommendations(results, ruleset)

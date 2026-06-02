@@ -95,7 +95,7 @@ type PodRuleResult struct {
 
 // EvaluatePodGraph evaluates all Pod-graph rulesets against the provided K8s resources.
 func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) (*PodGraphResult, error) {
-	rulesets := s.rulesetStore.LoadAllPodRulesets()
+	rulesets := s.rulesetStore.LoadAll()
 	if len(rulesets) == 0 {
 		return nil, &GRCError{Code: "NO_POD_RULESETS", Message: "Pod 룰셋이 로드되지 않았습니다", HTTPStatus: 500}
 	}

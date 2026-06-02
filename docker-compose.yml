@@ -56,6 +56,7 @@ services:
       POSTGRES_SSLMODE: disable
       REDIS_ADDR: redis:6379
       EMBEDDING_SERVER_URL: http://embedding:9000/embed
+      VLM_SERVER_URL: ${VLM_SERVER_URL:-}
     ports:
       - "8080:8080"
     volumes:

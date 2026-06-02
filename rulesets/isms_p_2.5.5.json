@@ -1,0 +1,213 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.5.5",
+    "name": "특수 계정 및 권한 관리",
+    "category_path": "2. 보호대책 요구사항 > 2.5 인증 및 권한관리 > 2.5.5 특수 계정 및 권한 관리",
+    "description": "정보시스템 관리, 개인정보 및 중요정보 관리 등 특수 목적을 위하여 사용하는 계정 및 권한은 최소한으로 부여하고 별도로 식별하여 통제하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제5조",
+      "summary": "접근 권한의 관리"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.5.5-GL01",
+      "name": "특수 권한 현황을 정기적으로 검토하고 불필요한 권한을 회수하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": ["특수 권한", "정기 검토", "권한 회수", "분기", "반기"],
+      "compliance_indicators": [
+        {"field": "검토주기", "op": "<=", "value": "분기", "description": "특수 권한 검토 주기를 분기 이내로 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.5-GL02",
+      "name": "불필요한 특수 권한을 즉시 회수하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": ["권한 회수", "불필요 권한", "즉시 회수", "권한 해제"],
+      "compliance_indicators": [
+        {"description": "불필요한 특수 권한 발견 시 즉시 회수 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.5-GL03",
+      "name": "특수 계정 사용 시 책임추적성(로깅·감사)을 확보하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": ["책임추적성", "로깅", "감사", "감사 로그", "접근 기록", "특수 계정 사용 기록"],
+      "compliance_indicators": [
+        {"description": "특수 계정 사용 시 로그 기록 및 감사 수행 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.5-GL04",
+      "name": "특수 계정 목록을 최신 상태로 관리하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": ["특수 계정 목록", "계정 현황", "식별", "관리 대장"],
+      "compliance_indicators": [
+        {"description": "특수 계정 목록을 최신 상태로 유지·관리 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.5-GL05",
+      "name": "특수 권한 부여 시 승인 절차를 거치도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": ["승인", "결재", "권한 부여", "신청", "승인 절차"],
+      "compliance_indicators": [
+        {"description": "특수 권한 부여 시 승인 절차(신청·결재) 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.5-GL06",
+      "name": "특수 계정의 공동 사용을 금지하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": ["공동 사용", "공용 계정", "개인 계정", "1인 1계정"],
+      "compliance_indicators": [
+        {"description": "특수 계정의 공동 사용 금지 및 개인별 계정 부여 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.5-01",
+      "name": "ServiceAccount 특수 권한 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {"field": "has_cluster_admin", "op": "==", "value": false, "description": "cluster-admin 바인딩 없음"},
+        {"field": "has_wildcard_permission", "op": "==", "value": false, "description": "verbs:* + resources:* 와일드카드 권한 없음"},
+        {"field": "has_cluster_wide_secrets", "op": "==", "value": false, "description": "클러스터 전체 Secret 접근 권한 없음"}
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required"
+      }
+    },
+    {
+      "rule_id": "R-2.5.5-02",
+      "name": "위험 RBAC verb 조합 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "dangerous_verb_combinations": [
+        {"name": "pod_exec_attach", "verbs": ["create", "get"], "resources": ["pods/exec", "pods/attach", "pods/portforward"], "risk": "컨테이너 내부 임의 명령 실행"},
+        {"name": "secret_read_cluster_wide", "verbs": ["get", "list", "watch"], "resources": ["secrets"], "scope": "cluster_wide", "risk": "클러스터 전체 비밀정보 열람"},
+        {"name": "secret_write", "verbs": ["create", "update", "patch", "delete"], "resources": ["secrets"], "risk": "비밀정보 변조·삭제"},
+        {"name": "rbac_escalate", "verbs": ["escalate"], "resources": ["clusterroles", "roles"], "risk": "RBAC 권한 자체 상승"},
+        {"name": "rbac_bind", "verbs": ["bind"], "resources": ["clusterroles", "roles"], "risk": "임의 권한 바인딩"},
+        {"name": "impersonate", "verbs": ["impersonate"], "resources": ["users", "groups", "serviceaccounts"], "risk": "다른 계정 가장하여 API 호출"},
+        {"name": "node_proxy", "verbs": ["get", "create"], "resources": ["nodes/proxy"], "risk": "kubelet API 직접 접근"},
+        {"name": "sa_token_request", "verbs": ["create"], "resources": ["serviceaccounts/token"], "risk": "임의 ServiceAccount 토큰 발급"}
+      ],
+      "compliance_indicators": [
+        {"field": "has_dangerous_verb_combo", "op": "==", "value": false, "description": "위험 verb 조합 미보유"}
+      ],
+      "exception_check": {
+        "annotation": "rbac-exception/justification",
+        "system_namespaces": ["kube-system", "kube-node-lease"]
+      },
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required"
+      }
+    },
+    {
+      "rule_id": "F-2.5.5-01",
+      "name": "클러스터 최고 권한 보유 SA 발견",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "ServiceAccount + RBAC chain",
+        "required_data": [
+          "cluster_pods.service_account",
+          "cluster_role_bindings",
+          "cluster_cluster_role_bindings",
+          "cluster_roles",
+          "cluster_cluster_roles"
+        ],
+        "condition": {
+          "operator": "any_of",
+          "conditions": [
+            {"binding_target": "cluster-admin"},
+            {"rules_contain": {"verbs": ["*"], "resources": ["*"]}},
+            {"cluster_scope_secret_access": ["get", "list", "watch"]}
+          ]
+        },
+        "manual_check_areas": [
+          "특수권한자 목록 등록 여부",
+          "권한 부여 결재 기록",
+          "권한 검토 기록 (분기/반기)"
+        ]
+      }
+    },
+    {
+      "rule_id": "F-2.5.5-02",
+      "name": "위험 RBAC 권한 보유 SA 발견",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "ServiceAccount + RBAC chain",
+        "required_data": [
+          "cluster_role_bindings",
+          "cluster_cluster_role_bindings",
+          "cluster_roles",
+          "cluster_cluster_roles"
+        ],
+        "condition": {
+          "operator": "any_dangerous_verb",
+          "patterns": [
+            {"name": "pod_exec", "resource": "pods/exec", "verbs": ["create", "*"]},
+            {"name": "secret_write", "resource": "secrets", "verbs": ["create", "update", "patch", "*"]},
+            {"name": "rbac_escalate", "resource": "*", "verbs": ["escalate"]},
+            {"name": "impersonate", "resource": "users|groups|serviceaccounts", "verbs": ["impersonate"]}
+          ]
+        },
+        "manual_check_areas": [
+          "RBAC 정책 문서 확인",
+          "권한 부여 결재 기록"
+        ]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "all_rules_pass_required",
+    "description": "text_extraction 6개 + k8s_api 2개 R-룰 모두 PASS여야 항목 충족"
+  }
+}
