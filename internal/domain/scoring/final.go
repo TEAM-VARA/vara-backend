@@ -148,13 +148,13 @@ type ScoreBreakdown struct {
 
 // BreakdownSection은 한 항목(Global/Local/Toxic)의 점수·설명·해석·세부요인입니다.
 type BreakdownSection struct {
-	Label          string            `json:"label"`                  // "Global Score"
-	RawScore       float64           `json:"rawScore"`               // 원점수 (Toxic은 multiplier)
-	Weight         float64           `json:"weight,omitempty"`       // 0.6 / 0.4 (Toxic 없음)
-	Contribution   float64           `json:"contribution,omitempty"` // 가중 기여분
-	Description    string            `json:"description"`            // 항목 정의 (고정)
-	Interpretation string            `json:"interpretation"`         // 값별 해석 (다)
-	Factors        []BreakdownFactor `json:"factors,omitempty"`      // 세부 지표
+	Label          string            `json:"label"`             // "Global Score"
+	RawScore       float64           `json:"rawScore"`          // 원점수 (Toxic은 multiplier)
+	Weight         float64           `json:"weight,omitempty"`  // 0.6 / 0.4 (Toxic 없음)
+	Contribution   float64           `json:"contribution"`      // 가중 기여분
+	Description    string            `json:"description"`       // 항목 정의 (고정)
+	Interpretation string            `json:"interpretation"`    // 값별 해석 (다)
+	Factors        []BreakdownFactor `json:"factors,omitempty"` // 세부 지표
 }
 
 // BreakdownFactor는 항목 내 개별 지표(CVSS, EPSS, exposure 등)입니다.
