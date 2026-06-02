@@ -1,6 +1,8 @@
 module github.com/vara/backend
 
-go 1.25.0
+go 1.26.0
+
+toolchain go1.26.1
 
 require (
 	github.com/gin-contrib/cors v1.7.7
