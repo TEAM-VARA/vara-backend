@@ -1,0 +1,1 @@
+ALTER TABLE cluster_pods ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
