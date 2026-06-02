@@ -112,7 +112,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	grcRepo := postgres.NewGRCRepo(pg)
 	rulesetStore := service.NewRulesetStore("rulesets")
 	embClient := embedding.NewClient(os.Getenv("EMBEDDING_SERVER_URL"))
-	vlmClient := vlm.NewClient(os.Getenv("VLM_SERVER_URL"))
+	vlmClient := vlm.NewClient(os.Getenv("VLM_SERVER_URL"), os.Getenv("VLM_MODEL"))
 	grcSvc := service.NewGRCService(grcRepo, clusterReaderRepo, rulesetStore, embClient, vlmClient)
 
 	// ── Handler ──

@@ -33,6 +33,31 @@ services:
       - hf-cache:/cache/hf
     restart: unless-stopped
 
+  ollama:
+    # Qwen 2.5 LLM 추론 서버. 첫 부팅 시 모델 ~2GB 다운로드 후 캐시.
+    image: ollama/ollama
+    expose:
+      - "11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  ollama-init:
+    # 최초 기동 시 Qwen 모델을 pull. 이미 캐시되어 있으면 즉시 완료.
+    image: ollama/ollama
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["sh", "-c", "ollama pull qwen2.5:3b"]
+    restart: "no"
+
   backend:
     build:
       context: .
@@ -44,6 +69,8 @@ services:
         condition: service_started
       embedding:
         condition: service_started
+      ollama:
+        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -56,7 +83,8 @@ services:
       POSTGRES_SSLMODE: disable
       REDIS_ADDR: redis:6379
       EMBEDDING_SERVER_URL: http://embedding:9000/embed
-      VLM_SERVER_URL: ${VLM_SERVER_URL:-}
+      VLM_SERVER_URL: ${VLM_SERVER_URL:-http://ollama:11434}
+      VLM_MODEL: ${VLM_MODEL:-qwen2.5:3b}
     ports:
       - "8080:8080"
     volumes:
@@ -65,3 +93,4 @@ volumes:
   vara-pg-data:
   hf-cache:
   trivy-cache:
+  ollama-models:

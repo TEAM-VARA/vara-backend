@@ -1,5 +1,5 @@
-// GRC 보조: Colab 호스팅 Qwen 2.5 FastAPI 서버와 통신하여 ISMS-P 지침 함의 판정을 수행.
-// embedding.Client와 동일한 패턴: retry, timeout, graceful degradation.
+// GRC 보조: Ollama(Qwen 2.5) 서버와 통신하여 ISMS-P 지침 함의 판정을 수행.
+// Colab FastAPI 프롬프트 로직을 Go에 내장하여 외부 터널(ngrok/cloudflare) 없이 동작.
 package vlm
 
 import (
@@ -11,28 +11,49 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	defaultTimeout    = 120 * time.Second // LLM inference: 보통 10-40s, 넉넉히 120s
+	defaultTimeout    = 300 * time.Second // CPU 추론: 최대 5분
 	maxRetries        = 2
 	initialRetryDelay = 3 * time.Second
+
+	systemPrompt = `당신은 ISMS-P 정보보호 지침(정책) 충족 판정기다.
+검색된 지침서 문장이 룰 요건을 '함의'하는지 판정한다.
+유사도가 아니라 요건을 실제로 규정하는지로 본다.
+철칙:
+(1) 주제만 같고 요건 미규정이면 충족 아님
+(2) 파라미터(주기·수치)가 있으면 문장이 그 값을 명시해야 충족, 다르면 부분
+(3) 극성 must_not인데 허용이면 불충족
+(4) '검토한다/권고한다'만이면 부분
+(5) 근거 못 대면 불충족/판정불가
+(6) 정책 규정 여부만 본다. 실제 운영/승인은 보지 않고 '준수'라 하지 않는다.
+verdict: 충족|부분|불충족|판정불가. 반드시 아래 JSON만 출력:
+{"verdict":"...","근거문장":[번호],"누락요소":"","양태":"의무|권고|없음"}`
 )
 
-// Client calls a Colab-hosted Qwen 2.5 FastAPI judge server.
+var jsonRe = regexp.MustCompile(`\{[^{}]*\}`)
+
+// Client calls an Ollama server for LLM inference.
 type Client struct {
-	url        string // base URL, e.g. https://xxxx.ngrok-free.app
+	url        string // Ollama base URL, e.g. http://ollama:11434
+	model      string // model tag, e.g. qwen2.5:3b
 	httpClient *http.Client
 }
 
 // NewClient creates a new VLM judge client.
 // If url is empty, all methods return nil results (VLM disabled).
-func NewClient(url string) *Client {
+func NewClient(url, model string) *Client {
+	if model == "" {
+		model = "qwen2.5:3b"
+	}
 	return &Client{
-		url: url,
+		url:   url,
+		model: model,
 		httpClient: &http.Client{
 			Timeout: defaultTimeout,
 		},
@@ -44,7 +65,7 @@ func (c *Client) Available() bool {
 	return c != nil && c.url != ""
 }
 
-// ── Request / Response ──
+// ── Request / Response (external — unchanged) ──
 
 // RetrievedSentence is a guideline sentence found by BGE-M3 cosine retrieval.
 type RetrievedSentence struct {
@@ -53,7 +74,7 @@ type RetrievedSentence struct {
 	Score float64 `json:"score"`
 }
 
-// JudgeRequest is sent to POST {url}/v1/judge.
+// JudgeRequest is the input from the GRC service.
 type JudgeRequest struct {
 	RuleRequirement    string              `json:"rule_requirement"`
 	Polarity           string              `json:"polarity"`
@@ -61,7 +82,7 @@ type JudgeRequest struct {
 	RetrievedSentences []RetrievedSentence `json:"retrieved_sentences"`
 }
 
-// JudgeResponse is returned by the Colab server.
+// JudgeResponse is returned to the GRC service.
 type JudgeResponse struct {
 	Verdict     string          `json:"verdict"` // 충족|부분|불충족|판정불가
 	RawBasis    json.RawMessage `json:"근거문장"`
@@ -99,14 +120,72 @@ func (r *JudgeResponse) parseBasisIdx() {
 	}
 }
 
-// Judge sends a judgment request to the VLM server and returns the verdict.
+// ── Ollama API types ──
+
+type ollamaChatRequest struct {
+	Model    string          `json:"model"`
+	Messages []ollamaMessage `json:"messages"`
+	Stream   bool            `json:"stream"`
+	Options  ollamaOptions   `json:"options"`
+}
+
+type ollamaMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type ollamaOptions struct {
+	Temperature float64 `json:"temperature"`
+}
+
+type ollamaChatResponse struct {
+	Message ollamaMessage `json:"message"`
+}
+
+// buildUserPrompt replicates the Colab colab_server.py prompt template.
+func buildUserPrompt(req JudgeRequest) string {
+	var b strings.Builder
+
+	b.WriteString("## 룰 요건\n")
+	b.WriteString(req.RuleRequirement)
+	b.WriteString("\n\n## 극성\n")
+	b.WriteString(req.Polarity)
+
+	b.WriteString("\n\n## 파라미터\n")
+	if len(req.Parameters) > 0 {
+		paramJSON, _ := json.Marshal(req.Parameters)
+		b.Write(paramJSON)
+	} else {
+		b.WriteString("없음")
+	}
+
+	b.WriteString("\n\n## 검색된 지침서 문장\n")
+	for _, s := range req.RetrievedSentences {
+		fmt.Fprintf(&b, "[%d] %s (유사도: %.3f)\n", s.Index, s.Text, s.Score)
+	}
+
+	b.WriteString("\n위 문장들이 룰 요건을 함의(충족)하는지 판정하라. JSON만 출력.")
+	return b.String()
+}
+
+// Judge sends a judgment request to the Ollama server and returns the verdict.
 // Returns nil, nil if the client is unavailable or all retries fail (graceful degradation).
 func (c *Client) Judge(ctx context.Context, req JudgeRequest) (*JudgeResponse, error) {
 	if !c.Available() {
 		return nil, nil
 	}
 
-	body, err := json.Marshal(req)
+	chatReq := ollamaChatRequest{
+		Model: c.model,
+		Messages: []ollamaMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: buildUserPrompt(req)},
+		},
+		Stream:  false,
+		Options: ollamaOptions{Temperature: 0.0},
+	}
+
+	body, err := json.Marshal(chatReq)
 	if err != nil {
 		return nil, fmt.Errorf("vlm request marshal: %w", err)
 	}
@@ -124,12 +203,11 @@ func (c *Client) Judge(ctx context.Context, req JudgeRequest) (*JudgeResponse, e
 			}
 		}
 
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+"/v1/judge", bytes.NewReader(body))
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+"/api/chat", bytes.NewReader(body))
 		if err != nil {
 			return nil, fmt.Errorf("vlm request create: %w", err)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("ngrok-skip-browser-warning", "true")
 
 		resp, err := c.httpClient.Do(httpReq)
 		if err != nil {
@@ -146,26 +224,53 @@ func (c *Client) Judge(ctx context.Context, req JudgeRequest) (*JudgeResponse, e
 			continue
 		}
 
-		var result JudgeResponse
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		var chatResp ollamaChatResponse
+		if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
 			resp.Body.Close()
 			return nil, fmt.Errorf("vlm response decode: %w", err)
 		}
 		resp.Body.Close()
-		result.parseBasisIdx()
 
-		// Validate verdict value.
-		switch result.Verdict {
-		case "충족", "부분", "불충족", "판정불가":
-			// OK
-		default:
-			result.Verdict = "판정불가"
-		}
+		// Parse JSON from LLM raw text (same logic as colab_server.py).
+		raw := strings.TrimSpace(chatResp.Message.Content)
+		log.Printf("[vlm] raw response: %s", raw)
 
+		result := parseJudgeJSON(raw)
 		return &result, nil
 	}
 
 	// All retries failed — graceful degradation.
 	log.Printf("[vlm] all %d attempts failed: %v", maxRetries, lastErr)
 	return nil, nil
+}
+
+// parseJudgeJSON extracts the first JSON object from LLM output and maps it to JudgeResponse.
+func parseJudgeJSON(raw string) JudgeResponse {
+	fallback := JudgeResponse{
+		Verdict:     "판정불가",
+		RawBasis:    json.RawMessage(`[]`),
+		MissingElem: "",
+		Modality:    "없음",
+	}
+
+	match := jsonRe.FindString(raw)
+	if match == "" {
+		return fallback
+	}
+
+	var result JudgeResponse
+	if err := json.Unmarshal([]byte(match), &result); err != nil {
+		return fallback
+	}
+
+	// Validate verdict value.
+	switch result.Verdict {
+	case "충족", "부분", "불충족", "판정불가":
+		// OK
+	default:
+		result.Verdict = "판정불가"
+	}
+
+	result.parseBasisIdx()
+	return result
 }
