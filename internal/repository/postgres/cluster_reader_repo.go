@@ -148,6 +148,56 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 		saved++
 	}
 
+
+	// pod_master reconcile (soft delete)
+	const pmUpsert = `
+		INSERT INTO pod_master (
+			cluster_name, pod_uid, name, namespace, node,
+			service_account, phase, restart_count, last_seen_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (cluster_name, pod_uid) DO UPDATE SET
+			name            = EXCLUDED.name,
+			namespace       = EXCLUDED.namespace,
+			node            = EXCLUDED.node,
+			service_account = EXCLUDED.service_account,
+			phase           = EXCLUDED.phase,
+			restart_count   = EXCLUDED.restart_count,
+			last_seen_at    = EXCLUDED.last_seen_at,
+			deleted_at      = NULL
+	`
+	for _, p := range req.Pods {
+		if _, err := tx.Exec(ctx, pmUpsert,
+			req.Cluster, p.UID, p.Name, p.Namespace, p.Node,
+			p.ServiceAccount, p.Phase, p.RestartCount, req.SnapshotAt,
+		); err != nil {
+			return 0, 0, fmt.Errorf("pod_master upsert %s: %w", p.Name, err)
+		}
+	}
+
+	if len(req.Pods) > 0 {
+		var aliveCount int
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM pod_master WHERE cluster_name = $1 AND deleted_at IS NULL`,
+			req.Cluster,
+		).Scan(&aliveCount); err != nil {
+			return 0, 0, fmt.Errorf("pod_master alive count: %w", err)
+		}
+		if aliveCount == 0 || len(req.Pods) >= aliveCount/2 {
+			const pmDelete = `
+				UPDATE pod_master
+				SET deleted_at = $1
+				WHERE cluster_name = $2
+				  AND deleted_at IS NULL
+				  AND last_seen_at < $1::timestamptz - INTERVAL '90 seconds'
+			`
+			if _, err := tx.Exec(ctx, pmDelete, req.SnapshotAt, req.Cluster); err != nil {
+				return 0, 0, fmt.Errorf("pod_master mark deleted: %w", err)
+			}
+		} else {
+			fmt.Printf("warn: pod_master reconcile skip (collection anomaly? got %d < alive %d)\n",
+				len(req.Pods), aliveCount)
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, 0, fmt.Errorf("tx commit: %w", err)
 	}
