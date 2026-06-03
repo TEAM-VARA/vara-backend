@@ -159,6 +159,64 @@
         "k8s_only_check": true,
         "deferred": false
       }
+    },
+    {
+      "rule_id": "R-2.1.3-GL01",
+      "name": "보안등급별 취급절차·보호대책 정의",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정보자산의 보안등급에 따른 취급절차 및 보호대책을 정의하고 이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "보안등급에 따른 취급절차와 보호대책을 정의·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.1.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.1.3-GL02",
+      "name": "자산 책임자·관리자 지정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "식별된 정보자산에 대하여 책임자 및 관리자를 지정한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "식별된 정보자산에 책임자 및 관리자를 지정하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.1.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
     }
   ],
   "evaluation_strategy": {

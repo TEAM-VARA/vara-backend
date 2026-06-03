@@ -302,6 +302,106 @@
         "k8s_only_check": true,
         "deferred": false
       }
+    },
+    {
+      "rule_id": "R-2.6.1-GL01",
+      "name": "비인가 네트워크 접근 통제 절차",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "네트워크에 대한 비인가 접근을 통제하기 위해 IP 관리, 단말 인증 등 관리절차를 수립·이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "IP 관리·단말 인증 등 비인가 네트워크 접근 통제 절차를 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.1-GL02",
+      "name": "IP 부여 기준 및 사설 IP 할당",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "네트워크 대역별 IP 주소 부여 기준을 마련하고, 외부 연결이 필요하지 않은 시스템(DB 서버 등)에는 사설 IP를 할당한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "대역별 IP 부여 기준 마련 및 외부 연결 불필요 시스템의 사설 IP 할당을 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.1-GL03",
+      "name": "업무 중요도 기반 네트워크 분리",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "업무 목적 및 중요도에 따라 네트워크를 영역별(DMZ, 서버팜, DB존, 개발존 등)로 분리하고 접근통제를 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "업무 목적·중요도에 따라 네트워크를 영역별로 분리하고 접근통제를 적용하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.1-GL04",
+      "name": "원거리 연결 전송구간 보호",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "물리적으로 떨어진 IDC·지사·대리점 등과의 네트워크 연결 시 전송구간 보호대책을 마련한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "원거리 네트워크 연결 시 전송구간 보호대책을 마련하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
     }
   ],
   "evaluation_strategy": {

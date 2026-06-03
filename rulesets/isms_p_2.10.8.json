@@ -257,6 +257,106 @@
         "k8s_only_check": true,
         "deferred": false
       }
+    },
+    {
+      "rule_id": "R-2.10.8-GL01",
+      "name": "패치 적용 절차 및 정기 적용",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "소프트웨어, 운영체제, 보안장비 등의 보안 패치 적용 절차를 수립하고 정기적으로 패치를 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "보안 패치 적용 절차를 수립하고 정기적으로 패치를 적용하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-GL02",
+      "name": "패치 적용 곤란 시 보완대책",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "서비스 영향도 등으로 최신 패치 적용이 어려운 경우 보완대책을 마련한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "최신 패치 적용이 어려운 경우 보완대책을 마련하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-GL03",
+      "name": "주요 시스템 패치 경로 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "주요 서버·네트워크시스템·보안시스템 등은 공개 인터넷 접속을 통한 패치를 제한한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "주요 시스템의 공개 인터넷을 통한 패치를 제한하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-GL04",
+      "name": "패치관리시스템 보호",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "패치관리시스템(PMS)을 활용하는 경우 접근통제 등 충분한 보호대책을 마련한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "패치관리시스템 활용 시 접근통제 등 보호대책을 마련하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
     }
   ],
   "evaluation_strategy": {

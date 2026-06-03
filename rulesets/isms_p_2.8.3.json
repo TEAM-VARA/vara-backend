@@ -193,6 +193,56 @@
         "k8s_only_check": true,
         "deferred": false
       }
+    },
+    {
+      "rule_id": "R-2.8.3-GL01",
+      "name": "개발·시험과 운영 환경 분리 원칙",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "개발 및 시험 시스템을 운영시스템과 원칙적으로 분리한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "개발·시험 시스템을 운영시스템과 원칙적으로 분리하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.8.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.8.3-GL02",
+      "name": "분리 곤란 시 보완통제",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "불가피하게 개발과 운영 환경의 분리가 어려운 경우 상호검토, 상급자 모니터링, 변경 승인, 책임추적성 확보 등의 보안대책을 마련한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "환경 분리가 어려운 경우 상호검토·모니터링·변경승인·책임추적성 등 보완통제를 마련하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.8.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
     }
   ],
   "evaluation_strategy": {

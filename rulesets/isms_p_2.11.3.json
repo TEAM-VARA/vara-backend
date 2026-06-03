@@ -112,6 +112,56 @@
         "deferred": false,
         "deferred_reason": "K8s audit log 미수집으로 burst/forbidden/unexpected_creator 룰 비활성"
       }
+    },
+    {
+      "rule_id": "R-2.11.3-GL01",
+      "name": "이상행위 모니터링 체계 구축",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "네트워크 및 시스템의 이상행위를 탐지·분석하기 위한 모니터링 체계를 구축한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "이상행위 탐지·분석을 위한 모니터링 체계를 구축하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.11.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.11.3-GL02",
+      "name": "이상행위 기준·임계치 및 적시 대응",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "침해시도, 개인정보 유출시도, 부정행위 등을 판단하기 위한 기준 및 임계치를 정의하고, 이에 따라 이상행위의 판단·조사 등 후속 조치가 적시에 이루어지도록 한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "이상행위 판단 기준·임계치를 정의하고 적시 후속 조치가 이루어지도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.11.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
     }
   ],
   "evaluation_strategy": {

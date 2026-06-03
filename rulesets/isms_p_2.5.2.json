@@ -163,6 +163,81 @@
         "k8s_only_check": true,
         "deferred": false
       }
+    },
+    {
+      "rule_id": "R-2.5.2-GL01",
+      "name": "사용자별 유일 식별자 부여",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정보시스템 및 개인정보·중요정보에 대한 접근을 사용자별로 고유하게 식별할 수 있도록 유일한 식별자를 부여한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "사용자별로 고유하게 식별 가능한 유일 식별자를 부여하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.5.2-GL02",
+      "name": "추측 가능한 식별자 사용 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "추측하기 쉬운 식별자(root, admin, test 등)의 사용을 제한한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "추측하기 쉬운 식별자 사용을 제한하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.5.2-GL03",
+      "name": "공유 식별자 통제",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "불가피하게 동일한 식별자를 공유하는 경우 그 사유와 타당성을 검토하고 보완대책을 마련하여 책임자의 승인을 받는다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "식별자 공유 시 사유·타당성 검토와 보완대책, 책임자 승인을 받도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
     }
   ],
   "evaluation_strategy": {

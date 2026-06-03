@@ -52,6 +52,56 @@
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       }
+    },
+    {
+      "rule_id": "R-2.9.1-GL01",
+      "name": "변경 절차 및 이력 관리",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정보시스템 변경(OS, 미들웨어, 응용프로그램, 네트워크 장비 등)에 대한 절차를 수립하여 변경 이력을 관리한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "정보시스템 변경 절차를 수립하고 변경 이력을 관리하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.9.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.9.1-GL02",
+      "name": "변경 전 영향 분석",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정보시스템 관련 자산 변경을 수행하기 전에 성능 및 보안에 미치는 영향을 분석한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "변경 전 시스템에 미치는 성능·보안 영향을 분석하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.9.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
     }
   ],
   "evaluation_strategy": {

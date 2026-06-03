@@ -194,6 +194,93 @@
         "k8s_only_check": true,
         "deferred": false
       }
+    },
+    {
+      "rule_id": "R-2.5.1-GL01",
+      "name": "계정·권한 생애주기 절차 수립",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정보시스템 및 개인정보처리시스템의 사용자 등록·해지 및 접근권한 부여·변경·말소에 관한 공식적인 절차를 수립·이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "사용자 등록·해지 및 접근권한 부여·변경·말소 공식 절차를 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.5.1-GL02",
+      "name": "직무별 최소권한 부여",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "사용자 등록·변경 시 직무별 접근권한 분류체계에 따라 업무상 필요한 최소한의 권한만 부여한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "직무별 접근권한 분류체계에 따라 최소권한만 부여하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.5.1-GL03",
+      "name": "계정 보안책임 인식",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "사용자에게 계정 및 접근권한을 부여할 때 해당 계정의 보안책임이 본인에게 있음을 명확히 인식시킨다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "계정 보안책임이 본인에게 있음을 인식시키도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
     }
   ],
   "evaluation_strategy": {

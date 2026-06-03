@@ -157,6 +157,64 @@
         "k8s_only_check": true,
         "deferred": false
       }
+    },
+    {
+      "rule_id": "R-1.2.2-GL01",
+      "name": "정보서비스·개인정보 흐름도 작성",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "관리체계 범위 내 정보서비스 및 개인정보 처리 현황을 분석하고 정보서비스 흐름도·개인정보 흐름도 등으로 문서화한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "업무절차와 흐름을 파악하여 정보서비스 흐름도·개인정보 흐름도로 문서화하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-1.2.2-GL02",
+      "name": "흐름도 최신성 유지",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "서비스·업무·정보자산의 변화에 따라 업무절차 및 개인정보 흐름을 주기적으로 검토하여 흐름도 등 관련 문서의 최신성을 유지한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "변화에 따라 흐름도 등 관련 문서를 주기적으로 검토·갱신하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
     }
   ],
   "evaluation_strategy": {

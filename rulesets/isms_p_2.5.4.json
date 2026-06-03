@@ -45,12 +45,7 @@
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
       "keywords": [
-        "비밀번호 관리",
-        "패스워드 정책",
-        "계정 관리",
-        "사용자 인증",
-        "로그인",
-        "passphrase"
+        "정보보호 지침서에 비밀번호 관리 정책이 구체적으로 규정되어 있다."
       ],
       "compliance_indicators": [
         {
@@ -73,14 +68,7 @@
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
       "keywords": [
-        "작성규칙",
-        "비밀번호 작성",
-        "복잡도",
-        "길이",
-        "변경주기",
-        "관리절차",
-        "임시 비밀번호",
-        "재발급"
+        "비밀번호 작성규칙(길이·복잡도·추측금지·반복제한)과 관리절차(초기 변경·마스킹·저장 제한·침해 시 변경·재발급·변경주기·관리자 별도·단방향 암호화)가 모두 규정되어 있다."
       ],
       "required_content_elements": {
         "writing_rules": [
@@ -869,7 +857,9 @@
       "name": "비밀번호 관리 정책 문서가 존재하고 비밀번호 생성 규칙·변경 주기·저장 방법을 포함하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["비밀번호 관리", "생성 규칙", "변경 주기", "저장 방법", "패스워드 정책"],
+      "keywords": [
+        "비밀번호 관리 정책 문서가 존재하며 비밀번호 생성 규칙·변경 주기·저장 방법을 포함하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"description": "지침서에 비밀번호 생성규칙, 변경주기, 저장방법이 모두 명시"}
       ],
@@ -883,7 +873,9 @@
       "name": "비밀번호 최소 길이를 8자 이상으로 설정하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["최소 길이", "8자", "자릿수", "복잡도"],
+      "keywords": [
+        "비밀번호 최소 길이를 8자 이상으로 설정하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"field": "최소길이", "op": ">=", "value": 8, "description": "비밀번호 최소 8자 이상 규정"}
       ],
@@ -897,7 +889,9 @@
       "name": "비밀번호 최대 사용 기간을 90일 이하로 설정하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["변경 주기", "최대 사용 기간", "90일", "유효기간"],
+      "keywords": [
+        "비밀번호 최대 사용 기간을 90일 이하로 설정하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"field": "최대사용일수", "op": "<=", "value": 90, "description": "비밀번호 최대 사용기간 90일 이하 규정"}
       ],
@@ -911,7 +905,9 @@
       "name": "초기(임시) 비밀번호 발급 시 최초 로그인 시 변경을 강제하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["초기 비밀번호", "임시 비밀번호", "최초 로그인", "강제 변경"],
+      "keywords": [
+        "초기(임시) 비밀번호 발급 시 최초 로그인 시 변경을 강제하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"description": "초기/임시 비밀번호 발급 시 최초 로그인 시 강제 변경 규정"}
       ],
@@ -925,7 +921,9 @@
       "name": "비밀번호를 일방향 암호화(bcrypt, argon2, PBKDF2 등)하여 저장하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["일방향 암호화", "단방향 암호화", "해시", "bcrypt", "argon2", "PBKDF2", "평문 저장 금지"],
+      "keywords": [
+        "비밀번호를 일방향(단방향) 암호화(bcrypt, argon2, PBKDF2 등)하여 저장하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"description": "비밀번호 일방향 암호화 저장 및 평문 저장 금지 규정"}
       ],
@@ -939,7 +937,9 @@
       "name": "비밀번호 입력 오류 시 계정 잠금 처리하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["잠금", "lockout", "입력 오류", "실패 횟수", "5회"],
+      "keywords": [
+        "비밀번호 입력 오류가 일정 횟수 누적되면 계정을 잠금 처리하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"field": "잠금횟수", "op": "<=", "value": 5, "description": "5회 이내 입력 오류 시 계정 잠금 규정"}
       ],
@@ -953,7 +953,9 @@
       "name": "관리자 및 중요 시스템 접근 시 다중인증(MFA)을 적용하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["다중인증", "MFA", "이중 인증", "2FA", "OTP", "관리자 인증"],
+      "keywords": [
+        "관리자 계정 및 중요 시스템 접근 시 다중인증(MFA)을 적용하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"description": "관리자·중요 시스템 접근 시 다중인증(MFA) 적용 규정"}
       ],
@@ -967,7 +969,9 @@
       "name": "로그인 실패 메시지에서 아이디·비밀번호 구분 노출을 금지하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["로그인 실패", "오류 메시지", "정보 노출", "아이디 구분"],
+      "keywords": [
+        "로그인 실패 메시지에서 아이디·비밀번호 구분 노출을 금지하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"description": "로그인 실패 시 아이디·비밀번호 구분 정보 미노출 규정"}
       ],

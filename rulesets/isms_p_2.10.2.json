@@ -52,6 +52,81 @@
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       }
+    },
+    {
+      "rule_id": "R-2.10.2-GL01",
+      "name": "클라우드 유형별 위험평가·대책",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "클라우드 서비스 유형(IaaS, PaaS, SaaS 등)에 따른 보안 위험을 평가하고 이에 맞는 보안대책을 수립·이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "클라우드 서비스 유형별 보안 위험을 평가하고 보안대책을 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.2-GL02",
+      "name": "클라우드 관리자 권한 최소화·보호",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "클라우드 서비스 관리자 권한을 역할에 따라 최소화하여 부여하고, 강화된 인증·암호화·접근통제·감사기록 등 보호대책을 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "클라우드 관리자 권한 최소 부여 및 강화 인증·감사기록 등 보호대책 적용을 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.2-GL03",
+      "name": "클라우드 설정·운영 모니터링",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "클라우드 서비스의 보안 설정 변경·운영 현황 등을 모니터링하고 그 적절성을 정기적으로 검토한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "클라우드 보안 설정·운영 현황을 모니터링하고 정기 검토하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
     }
   ],
   "evaluation_strategy": {

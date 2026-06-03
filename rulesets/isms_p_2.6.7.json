@@ -148,6 +148,81 @@
         "k8s_only_check": true,
         "deferred": false
       }
+    },
+    {
+      "rule_id": "R-2.6.7-GL01",
+      "name": "인터넷 접속 통제 정책 수립",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "업무용 단말기 등에서 인터넷 접속 시 정보유출 등 보안사고를 예방하기 위한 인터넷 접속 통제 정책을 수립·이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "인터넷 접속 통제 정책을 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.7",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.7-GL02",
+      "name": "주요 시스템 외부 인터넷 접속 통제",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "주요 정보시스템(DB 서버 등)에서 불필요한 외부 인터넷 접속을 통제한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "주요 정보시스템의 불필요한 외부 인터넷 접속을 통제하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.7",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.7-GL03",
+      "name": "인터넷망 차단 의무 이행",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "관련 법령에 따라 인터넷망 차단 의무가 부과된 경우 대상자를 식별하여 안전한 방식으로 인터넷망 차단 조치를 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "법령상 인터넷망 차단 의무 대상자를 식별하고 차단 조치를 적용하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.7",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
     }
   ],
   "evaluation_strategy": {

@@ -167,6 +167,56 @@
         "k8s_only_check": true,
         "deferred": false
       }
+    },
+    {
+      "rule_id": "R-2.10.5-GL01",
+      "name": "안전한 정보전송 정책 수립",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "업무 목적으로 개인정보 및 중요정보를 전송할 때 안전한 전송 정책을 수립하고 전송 중 보호를 위한 기술적 대책을 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "개인정보·중요정보 전송 시 안전한 전송 정책과 기술적 보호대책을 적용하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.5",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.5-GL02",
+      "name": "조직 간 교환 협약 체결",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "업무상 조직 간에 개인정보 및 중요정보를 상호교환하는 경우 안전한 전송을 위한 협약 체결 등 보호대책을 수립·이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "조직 간 정보 교환 시 협약 체결 등 보호대책을 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.5",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
     }
   ],
   "evaluation_strategy": {

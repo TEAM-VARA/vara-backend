@@ -176,6 +176,93 @@
         "k8s_only_check": true,
         "deferred": false
       }
+    },
+    {
+      "rule_id": "R-1.2.1-GL01",
+      "name": "정보자산 분류기준 수립",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "관리체계 범위 내 모든 정보자산을 식별·분류하기 위한 분류기준을 수립한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "조직의 업무특성에 따라 정보자산 분류기준을 수립하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-1.2.1-GL02",
+      "name": "중요도 산정 및 보안등급 부여",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "식별된 정보자산에 대하여 법적 요구사항 및 업무 영향도를 고려하여 중요도를 산정하고 보안등급을 부여한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "정보자산의 중요도를 결정하고 보안등급을 부여하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-1.2.1-GL03",
+      "name": "정보자산 목록 최신 유지",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정기적으로 정보자산 현황을 조사하여 정보자산 목록을 최신 상태로 유지한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "정기적으로 정보자산 현황을 조사하여 목록을 최신으로 유지하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
     }
   ],
   "evaluation_strategy": {
