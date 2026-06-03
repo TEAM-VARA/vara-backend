@@ -3,6 +3,9 @@ package server
 import (
 	"github.com/gin-gonic/gin"
 
+	"time"
+
+	"github.com/gin-contrib/cors"
 	"github.com/vara/backend/internal/handler"
 )
 
@@ -32,6 +35,15 @@ func newRouter(
 ) *gin.Engine {
 	r := gin.Default()
 
+	// ── CORS (라우트 등록 전에!) ──
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:  []string{"*"},
+		AllowMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:  []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders: []string{"Content-Length"},
+		MaxAge:        12 * time.Hour,
+	}))
+
 	r.GET("/healthz", health.Healthz)
 
 	api := r.Group("/api/v1")
@@ -55,6 +67,8 @@ func newRouter(
 		api.POST("/agents/ebpf/dns-queries", ebpf.DNSQueries)
 		api.POST("/agents/ebpf/process-events", ebpf.ProcessEvents)
 		api.GET("/feed/process", ebpf.GetProcessFeed)
+		api.GET("/feed/flow", ebpf.GetFlowFeed)
+		api.GET("/events", ebpf.GetEvents)
 
 		// ── Edges (Blast Radius 그래프) ──
 		api.POST("/edges/compute", edge.Compute)
@@ -63,6 +77,7 @@ func newRouter(
 		api.POST("/edges/clusters/:cluster_name/identity/compute", edge.ComputeIdentity)
 		api.POST("/edges/clusters/:cluster_name/supply-chain/compute", edge.ComputeSupplyChain)
 		api.POST("/edges/clusters/:cluster_name/network/compute", edge.ComputeNetwork)
+		api.POST("/edges/clusters/:cluster_name/host/compute", edge.ComputeHost)
 		api.GET("/topology", edge.GetTopology)
 		api.GET("/topology/blast-radius", edge.GetBlastRadius)
 		api.GET("/topology/criticality", edge.GetCriticality)

@@ -18,6 +18,7 @@ const (
 	descCVSS       = "취약점 자체의 기술적 심각도를 0~10으로 나타낸 표준 점수입니다."
 	descEPSS       = "이 취약점이 향후 30일 내 실제로 악용될 확률입니다."
 	descKEV        = "미국 CISA가 '실제 공격에 사용 중'으로 공식 확인한 취약점 목록입니다."
+	descExploitDB  = "공개된 악용 코드(PoC)가 ExploitDB 등에 존재하는지 여부입니다."
 	descSSVC       = "취약점의 악용 단계 분류입니다 (active=악용 중, poc=개념증명 존재, none=없음)."
 	descExposure   = "이 Pod이 클러스터 외부에서 직접 접근 가능한지 여부입니다 (LoadBalancer, Ingress 등)."
 	descAttackPath = "이 Pod이 침해됐을 때 권한 상승이나 다른 자원으로의 횡적 이동이 " +
@@ -79,12 +80,19 @@ func interpretKEV(inKEV bool) string {
 func interpretSSVC(ssvc string) string {
 	switch ssvc {
 	case "active":
-		return "현재 활발히 악용되고 있는 단계입니다."
+		return "현재 활발히 악용되고 있는 단계입니다 (KEV 등재 등 실제 악용 근거)."
 	case "poc":
-		return "악용 개념증명(PoC)이 공개되어 있어 악용 가능성이 있습니다."
+		return "악용 개념증명(PoC)이 ExploitDB 등에 공개되어 있어 악용 가능성이 있습니다."
 	default:
-		return "공개된 악용 정황은 확인되지 않았습니다."
+		return "공개된 악용 정황(KEV·PoC)이 확인되지 않았습니다."
 	}
+}
+
+func interpretExploitDB(in bool) string {
+	if in {
+		return "ExploitDB 등에 공개 악용 코드가 있어 악용 장벽이 낮습니다."
+	}
+	return "공개된 악용 코드는 확인되지 않았습니다."
 }
 
 func interpretLocal(score float64, exposed bool, attackLevel string) string {

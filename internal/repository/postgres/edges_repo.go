@@ -1194,6 +1194,81 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 	}, nil
 }
 
+// ComputeHostEdges — Host layer edges 적재
+// runs_on (Pod→Node 배치). escape_path는 agent 수집 확장 후 활성화.
+func (r *EdgesRepo) ComputeHostEdges(ctx context.Context, clusterName string) (*edge.HostComputeResult, error) {
+	start := time.Now()
+	snapAt := time.Now()
+
+	// ─────────────────────────────────────────────
+	// Step 1: runs_on (Pod → Node)
+	// pod.node(이름) → cluster_nodes 조인 → node_uid
+	// ─────────────────────────────────────────────
+	qRunsOn := `
+		WITH latest_pods AS (
+			SELECT pod_uid, name AS pod_name, namespace, node
+			FROM cluster_pods
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+			  AND node IS NOT NULL AND node != ''
+		),
+		latest_nodes AS (
+			SELECT node_uid, name AS node_name
+			FROM cluster_nodes
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_nodes WHERE cluster_name = $1)
+		)
+		INSERT INTO edges (
+			cluster_name,
+			source_pod_uid, target_pod_uid,
+			source_name, source_namespace,
+			target_name, target_namespace,
+			source_kind, target_kind,
+			target_type,
+			layer, edge_type, mode,
+			weight, traffic_weight,
+			snapshot_at, computed_at
+		)
+		SELECT
+			$1,
+			p.pod_uid, n.node_uid,
+			p.pod_name, p.namespace,
+			n.node_name, '',
+			'pod', 'node',
+			'node',
+			'host', 'runs_on', 'declared',
+			1, 0.5,
+			$2::timestamptz, NOW()
+		FROM latest_pods p
+		JOIN latest_nodes n ON n.node_name = p.node
+		ON CONFLICT DO NOTHING
+	`
+	tag1, err := r.pool.Exec(ctx, qRunsOn, clusterName, snapAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert runs_on: %w", err)
+	}
+
+	// ─────────────────────────────────────────────
+	// Step 2: escape_path (Pod → Node, 탈출 위험)
+	// TODO: cluster-reader 에이전트가 securityContext.privileged,
+	//       volumes[].hostPath, hostPID 수집 후 활성화.
+	//       파서(attack_path_repo)는 이미 준비됨.
+	//       조건: privileged OR hostPath OR host_network OR hostPID
+	//       현재는 host_network만 데이터 존재 → 의미 약해 보류.
+	// ─────────────────────────────────────────────
+	escapePathInserted := int64(0)
+
+	return &edge.HostComputeResult{
+		ClusterName: clusterName,
+		RunsOn:      int(tag1.RowsAffected()),
+		EscapePath:  int(escapePathInserted),
+		Total:       int(tag1.RowsAffected() + escapePathInserted),
+		SnapshotAt:  snapAt,
+		ComputedAt:  time.Now(),
+		DurationMs:  time.Since(start).Milliseconds(),
+	}, nil
+}
+
 // kindToNodeType은 내부 kind를 FE용 NodeType(PascalCase)으로 변환합니다.
 func kindToNodeType(kind string) string {
 	switch kind {

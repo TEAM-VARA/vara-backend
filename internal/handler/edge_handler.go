@@ -151,6 +151,18 @@ func (h *EdgeHandler) ComputeNetwork(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// ComputeHost — Host layer edges 적재
+// POST /api/v1/edges/clusters/:cluster_name/host/compute
+func (h *EdgeHandler) ComputeHost(c *gin.Context) {
+	clusterName := c.Param("cluster_name")
+	result, err := h.svc.ComputeHost(c.Request.Context(), clusterName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 // GetTopology — PM 명세서 B-1
 // GET /api/v1/topology?cluster=<name>
 func (h *EdgeHandler) GetTopology(c *gin.Context) {

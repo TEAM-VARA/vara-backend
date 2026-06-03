@@ -1,6 +1,6 @@
 services:
   postgres:
-    # pgvector 확장이 필요한 002_pgvector.up.sql 때문에 pgvector 동봉 이미지 사용
+    # pgvector image required for the 002_pgvector extension migration
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: vara
@@ -10,20 +10,30 @@ services:
       - "5432:5432"
     volumes:
       - vara-pg-data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U vara -d vara"]
       interval: 5s
       timeout: 3s
       retries: 10
-
+  migrate:
+    image: migrate/migrate
+    volumes:
+      - ./migrations:/migrations:ro
+    command:
+      - "-path"
+      - "/migrations"
+      - "-database"
+      - "postgres://vara:changeme@postgres:5432/vara?sslmode=disable"
+      - "up"
+    depends_on:
+      postgres:
+        condition: service_healthy
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
-
   embedding:
-    # BGE-M3 FastAPI. 첫 부팅 시 모델 가중치 ~2.3GB 다운로드 후 캐시.
+    # BGE-M3 FastAPI embedding server
     build:
       context: .
       dockerfile: deployments/docker/embedding-server.Dockerfile
@@ -32,7 +42,6 @@ services:
     volumes:
       - hf-cache:/cache/hf
     restart: unless-stopped
-
   ollama:
     # Qwen 2.5 7B LLM 추론 서버. 첫 부팅 시 모델 ~4.7GB 다운로드 후 캐시.
     image: ollama/ollama
@@ -46,7 +55,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-
   ollama-init:
     # 최초 기동 시 Qwen 모델을 pull. 이미 캐시되어 있으면 즉시 완료.
     image: ollama/ollama
@@ -57,7 +65,6 @@ services:
       OLLAMA_HOST: http://ollama:11434
     entrypoint: ["sh", "-c", "ollama pull qwen2.5:7b"]
     restart: "no"
-
   backend:
     build:
       context: .
@@ -65,6 +72,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_started
       embedding:

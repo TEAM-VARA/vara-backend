@@ -177,6 +177,10 @@ func (s *EdgeService) ComputeNetwork(ctx context.Context, clusterName string) (*
 	return s.repo.ComputeNetworkEdges(ctx, clusterName)
 }
 
+func (s *EdgeService) ComputeHost(ctx context.Context, clusterName string) (*edge.HostComputeResult, error) {
+	return s.repo.ComputeHostEdges(ctx, clusterName)
+}
+
 // BuildTopology — PM 명세서 B-1 (/api/v1/topology)
 func (s *EdgeService) BuildTopology(ctx context.Context, cluster string) (*edge.TopologyResponse, error) {
 	return s.repo.BuildTopology(ctx, cluster)
