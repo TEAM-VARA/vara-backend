@@ -1154,9 +1154,30 @@ func (s *GRCService) UploadGuideline(
 		}
 	}
 
+	// ── 시간 기준 버전 관리 ──
+	// 같은 (company_id, isms_p_item_id, filename)의 최신 버전과 content_hash를 비교한다.
+	latestID, latestVer, latestHash, latestUploadedAt, found, verErr := s.repo.GetLatestGuidelineVersion(ctx, companyID, ismspItemID, fh.Filename)
+	if verErr != nil {
+		return nil, fmt.Errorf("기존 지침 버전 조회 실패: %w", verErr)
+	}
+	if found && latestHash == contentHash {
+		// 내용 동일 → 새 버전을 만들지 않고 기존 최신 버전을 그대로 재사용 (멱등).
+		g.ID = latestID
+		g.Version = latestVer
+		g.UploadedAt = latestUploadedAt
+		g.UpdatedAt = latestUploadedAt
+		log.Printf("[grc-guideline] identical content, reuse v%d (id=%d) %s", latestVer, latestID, fh.Filename)
+		return g, nil
+	}
+	// 신규(found=false) 또는 내용 변경 → 새 버전으로 누적 보관.
+	g.Version = 1
+	if found {
+		g.Version = latestVer + 1
+	}
+
 	// Insert into DB.
 	if err := s.repo.InsertGuideline(ctx, g); err != nil {
-		// Duplicate check (unique constraint).
+		// Duplicate check (unique constraint) — 동시 업로드 경합 안전망.
 		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
 			return nil, &GRCError{Code: "DUPLICATE_GUIDELINE", Message: fmt.Sprintf("동일 지침 파일 이미 존재: %s", fh.Filename), HTTPStatus: 409}
 		}

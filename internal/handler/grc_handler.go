@@ -232,6 +232,7 @@ func (h *GRCHandler) UploadGuideline(c *gin.Context) {
 		"file_size_bytes": g.FileSizeBytes,
 		"has_text":        g.ExtractedText != "",
 		"has_embedding":   len(g.Embedding) > 0,
+		"version":         g.Version,
 		"uploaded_at":     g.UploadedAt,
 	})
 }

@@ -265,6 +265,7 @@ type Guideline struct {
 	ContentHash   string    `json:"-"`
 	ExtractedText string    `json:"-"`
 	Embedding     []float32 `json:"-"`
+	Version       int       `json:"version"`
 	UploadedAt    time.Time `json:"uploaded_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -278,6 +279,7 @@ type GuidelineListItem struct {
 	FileSizeBytes    int64     `json:"file_size_bytes"`
 	HasExtractedText bool      `json:"has_extracted_text"`
 	HasEmbedding     bool      `json:"has_embedding"`
+	Version          int       `json:"version"`
 	UploadedAt       time.Time `json:"uploaded_at"`
 }
 

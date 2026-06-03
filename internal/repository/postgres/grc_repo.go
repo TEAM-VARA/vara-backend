@@ -3,12 +3,14 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vara/backend/internal/domain/grc"
@@ -1158,16 +1160,47 @@ func (r *GRCRepo) GetLatestClusterComplianceResult(ctx context.Context, companyI
 
 // InsertGuideline inserts a new guideline record.
 func (r *GRCRepo) InsertGuideline(ctx context.Context, g *grc.Guideline) error {
+	if g.Version < 1 {
+		g.Version = 1
+	}
 	return r.pg.QueryRow(ctx, `
 		INSERT INTO grc_guidelines
 			(company_id, isms_p_item_id, filename, storage_path,
-			 file_size_bytes, content_hash, extracted_text, embedding)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)
+			 file_size_bytes, content_hash, extracted_text, embedding, version)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector, $9)
 		RETURNING id, uploaded_at, updated_at
 	`, g.CompanyID, g.ISMSPItemID, g.Filename, g.StoragePath,
 		g.FileSizeBytes, nilStrPtr(g.ContentHash),
-		nilStrPtr(g.ExtractedText), vectorToString(g.Embedding),
+		nilStrPtr(g.ExtractedText), vectorToString(g.Embedding), g.Version,
 	).Scan(&g.ID, &g.UploadedAt, &g.UpdatedAt)
+}
+
+// GetLatestGuidelineVersion returns the latest version metadata for a guideline
+// keyed by (company_id, isms_p_item_id, filename). ismspItemID may be nil for
+// company-wide guidelines. found is false if no prior version exists.
+func (r *GRCRepo) GetLatestGuidelineVersion(
+	ctx context.Context, companyID string, ismspItemID *string, filename string,
+) (id int64, version int, contentHash string, uploadedAt time.Time, found bool, err error) {
+	var hashPtr *string
+	err = r.pg.QueryRow(ctx, `
+		SELECT id, version, content_hash, uploaded_at
+		FROM grc_guidelines
+		WHERE company_id = $1
+		  AND isms_p_item_id IS NOT DISTINCT FROM $2
+		  AND filename = $3
+		ORDER BY version DESC
+		LIMIT 1
+	`, companyID, ismspItemID, filename).Scan(&id, &version, &hashPtr, &uploadedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, 0, "", time.Time{}, false, nil
+		}
+		return 0, 0, "", time.Time{}, false, err
+	}
+	if hashPtr != nil {
+		contentHash = *hashPtr
+	}
+	return id, version, contentHash, uploadedAt, true, nil
 }
 
 // UpdateGuidelineText updates the extracted text and embedding for a guideline.
@@ -1189,12 +1222,20 @@ func (r *GRCRepo) ListGuidelines(ctx context.Context, companyID, ismspItemID str
 		args = append(args, ismspItemID)
 	}
 
+	// 최신 버전만 반환: (company_id, isms_p_item_id, filename)별 version DESC 1건.
 	rows, err := r.pg.Query(ctx, fmt.Sprintf(`
 		SELECT id, company_id, isms_p_item_id, filename, file_size_bytes,
-		       (extracted_text IS NOT NULL AND extracted_text != '') AS has_extracted_text,
-		       (embedding IS NOT NULL) AS has_embedding,
-		       uploaded_at
-		FROM grc_guidelines %s
+		       has_extracted_text, has_embedding, version, uploaded_at
+		FROM (
+			SELECT DISTINCT ON (company_id, isms_p_item_id, filename)
+			       id, company_id, isms_p_item_id, filename, file_size_bytes,
+			       (extracted_text IS NOT NULL AND extracted_text != '') AS has_extracted_text,
+			       (embedding IS NOT NULL) AS has_embedding,
+			       version, uploaded_at
+			FROM grc_guidelines
+			%s
+			ORDER BY company_id, isms_p_item_id, filename, version DESC
+		) t
 		ORDER BY uploaded_at DESC
 	`, where), args...)
 	if err != nil {
@@ -1208,7 +1249,7 @@ func (r *GRCRepo) ListGuidelines(ctx context.Context, companyID, ismspItemID str
 		if err := rows.Scan(
 			&item.ID, &item.CompanyID, &item.ISMSPItemID, &item.Filename,
 			&item.FileSizeBytes, &item.HasExtractedText, &item.HasEmbedding,
-			&item.UploadedAt,
+			&item.Version, &item.UploadedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1219,13 +1260,15 @@ func (r *GRCRepo) ListGuidelines(ctx context.Context, companyID, ismspItemID str
 
 // GetGuidelinesForItem returns full guideline records (with embedding) for compliance evaluation.
 func (r *GRCRepo) GetGuidelinesForItem(ctx context.Context, companyID, ismspItemID string) ([]grc.Guideline, error) {
+	// (isms_p_item_id, filename)별 최신 버전 1건만 평가에 사용.
 	rows, err := r.pg.Query(ctx, `
-		SELECT id, company_id, isms_p_item_id, filename, storage_path,
+		SELECT DISTINCT ON (isms_p_item_id, filename)
+		       id, company_id, isms_p_item_id, filename, storage_path,
 		       file_size_bytes, content_hash, extracted_text,
-		       embedding::text, uploaded_at, updated_at
+		       embedding::text, version, uploaded_at, updated_at
 		FROM grc_guidelines
 		WHERE company_id = $1 AND (isms_p_item_id = $2 OR isms_p_item_id IS NULL)
-		ORDER BY isms_p_item_id NULLS LAST, uploaded_at DESC
+		ORDER BY isms_p_item_id, filename, version DESC
 	`, companyID, ismspItemID)
 	if err != nil {
 		return nil, err
@@ -1239,7 +1282,7 @@ func (r *GRCRepo) GetGuidelinesForItem(ctx context.Context, companyID, ismspItem
 		if err := rows.Scan(
 			&g.ID, &g.CompanyID, &g.ISMSPItemID, &g.Filename, &g.StoragePath,
 			&g.FileSizeBytes, &contentHash, &extractedText,
-			&embText, &g.UploadedAt, &g.UpdatedAt,
+			&embText, &g.Version, &g.UploadedAt, &g.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1279,12 +1322,12 @@ func (r *GRCRepo) GetGuideline(ctx context.Context, id int64) (*grc.Guideline, e
 	err := r.pg.QueryRow(ctx, `
 		SELECT id, company_id, isms_p_item_id, filename, storage_path,
 		       file_size_bytes, content_hash, extracted_text,
-		       uploaded_at, updated_at
+		       version, uploaded_at, updated_at
 		FROM grc_guidelines WHERE id = $1
 	`, id).Scan(
 		&g.ID, &g.CompanyID, &g.ISMSPItemID, &g.Filename, &g.StoragePath,
 		&g.FileSizeBytes, &contentHash, &extractedText,
-		&g.UploadedAt, &g.UpdatedAt,
+		&g.Version, &g.UploadedAt, &g.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
