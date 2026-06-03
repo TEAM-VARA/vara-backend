@@ -219,3 +219,22 @@ INSERT INTO grc_pod_graph_rules (rule_id, isms_p_item_id, name, severity, judgme
   ('R-2.10.8-POD-03', '2.10.8', '이미지 digest 미고정', 'high', 'k8s_native', 'pod_graph', '이미지 digest 고정 점검', true),
   ('R-2.11.3-POD-01', '2.11.3', 'prod 환경 shell exec 활동', 'critical', 'k8s_native', 'pod_graph', '운영 환경 Pod exec 점검', true)
 ON CONFLICT (rule_id) DO NOTHING;
+
+-- 10) 클러스터 컴플라이언스 평가 결과 (통합 집계)
+CREATE TABLE IF NOT EXISTS grc_cluster_compliance_results (
+    id                  BIGSERIAL     PRIMARY KEY,
+    company_id          VARCHAR(64)   NOT NULL,
+    cluster_name        VARCHAR(255)  NOT NULL,
+    snapshot_at         TIMESTAMPTZ   NOT NULL,
+    evaluated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    total_items         INT           NOT NULL DEFAULT 0,
+    compliant_items     INT           NOT NULL DEFAULT 0,
+    non_compliant_items INT           NOT NULL DEFAULT 0,
+    needs_review_items  INT           NOT NULL DEFAULT 0,
+    total_rules         INT           NOT NULL DEFAULT 0,
+    total_pods          INT           NOT NULL DEFAULT 0,
+    items               JSONB         NOT NULL,
+    created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_grc_ccr_company ON grc_cluster_compliance_results(company_id, cluster_name);
+CREATE INDEX IF NOT EXISTS idx_grc_ccr_time    ON grc_cluster_compliance_results(created_at DESC);

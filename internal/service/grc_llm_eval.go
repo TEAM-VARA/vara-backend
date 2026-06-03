@@ -263,7 +263,17 @@ func extractRulePolarity(rule Rule) (string, map[string]string) {
 
 // mapVLMVerdictToResult converts the VLM response into a grc.RuleResult.
 func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, base grc.RuleResult) grc.RuleResult {
-	switch resp.Verdict {
+	verdict := resp.Verdict
+
+	// ── 후처리: "부분"인데 누락요소가 근거문장에 이미 있으면 "충족"으로 보정 ──
+	if verdict == "부분" && resp.MissingElem != "" && len(resp.BasisIdx) > 0 {
+		if missingFoundInBasis(resp.MissingElem, resp.BasisIdx, topHits) {
+			log.Printf("[grc-rag] post-fix: 부분→충족 (누락요소 %q가 근거문장에 존재)", resp.MissingElem)
+			verdict = "충족"
+		}
+	}
+
+	switch verdict {
 	case "충족":
 		base.Verdict = "준수"
 		var indicators []string
@@ -302,6 +312,61 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 	}
 
 	return base
+}
+
+// missingFoundInBasis checks if the "missing element" text is actually present
+// in the basis sentences. Handles synonym matching for common Korean compliance terms.
+func missingFoundInBasis(missing string, basisIdx []int, topHits []scoredSentence) bool {
+	// 동의어 매핑: LLM이 누락이라 한 표현 → 실제 문장에 있을 수 있는 표현들
+	synonyms := map[string][]string{
+		"즉시 회수":    {"즉시 회수", "즉시 반환", "회수한다"},
+		"즉시 회수 조항": {"즉시 회수", "즉시 반환", "회수한다"},
+		"승인 절차":    {"승인 절차", "승인을 거치", "별도 승인"},
+		"공동 사용 금지": {"공용", "공유", "공동 사용", "금지한다"},
+		"로깅":       {"로깅", "로그", "기록한다", "사용 내역"},
+		"로깅 확보":    {"로깅", "로그", "기록한다", "사용 내역"},
+	}
+
+	// 근거문장 텍스트 수집
+	var basisTexts []string
+	for _, idx := range basisIdx {
+		if idx >= 1 && idx <= len(topHits) {
+			basisTexts = append(basisTexts, topHits[idx-1].text)
+		}
+	}
+	if len(basisTexts) == 0 {
+		return false
+	}
+
+	combined := strings.Join(basisTexts, " ")
+
+	// 1) 누락요소 키워드를 동의어로 분해하여 검색
+	for key, syns := range synonyms {
+		if strings.Contains(missing, key) {
+			for _, syn := range syns {
+				if strings.Contains(combined, syn) {
+					return true
+				}
+			}
+		}
+	}
+
+	// 2) 누락요소 텍스트를 공백으로 분리하여 개별 키워드 검색
+	//    키워드의 절반 이상이 근거문장에 있으면 이미 포함된 것으로 판단
+	keywords := strings.Fields(missing)
+	if len(keywords) == 0 {
+		return false
+	}
+	matched := 0
+	for _, kw := range keywords {
+		if len([]rune(kw)) < 2 {
+			continue // 조사/접속사 무시
+		}
+		if strings.Contains(combined, kw) {
+			matched++
+		}
+	}
+	return matched > 0 && matched >= (len(keywords)+1)/2
 }
 
 func ragTruncate(s string, maxLen int) string {

@@ -116,6 +116,8 @@ type RuleResult struct {
 	MatchedIndicators []string              `json:"matched_indicators,omitempty"`
 	Violations          []Violation           `json:"violations,omitempty"`
 	SkipReason          string                `json:"skip_reason,omitempty"`
+	FailMessage         string                `json:"fail_message,omitempty"`
+	Remediation         string                `json:"remediation,omitempty"`
 	EmbeddingSimilarity *float64              `json:"embedding_similarity,omitempty"`
 
 	// ── 통합 manual 판정 필드 ──
@@ -251,11 +253,12 @@ type EvidenceListItem struct {
 
 // ── 지침 (회사 내부 정책 문서) ──
 
-// Guideline is a company internal policy document (PDF) uploaded per ISMS-P item.
+// Guideline is a company internal policy document (PDF).
+// ISMSPItemID가 nil이면 회사 공용 지침 (모든 항목에서 사용).
 type Guideline struct {
 	ID            int64     `json:"id"`
 	CompanyID     string    `json:"company_id"`
-	ISMSPItemID   string    `json:"isms_p_item_id"`
+	ISMSPItemID   *string   `json:"isms_p_item_id"`
 	Filename      string    `json:"filename"`
 	StoragePath   string    `json:"-"`
 	FileSizeBytes int64     `json:"file_size_bytes"`
@@ -270,7 +273,7 @@ type Guideline struct {
 type GuidelineListItem struct {
 	ID               int64     `json:"id"`
 	CompanyID        string    `json:"company_id"`
-	ISMSPItemID      string    `json:"isms_p_item_id"`
+	ISMSPItemID      *string   `json:"isms_p_item_id"`
 	Filename         string    `json:"filename"`
 	FileSizeBytes    int64     `json:"file_size_bytes"`
 	HasExtractedText bool      `json:"has_extracted_text"`
@@ -350,12 +353,19 @@ type FindingClusterResult struct {
 
 // ── 통합 클러스터 컴플라이언스 (전체 페이지: ISMS-P 항목별 위반 자산) ──
 
+// ViolatedRuleInfo holds a violated rule with its fail message and remediation.
+type ViolatedRuleInfo struct {
+	RuleID      string `json:"rule_id"`
+	FailMessage string `json:"fail_message,omitempty"`
+	Remediation string `json:"remediation,omitempty"`
+}
+
 // ViolatedAsset is a K8s asset that violates one or more rules under an ISMS-P item.
 type ViolatedAsset struct {
-	Kind          string   `json:"kind"`                    // Pod | ServiceAccount | Namespace | Ingress | Service | Node
-	Name          string   `json:"name"`
-	Namespace     string   `json:"namespace,omitempty"`
-	ViolatedRules []string `json:"violated_rules"`          // rule_id list
+	Kind          string             `json:"kind"`                    // Pod | ServiceAccount | Namespace | Ingress | Service | Node
+	Name          string             `json:"name"`
+	Namespace     string             `json:"namespace,omitempty"`
+	ViolatedRules []ViolatedRuleInfo `json:"violated_rules"`
 }
 
 // ItemComplianceResult holds compliance results for a single ISMS-P item.

@@ -363,21 +363,28 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 				Violations:        rr.Violations,
 				MatchedIndicators: rr.MatchedIndicators,
 				SkipReason:        rr.SkipReason,
+				FailMessage:       rr.FailMessage,
+				Remediation:       rr.Remediation,
 				JudgmentMode:      "auto",
 			}
 			it.ruleResults = append(it.ruleResults, grr)
 
 			// If failed, record the pod as a violated asset
 			if rr.Verdict == "미준수" {
+				ri := grc.ViolatedRuleInfo{
+					RuleID:      rr.RuleID,
+					FailMessage: rr.FailMessage,
+					Remediation: rr.Remediation,
+				}
 				assetKey := fmt.Sprintf("Pod/%s/%s", pod.Namespace, pod.Name)
 				if a, ok := it.assets[assetKey]; ok {
-					a.ViolatedRules = append(a.ViolatedRules, rr.RuleID)
+					a.ViolatedRules = append(a.ViolatedRules, ri)
 				} else {
 					it.assets[assetKey] = &grc.ViolatedAsset{
 						Kind:          "Pod",
 						Name:          pod.Name,
 						Namespace:     pod.Namespace,
-						ViolatedRules: []string{rr.RuleID},
+						ViolatedRules: []grc.ViolatedRuleInfo{ri},
 					}
 				}
 			}
@@ -409,16 +416,21 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 
 		// If finding matched (potential issue), record affected resources
 		if fr.Verdict == "검토필요" || fr.Verdict == "미준수" {
+			ri := grc.ViolatedRuleInfo{
+				RuleID:      fr.RuleID,
+				FailMessage: fr.FailMessage,
+				Remediation: fr.Remediation,
+			}
 			for _, ar := range fr.AffectedResources {
 				assetKey := fmt.Sprintf("%s/%s/%s", ar.Kind, ar.Namespace, ar.Name)
 				if a, ok := it.assets[assetKey]; ok {
-					a.ViolatedRules = append(a.ViolatedRules, fr.RuleID)
+					a.ViolatedRules = append(a.ViolatedRules, ri)
 				} else {
 					it.assets[assetKey] = &grc.ViolatedAsset{
 						Kind:          ar.Kind,
 						Name:          ar.Name,
 						Namespace:     ar.Namespace,
-						ViolatedRules: []string{fr.RuleID},
+						ViolatedRules: []grc.ViolatedRuleInfo{ri},
 					}
 				}
 			}
@@ -488,6 +500,13 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 
 	log.Printf("[cluster-compliance] done: %d items, %d compliant, %d non-compliant, %d needs-review",
 		result.TotalItems, result.CompliantItems, result.NonCompliantItems, result.NeedsReviewItems)
+
+	// 8. Persist to DB
+	if id, err := s.repo.SaveClusterComplianceResult(ctx, result); err != nil {
+		log.Printf("[cluster-compliance] DB save failed: %v", err)
+	} else {
+		log.Printf("[cluster-compliance] saved id=%d", id)
+	}
 
 	return result, nil
 }
@@ -685,6 +704,173 @@ func (s *GRCService) GetPodCompliance(ctx context.Context, companyID, clusterNam
 	}
 	// If no pod graph eval exists yet, rule_compliance stays zero-valued (acceptable).
 
+	return result, nil
+}
+
+// ── ISMS-P 항목별 위반 자산 조회 ──
+
+// ISMSPItemViolationsResult is the response for GET /compliance/items/:item_id/violations.
+type ISMSPItemViolationsResult struct {
+	ISMSPItemID    string              `json:"isms_p_item_id"`
+	ISMSPItemName  string              `json:"isms_p_item_name"`
+	CompanyID      string              `json:"company_id"`
+	ClusterName    string              `json:"cluster_name"`
+	TotalViolated  int                 `json:"total_violated_assets"`
+	ViolatedAssets []grc.ViolatedAsset `json:"violated_assets"`
+}
+
+// GetISMSPItemViolations returns pods violating rules under a specific ISMS-P item.
+func (s *GRCService) GetISMSPItemViolations(ctx context.Context, companyID, clusterName, ismspItemID string) (*ISMSPItemViolationsResult, error) {
+	if companyID == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
+	}
+	if clusterName == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "cluster_name 필수", HTTPStatus: 400}
+	}
+	if ismspItemID == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "item_id 필수", HTTPStatus: 400}
+	}
+
+	rows, err := s.repo.GetViolatedAssetsByISMSPItem(ctx, companyID, clusterName, ismspItemID)
+	if err != nil {
+		return nil, fmt.Errorf("query violated assets: %w", err)
+	}
+
+	result := &ISMSPItemViolationsResult{
+		ISMSPItemID: ismspItemID,
+		CompanyID:   companyID,
+		ClusterName: clusterName,
+	}
+	for _, row := range rows {
+		if result.ISMSPItemName == "" && row.ISMSPItemName != "" {
+			result.ISMSPItemName = row.ISMSPItemName
+		}
+		var ruleInfos []grc.ViolatedRuleInfo
+		for _, rid := range row.ViolatedRules {
+			ri := grc.ViolatedRuleInfo{RuleID: rid}
+			nid := strings.Replace(rid, "-POD-", "-", 1)
+			if info, ok := podRuleFailInfo[nid]; ok {
+				ri.FailMessage = info.failMessage
+				ri.Remediation = info.remediation
+			}
+			ruleInfos = append(ruleInfos, ri)
+		}
+		result.ViolatedAssets = append(result.ViolatedAssets, grc.ViolatedAsset{
+			Kind:          "Pod",
+			Name:          row.PodName,
+			Namespace:     row.Namespace,
+			ViolatedRules: ruleInfos,
+		})
+	}
+	result.TotalViolated = len(result.ViolatedAssets)
+	return result, nil
+}
+
+// ── Pod별 위반 ISMS-P 항목 조회 ──
+
+// PodViolatedISMSPItem holds violations for a single ISMS-P item from a pod's perspective.
+type PodViolatedISMSPItem struct {
+	ISMSPItemID   string          `json:"isms_p_item_id"`
+	ISMSPItemName string          `json:"isms_p_item_name"`
+	TotalRules    int             `json:"total_rules"`
+	Passed        int             `json:"passed"`
+	Failed        int             `json:"failed"`
+	Skipped       int             `json:"skipped"`
+	FailedRules   []PodRuleResult `json:"failed_rules"`
+}
+
+// PodViolationsResult is the response for GET /compliance/pods/:pod_name/violations.
+type PodViolationsResult struct {
+	PodName            string                 `json:"pod_name"`
+	Namespace          string                 `json:"namespace"`
+	ClusterName        string                 `json:"cluster_name"`
+	OverallVerdict     string                 `json:"overall_verdict"`
+	EvaluatedAt        string                 `json:"evaluated_at"`
+	TotalViolatedItems int                    `json:"total_violated_items"`
+	ViolatedItems      []PodViolatedISMSPItem `json:"violated_items"`
+}
+
+// GetPodViolations returns ISMS-P items that a specific pod violates.
+func (s *GRCService) GetPodViolations(ctx context.Context, companyID, clusterName, namespace, podName string) (*PodViolationsResult, error) {
+	if companyID == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
+	}
+	if clusterName == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "cluster_name 필수", HTTPStatus: 400}
+	}
+	if podName == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "pod_name 필수", HTTPStatus: 400}
+	}
+
+	// 1. Get latest evaluation metadata
+	evalItem, err := s.repo.GetLatestPodGraphEvalByPod(ctx, companyID, clusterName, namespace, podName)
+	if err != nil {
+		return nil, &GRCError{Code: "NOT_FOUND", Message: fmt.Sprintf("Pod 평가 결과 없음: %v", err), HTTPStatus: 404}
+	}
+
+	// 2. Get full rule_results
+	_, ruleResultsRaw, err := s.repo.GetPodGraphEvaluation(ctx, evalItem.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get rule results: %w", err)
+	}
+
+	// 3. Unmarshal rule results
+	var ruleResults []PodRuleResult
+	if err := json.Unmarshal(ruleResultsRaw, &ruleResults); err != nil {
+		return nil, fmt.Errorf("unmarshal rule_results: %w", err)
+	}
+
+	// 4. Group by ISMS-P item
+	type itemAccum struct {
+		name    string
+		passed  int
+		failed  int
+		skipped int
+		total   int
+		fails   []PodRuleResult
+	}
+	itemMap := map[string]*itemAccum{}
+	for _, rr := range ruleResults {
+		acc, ok := itemMap[rr.ISMSPItem]
+		if !ok {
+			acc = &itemAccum{name: rr.ISMSPItemName}
+			itemMap[rr.ISMSPItem] = acc
+		}
+		acc.total++
+		switch rr.Verdict {
+		case "준수":
+			acc.passed++
+		case "미준수":
+			acc.failed++
+			acc.fails = append(acc.fails, rr)
+		default:
+			acc.skipped++
+		}
+	}
+
+	// 5. Build result (only items with failures)
+	result := &PodViolationsResult{
+		PodName:        evalItem.PodName,
+		Namespace:      evalItem.Namespace,
+		ClusterName:    evalItem.ClusterName,
+		OverallVerdict: evalItem.OverallVerdict,
+		EvaluatedAt:    evalItem.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	}
+	for itemID, acc := range itemMap {
+		if acc.failed == 0 {
+			continue
+		}
+		result.ViolatedItems = append(result.ViolatedItems, PodViolatedISMSPItem{
+			ISMSPItemID:   itemID,
+			ISMSPItemName: acc.name,
+			TotalRules:    acc.total,
+			Passed:        acc.passed,
+			Failed:        acc.failed,
+			Skipped:       acc.skipped,
+			FailedRules:   acc.fails,
+		})
+	}
+	result.TotalViolatedItems = len(result.ViolatedItems)
 	return result, nil
 }
 
@@ -896,9 +1082,11 @@ func (s *GRCService) ListEvidence(ctx context.Context, checkID string) ([]grc.Ev
 // ── Guidelines (지침) ──
 
 // UploadGuideline saves a guideline file, extracts text, generates embedding, and persists.
+// ismspItemID가 nil이면 회사 공용 지침으로 저장 (모든 항목 점검 시 자동 포함).
 func (s *GRCService) UploadGuideline(
 	ctx context.Context,
-	companyID, ismspItemID string,
+	companyID string,
+	ismspItemID *string,
 	fh *multipart.FileHeader,
 ) (*grc.Guideline, error) {
 	// Validate file extension.
@@ -913,7 +1101,11 @@ func (s *GRCService) UploadGuideline(
 	}
 
 	// Save file to storage.
-	guidelineDir := filepath.Join(s.storagePath, companyID, "guidelines", ismspItemID)
+	subDir := "_common"
+	if ismspItemID != nil {
+		subDir = *ismspItemID
+	}
+	guidelineDir := filepath.Join(s.storagePath, companyID, "guidelines", subDir)
 	if err := os.MkdirAll(guidelineDir, 0o755); err != nil {
 		return nil, fmt.Errorf("지침 디렉토리 생성 실패: %w", err)
 	}
@@ -971,8 +1163,12 @@ func (s *GRCService) UploadGuideline(
 		return nil, fmt.Errorf("지침 DB 저장 실패: %w", err)
 	}
 
+	itemLabel := "_common"
+	if ismspItemID != nil {
+		itemLabel = *ismspItemID
+	}
 	log.Printf("[grc-guideline] uploaded %s for %s/%s (id=%d, text=%d chars, emb=%d dims)",
-		fh.Filename, companyID, ismspItemID, g.ID, len(g.ExtractedText), len(g.Embedding))
+		fh.Filename, companyID, itemLabel, g.ID, len(g.ExtractedText), len(g.Embedding))
 
 	return g, nil
 }

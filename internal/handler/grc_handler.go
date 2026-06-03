@@ -203,10 +203,9 @@ func (h *GRCHandler) UploadGuideline(c *gin.Context) {
 		return
 	}
 
-	ismspItemID := c.PostForm("isms_p_item_id")
-	if ismspItemID == "" {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "isms_p_item_id 필수")
-		return
+	var ismspItemIDPtr *string
+	if v := c.PostForm("isms_p_item_id"); v != "" {
+		ismspItemIDPtr = &v
 	}
 
 	file, err := c.FormFile("file")
@@ -215,7 +214,7 @@ func (h *GRCHandler) UploadGuideline(c *gin.Context) {
 		return
 	}
 
-	g, err := h.svc.UploadGuideline(c.Request.Context(), companyID, ismspItemID, file)
+	g, err := h.svc.UploadGuideline(c.Request.Context(), companyID, ismspItemIDPtr, file)
 	if err != nil {
 		if ge, ok := err.(*service.GRCError); ok {
 			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
@@ -686,6 +685,67 @@ func (h *GRCHandler) GetPodCompliance(c *gin.Context) {
 	namespace := c.Query("namespace")
 
 	result, err := h.svc.GetPodCompliance(c.Request.Context(), companyID, clusterName, namespace, podName)
+	if err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// GET /compliance/items/:item_id/violations
+func (h *GRCHandler) GetISMSPItemViolations(c *gin.Context) {
+	itemID := c.Param("item_id")
+	if itemID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "item_id 필수")
+		return
+	}
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+	clusterName := c.Query("cluster_name")
+	if clusterName == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "cluster_name 필수")
+		return
+	}
+
+	result, err := h.svc.GetISMSPItemViolations(c.Request.Context(), companyID, clusterName, itemID)
+	if err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// GET /compliance/pods/:pod_name/violations
+func (h *GRCHandler) GetPodViolations(c *gin.Context) {
+	podName := c.Param("pod_name")
+	if podName == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "pod_name 필수")
+		return
+	}
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+	clusterName := c.Query("cluster_name")
+	if clusterName == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "cluster_name 필수")
+		return
+	}
+	namespace := c.Query("namespace")
+
+	result, err := h.svc.GetPodViolations(c.Request.Context(), companyID, clusterName, namespace, podName)
 	if err != nil {
 		if ge, ok := err.(*service.GRCError); ok {
 			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)

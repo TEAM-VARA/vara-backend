@@ -224,6 +224,10 @@ func newRouter(
 		// ── Pod Compliance (변경 3-A: Pod 상세 뷰) ──
 		api.GET("/compliance/pods/:pod_name/compliance", grc.GetPodCompliance)
 
+		// ── ISMS-P 항목별 위반 자산 + Pod별 위반 항목 조회 ──
+		api.GET("/compliance/items/:item_id/violations", grc.GetISMSPItemViolations)
+		api.GET("/compliance/pods/:pod_name/violations", grc.GetPodViolations)
+
 		// ── Backward-compat aliases (deprecated) ──
 		api.POST("/compliance/check", grc.CreateCheck)
 		api.GET("/compliance/check/:check_id", grc.GetCheck)

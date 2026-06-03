@@ -120,6 +120,10 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 			if strings.HasPrefix(rule.RuleID, "F-") {
 				continue
 			}
+			// Skip non-POD rules from unified rulesets (e.g. R-1.2.1-01 duplicates R-1.2.1-POD-01)
+			if !strings.Contains(rule.RuleID, "-POD-") {
+				continue
+			}
 			rr := evaluatePodRule(rule, rs.Item.ID, rs.Item.Name, req)
 			result.RuleResults = append(result.RuleResults, rr)
 			log.Printf("[pod-graph] rule=%s verdict=%s", rule.RuleID, rr.Verdict)
@@ -189,6 +193,74 @@ func (s *GRCService) GetPodGraphEvaluation(ctx context.Context, id int64) (*grc.
 	return s.repo.GetPodGraphEvaluation(ctx, id)
 }
 
+// ruleFailInfo holds the fail message and remediation for a rule.
+type ruleFailInfo struct {
+	failMessage string
+	remediation string
+}
+
+// podRuleFailInfo maps canonical rule IDs (without -POD-) to their fail/remediation messages.
+var podRuleFailInfo = map[string]ruleFailInfo{
+	// 1.2.1 정보자산 식별
+	"R-1.2.1-01": {"Namespace에 필수 자산 분류 라벨(data-classification, isms-p/owner, isms-p/criticality) 누락", "Namespace에 data-classification, isms-p/owner, isms-p/criticality 라벨을 추가하세요"},
+	"R-1.2.1-02": {"자산 분류 정책 ConfigMap이 없거나 1년 이내 갱신되지 않음", "자산 분류 기준서 ConfigMap을 생성하고 policy-version, approved-by, approved-at annotation과 함께 1년 이내 갱신 상태를 유지하세요"},
+	// 1.2.2 현황 및 흐름분석
+	"R-1.2.2-01": {"ExternalName Service에 외부 의존성 라벨(isms-p/external-dep) 미부여", "ExternalName Service에 isms-p/external-dep 라벨을 추가하여 외부 의존성을 명시하세요"},
+	"R-1.2.2-02": {"Ingress에 흐름도 등록 annotation(isms-p/flow-registered) 부재", "Ingress에 isms-p/flow-registered annotation을 추가하여 데이터 흐름을 문서화하세요"},
+	// 2.1.3 정보자산 관리
+	"R-2.1.3-01": {"Workload에 소유자 annotation(isms-p/owner) 미부여", "Workload에 isms-p/owner annotation을 추가하여 자산 책임자를 명시하세요"},
+	"R-2.1.3-02": {"Pod에 보안 등급 라벨(isms-p/security-class) 미부여", "Pod에 isms-p/security-class 라벨을 추가하여 보안 등급을 명시하세요"},
+	// 2.5.1 사용자 계정 관리
+	"R-2.5.1-01": {"Pod이 default ServiceAccount를 사용 중", "Pod에 전용 ServiceAccount를 생성하여 할당하고 automountServiceAccountToken을 필요한 경우에만 활성화하세요"},
+	"R-2.5.1-02": {"ServiceAccount에 소유자 라벨(isms-p/owner) 미부여", "ServiceAccount에 isms-p/owner 라벨을 추가하여 관리 책임자를 명시하세요"},
+	"R-2.5.1-03": {"여러 팀/네임스페이스에서 동일 ServiceAccount를 공유하여 사용 중", "팀별·용도별 전용 ServiceAccount를 분리하여 사용하세요"},
+	// 2.5.2 사용자 식별
+	"R-2.5.2-01": {"예측 가능한 ServiceAccount 이름 사용(default, admin 등)", "ServiceAccount 이름에 팀/용도를 포함하여 고유하게 지정하세요"},
+	"R-2.5.2-02": {"일반적(generic) ServiceAccount 이름 패턴 사용", "admin, default, system 등 일반적인 이름 대신 app-name-sa 형식의 용도별 고유 이름을 사용하세요"},
+	// 2.5.5 특수 계정 및 권한 관리
+	"R-2.5.5-01": {"ServiceAccount에 과도한 권한(cluster-admin, wildcard 등) 부여됨", "최소 권한 원칙에 따라 RBAC Role/ClusterRole을 세분화하고 불필요한 권한을 제거하세요"},
+	"R-2.5.5-02": {"위험한 verb 조합(escalate, bind, impersonate 등) 감지", "escalate, bind, impersonate 등 위험 verb를 제거하고 필요 최소한의 권한만 부여하세요"},
+	// 2.6.1 네트워크 접근
+	"R-2.6.1-01": {"Pod이 hostNetwork, hostPID 또는 hostIPC를 사용 중", "Pod spec에서 hostNetwork, hostPID, hostIPC를 false로 설정하세요"},
+	"R-2.6.1-02": {"Pod에 적용되는 NetworkPolicy 없음", "Pod에 적용되는 Ingress/Egress NetworkPolicy를 생성하여 네트워크 접근을 통제하세요"},
+	"R-2.6.1-03": {"클러스터에 CNI 플러그인 DaemonSet 미감지", "클러스터에 CNI 플러그인(Calico, Cilium 등)이 설치되어 NetworkPolicy가 적용 가능한지 확인하세요"},
+	"R-2.6.1-04": {"다른 네임스페이스로의 네트워크 트래픽 감지", "NetworkPolicy로 교차 네임스페이스 트래픽을 제한하여 네트워크 분리를 강화하세요"},
+	// 2.6.3 응용프로그램 접근
+	"R-2.6.3-01": {"Ingress에 인증 설정(auth-url, auth-type 등) 부재", "Ingress에 인증 annotation(nginx.ingress.kubernetes.io/auth-url 등)을 추가하세요"},
+	"R-2.6.3-02": {"서비스 간 mTLS 미적용", "서비스 메시(Istio, Linkerd 등)를 통해 mTLS를 활성화하거나 sidecar injection을 설정하세요"},
+	// 2.6.7 인터넷 접속 통제
+	"R-2.6.7-01": {"Pod에 Egress NetworkPolicy 미적용", "Pod에 Egress NetworkPolicy를 적용하여 외부 인터넷 접속을 통제하세요"},
+	// 2.7.1 암호정책 적용
+	"R-2.7.1-01": {"Secret이 etcd에 암호화되지 않은 상태로 저장될 수 있음", "etcd 저장 시 Secret 암호화(EncryptionConfiguration)를 활성화하세요"},
+	"R-2.7.1-02": {"ConfigMap에 비밀번호, API 키 등 민감 정보 포함 의심", "ConfigMap에서 민감 정보를 제거하고 Secret 리소스로 이동하세요"},
+	"R-2.7.1-03": {"Ingress에 TLS 설정 미적용", "Ingress에 TLS 인증서를 설정하여 HTTPS 통신을 보장하세요"},
+	"R-2.7.1-04": {"Ingress에 TLS 설정 미적용", "Ingress에 TLS 인증서를 설정하여 HTTPS 통신을 보장하세요"},
+	// 2.8.3 시험과 운영 환경 분리
+	"R-2.8.3-01": {"Workload에 환경 구분 라벨(isms-p/env) 미부여", "Workload에 isms-p/env 라벨(production, staging, development)을 추가하여 환경을 구분하세요"},
+	"R-2.8.3-02": {"하나의 네임스페이스에 서로 다른 환경의 워크로드가 혼합 배치됨", "production과 staging/development 워크로드를 별도 네임스페이스로 분리하세요"},
+	"R-2.8.3-03": {"다른 환경의 Secret을 교차 참조하고 있음", "환경별 Secret을 분리하여 교차 환경 참조를 제거하세요"},
+	// 2.9.1 변경관리
+	"R-2.9.1-01": {"Deployment에 변경 사유 annotation(kubernetes.io/change-cause) 부재", "Deployment에 kubernetes.io/change-cause annotation을 추가하여 변경 이력을 관리하세요"},
+	"R-2.9.1-02": {"revisionHistoryLimit이 미설정이거나 부적절한 값", "Deployment의 revisionHistoryLimit을 적정 수준(5~10)으로 설정하여 롤백 이력을 관리하세요"},
+	// 2.10.2 클라우드 보안
+	"R-2.10.2-08": {"Namespace에 Pod Security Admission(PSA) 라벨 미설정", "Namespace에 pod-security.kubernetes.io/enforce 라벨을 추가하여 Pod 보안 기준을 적용하세요"},
+	// 2.10.3 공개서버 보안
+	"R-2.10.3-01": {"LoadBalancer Service에 sourceRanges 미설정으로 모든 IP에서 접근 가능", "LoadBalancer Service에 spec.loadBalancerSourceRanges를 설정하여 접근 IP를 제한하세요"},
+	"R-2.10.3-02": {"Ingress에 WAF(Web Application Firewall) annotation 미설정", "Ingress에 WAF annotation을 추가하여 웹 공격으로부터 보호하세요"},
+	"R-2.10.3-03": {"NodePort Service에 노출 검토 라벨(isms-p/exposure-reviewed) 미부여", "NodePort Service에 isms-p/exposure-reviewed 라벨을 추가하여 보안 검토 완료를 명시하세요"},
+	"R-2.10.3-04": {"Ingress에 Rate Limit 설정 미적용", "Ingress에 rate-limiting annotation을 추가하여 요청 빈도를 제한하세요"},
+	"R-2.10.3-05": {"LoadBalancer Service에 노출 검토 라벨(isms-p/exposure-reviewed) 미부여", "LoadBalancer Service에 isms-p/exposure-reviewed 라벨을 추가하여 보안 검토 완료를 명시하세요"},
+	// 2.10.5 정보전송 보안
+	"R-2.10.5-01": {"외부 노출 Ingress에 TLS 미설정으로 평문 통신 위험", "외부 노출 Ingress에 TLS 인증서를 설정하여 전송 구간 암호화를 보장하세요"},
+	"R-2.10.5-03": {"ExternalName Service가 평문(HTTP) 프로토콜 사용", "ExternalName Service의 대상을 HTTPS 엔드포인트로 변경하세요"},
+	// 2.10.8 패치관리
+	"R-2.10.8-01": {"Node의 kubelet 버전이 오래되어 보안 패치 적용이 필요함", "Node의 kubelet을 최신 안정 버전으로 업데이트하세요"},
+	"R-2.10.8-02": {"컨테이너 이미지에 변경 가능한 태그(latest 등) 사용", "이미지 태그에 고정 버전(예: v1.2.3)을 사용하여 배포 일관성을 보장하세요"},
+	"R-2.10.8-03": {"컨테이너 이미지에 digest(@sha256:...) 미지정", "이미지 참조에 @sha256:... digest를 포함하여 이미지 무결성을 보장하세요"},
+	// 2.11.3 이상행위 분석 및 모니터링
+	"R-2.11.3-01": {"프로덕션 환경 Pod에서 대화형 셸(exec) 실행 감지", "프로덕션 Pod에서 대화형 셸 실행을 제한하는 OPA/Kyverno 정책을 적용하세요"},
+}
+
 // evaluatePodRule dispatches to the appropriate rule evaluator by rule_id.
 func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphRequest) PodRuleResult {
 	base := PodRuleResult{
@@ -198,111 +270,122 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		ISMSPItemName: ismspItemName,
 	}
 
+	var result PodRuleResult
 	switch rule.RuleID {
 	// 1.2.1 정보자산 식별
 	case "R-1.2.1-POD-01", "R-1.2.1-01":
-		return evalNamespaceLabels(rule, req, base)
+		result = evalNamespaceLabels(rule, req, base)
 	case "R-1.2.1-POD-02", "R-1.2.1-02":
-		return evalAssetClassificationPolicy(rule, req, base)
+		result = evalAssetClassificationPolicy(rule, req, base)
 	// 1.2.2 현황 및 흐름분석
 	case "R-1.2.2-POD-01", "R-1.2.2-01":
-		return evalExternalDepLabel(rule, req, base)
+		result = evalExternalDepLabel(rule, req, base)
 	case "R-1.2.2-POD-02", "R-1.2.2-02":
-		return evalIngressFlowRegistered(rule, req, base)
+		result = evalIngressFlowRegistered(rule, req, base)
 	// 2.1.3 정보자산 관리
 	case "R-2.1.3-POD-01", "R-2.1.3-01":
-		return evalWorkloadOwnerAnnotation(rule, req, base)
+		result = evalWorkloadOwnerAnnotation(rule, req, base)
 	case "R-2.1.3-POD-02", "R-2.1.3-02":
-		return evalSecurityClassLabel(rule, req, base)
+		result = evalSecurityClassLabel(rule, req, base)
 	// 2.5.1 사용자 계정 관리
 	case "R-2.5.1-POD-01", "R-2.5.1-01":
-		return evalDefaultServiceAccount(rule, req, base)
+		result = evalDefaultServiceAccount(rule, req, base)
 	case "R-2.5.1-POD-02", "R-2.5.1-02":
-		return evalSAOwnerLabel(rule, req, base)
+		result = evalSAOwnerLabel(rule, req, base)
 	case "R-2.5.1-POD-03", "R-2.5.1-03":
-		return evalCrossTeamSASharing(rule, req, base)
+		result = evalCrossTeamSASharing(rule, req, base)
 	// 2.5.2 사용자 식별
 	case "R-2.5.2-POD-01", "R-2.5.2-01":
-		return evalPredictableSAName(rule, req, base)
+		result = evalPredictableSAName(rule, req, base)
 	case "R-2.5.2-POD-02", "R-2.5.2-02":
-		return evalGenericSANamePattern(rule, req, base)
+		result = evalGenericSANamePattern(rule, req, base)
 	// 2.5.5 특수 계정 및 권한 관리
 	case "R-2.5.5-POD-01", "R-2.5.5-01":
-		return evalServiceAccountPrivileges(rule, req, base)
+		result = evalServiceAccountPrivileges(rule, req, base)
 	case "R-2.5.5-POD-02", "R-2.5.5-02":
-		return evalDangerousVerbCombos(rule, req, base)
+		result = evalDangerousVerbCombos(rule, req, base)
 	// 2.6.1 네트워크 접근
 	case "R-2.6.1-POD-01", "R-2.6.1-01":
-		return evalHostNamespace(rule, req, base)
+		result = evalHostNamespace(rule, req, base)
 	case "R-2.6.1-POD-02", "R-2.6.1-02":
-		return evalNetworkPolicy(rule, req, base)
+		result = evalNetworkPolicy(rule, req, base)
 	case "R-2.6.1-POD-03", "R-2.6.1-03":
-		return evalCNIDaemonSet(rule, req, base)
+		result = evalCNIDaemonSet(rule, req, base)
 	case "R-2.6.1-POD-04", "R-2.6.1-04":
-		return evalCrossNSTraffic(rule, req, base)
+		result = evalCrossNSTraffic(rule, req, base)
 	// 2.6.3 응용프로그램 접근
 	case "R-2.6.3-POD-01", "R-2.6.3-01":
-		return evalIngressAuth(rule, req, base)
+		result = evalIngressAuth(rule, req, base)
 	case "R-2.6.3-POD-02", "R-2.6.3-02":
-		return evalMTLS(rule, req, base)
+		result = evalMTLS(rule, req, base)
 	// 2.6.7 인터넷 접속 통제
 	case "R-2.6.7-POD-01", "R-2.6.7-01":
-		return evalEgressPolicy(rule, req, base)
+		result = evalEgressPolicy(rule, req, base)
 	// 2.7.1 암호정책 적용
 	case "R-2.7.1-POD-01", "R-2.7.1-01":
-		return evalSecretEncryption(rule, req, base)
+		result = evalSecretEncryption(rule, req, base)
 	case "R-2.7.1-POD-02", "R-2.7.1-02":
-		return evalConfigMapSecrets(rule, req, base)
+		result = evalConfigMapSecrets(rule, req, base)
 	case "R-2.7.1-POD-03", "R-2.7.1-03":
-		return evalIngressTLS(rule, req, base)
+		result = evalIngressTLS(rule, req, base)
 	case "R-2.7.1-04":
-		return evalIngressTLS(rule, req, base) // TLS 관련 추가 룰
+		result = evalIngressTLS(rule, req, base) // TLS 관련 추가 룰
 	// 2.8.3 시험과 운영 환경 분리
 	case "R-2.8.3-POD-01", "R-2.8.3-01":
-		return evalWorkloadEnvLabel(rule, req, base)
+		result = evalWorkloadEnvLabel(rule, req, base)
 	case "R-2.8.3-POD-02", "R-2.8.3-02":
-		return evalNSEnvMixing(rule, req, base)
+		result = evalNSEnvMixing(rule, req, base)
 	case "R-2.8.3-POD-03", "R-2.8.3-03":
-		return evalCrossEnvSecretRef(rule, req, base)
+		result = evalCrossEnvSecretRef(rule, req, base)
 	// 2.9.1 변경관리
 	case "R-2.9.1-POD-01", "R-2.9.1-01":
-		return evalChangeCause(rule, req, base)
+		result = evalChangeCause(rule, req, base)
 	case "R-2.9.1-POD-02", "R-2.9.1-02":
-		return evalRevisionHistoryLimit(rule, req, base)
+		result = evalRevisionHistoryLimit(rule, req, base)
 	// 2.10.2 클라우드 보안
 	case "R-2.10.2-POD-08", "R-2.10.2-08":
-		return evalNamespacePSA(rule, req, base)
+		result = evalNamespacePSA(rule, req, base)
 	// 2.10.3 공개서버 보안
 	case "R-2.10.3-POD-01", "R-2.10.3-01":
-		return evalLBSourceRange(rule, req, base)
+		result = evalLBSourceRange(rule, req, base)
 	case "R-2.10.3-POD-02", "R-2.10.3-02":
-		return evalIngressWAF(rule, req, base)
+		result = evalIngressWAF(rule, req, base)
 	case "R-2.10.3-POD-03", "R-2.10.3-03":
-		return evalNodePortExposureLabel(rule, req, base)
+		result = evalNodePortExposureLabel(rule, req, base)
 	case "R-2.10.3-POD-04", "R-2.10.3-04":
-		return evalIngressRateLimit(rule, req, base)
+		result = evalIngressRateLimit(rule, req, base)
 	case "R-2.10.3-POD-05", "R-2.10.3-05":
-		return evalLBExposureLabel(rule, req, base)
+		result = evalLBExposureLabel(rule, req, base)
 	// 2.10.5 정보전송 보안
 	case "R-2.10.5-POD-01", "R-2.10.5-01":
-		return evalExternalIngressTLS(rule, req, base)
+		result = evalExternalIngressTLS(rule, req, base)
 	case "R-2.10.5-POD-03", "R-2.10.5-03":
-		return evalExternalNamePlaintext(rule, req, base)
+		result = evalExternalNamePlaintext(rule, req, base)
 	// 2.10.8 패치관리
 	case "R-2.10.8-POD-01", "R-2.10.8-01":
-		return evalNodeKubeletVersion(rule, req, base)
+		result = evalNodeKubeletVersion(rule, req, base)
 	case "R-2.10.8-POD-02", "R-2.10.8-02":
-		return evalImageTagMutable(rule, req, base)
+		result = evalImageTagMutable(rule, req, base)
 	case "R-2.10.8-POD-03", "R-2.10.8-03":
-		return evalImageDigest(rule, req, base)
+		result = evalImageDigest(rule, req, base)
 	// 2.11.3 이상행위 분석 및 모니터링
 	case "R-2.11.3-POD-01", "R-2.11.3-01":
-		return evalProdShellExec(rule, req, base)
+		result = evalProdShellExec(rule, req, base)
 	default:
 		base.Verdict = "skip"
 		base.SkipReason = fmt.Sprintf("알 수 없는 Pod 룰: %s", rule.RuleID)
 		return base
 	}
+
+	// 미준수 판정 시 FailMessage/Remediation 자동 부여
+	if result.Verdict == "미준수" {
+		nid := strings.Replace(rule.RuleID, "-POD-", "-", 1)
+		if info, ok := podRuleFailInfo[nid]; ok {
+			result.FailMessage = info.failMessage
+			result.Remediation = info.remediation
+		}
+	}
+	return result
 }
 
 // ─────────────────────────────────────────────
