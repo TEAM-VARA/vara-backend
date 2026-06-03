@@ -30,7 +30,7 @@ func normExpected(s string) string {
 	return strings.ToUpper(strings.TrimSpace(s))
 }
 
-// resolveRule returns the loaded Rule and its judgement_logic.type for a fixture rule reference.
+// resolveRule returns the loaded Rule and its judgment_logic.type for a fixture rule reference.
 func resolveRule(store *RulesetStore, ruleRef string) (*Rule, string) {
 	itemID, canonRuleID, err := ResolveItemAndRuleID(ruleRef)
 	if err != nil {
@@ -44,11 +44,11 @@ func resolveRule(store *RulesetStore, ruleRef string) (*Rule, string) {
 	if err != nil {
 		return nil, ""
 	}
-	return rule, rule.JudgementLogic.Type
+	return rule, rule.JudgmentLogic.Type
 }
 
 // buildSemanticCompliantPayload 는 semantic_match compliant 시나리오용 텍스트를 구성한다.
-// 실제 운영 환경에서는 OCR/텍스트 추출된 증적 문서에 identification_keywords 가 포함되므로,
+// 실제 운영 환경에서는 OCR/텍스트 추출된 증적 문서에 keywords 가 포함되므로,
 // 골든 테스트에서도 evidence_doc_sample + guideline_doc_sample + 룰 키워드를 결합한다.
 func buildSemanticCompliantPayload(f RuleFixtureFile, rule *Rule) string {
 	var parts []string
@@ -58,9 +58,9 @@ func buildSemanticCompliantPayload(f RuleFixtureFile, rule *Rule) string {
 	if f.EvidenceDocSample != "" {
 		parts = append(parts, f.EvidenceDocSample)
 	}
-	// 룰의 identification_keywords 를 텍스트에 포함시켜 키워드 매칭이 동작하도록 한다.
-	if rule != nil && len(rule.IdentificationKeywords) > 0 {
-		parts = append(parts, "식별 키워드: "+strings.Join(rule.IdentificationKeywords, ", "))
+	// 룰의 keywords 를 텍스트에 포함시켜 키워드 매칭이 동작하도록 한다.
+	if rule != nil && len(rule.Keywords) > 0 {
+		parts = append(parts, "식별 키워드: "+strings.Join(rule.Keywords, ", "))
 	}
 	return strings.Join(parts, "\n\n")
 }
@@ -120,7 +120,7 @@ func TestRuleFixturesGolden(t *testing.T) {
 
 					var payload any
 					// semantic_match compliant: evidence_doc_sample + guideline_doc_sample
-					// + identification_keywords 텍스트를 결합하여 키워드 매칭 보장.
+					// + keywords 텍스트를 결합하여 키워드 매칭 보장.
 					// 실제 운영에서는 OCR/텍스트 추출 결과에 이 키워드들이 자연스럽게 포함됨.
 					// non_compliant: JSON 데이터 그대로 (영어 키 → 키워드 불일치 → 미준수)
 					if ruleType == "semantic_match" && branch.label == "compliant" {

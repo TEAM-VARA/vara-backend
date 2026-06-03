@@ -78,6 +78,7 @@ func AssembleClusterPodGraph(
 			"serviceAccountName": pod.ServiceAccount,
 			"containers":         containers,
 			"volumes":            volumes,
+			"hostNetwork":        pod.HostNetwork,
 		},
 	}
 

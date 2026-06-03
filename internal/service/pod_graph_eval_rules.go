@@ -625,7 +625,16 @@ func evalCrossEnvSecretRef(_ Rule, req PodGraphRequest, base PodRuleResult) PodR
 				continue
 			}
 			secEnv := strVal(jsonMap(sec, "metadata", "labels")["env"])
-			if secEnv != "" && secEnv != podEnv {
+			if secEnv == "" {
+				violations = append(violations, grc.Violation{
+					Field:       "secret_env_label_missing",
+					Expected:    "env 라벨 존재",
+					Actual:      "env 라벨 없음",
+					Description: fmt.Sprintf("Secret '%s'에 env 라벨 미부여 — 환경 분리 검증 불가", secretName),
+					Severity:    "high",
+					K8sSource:   grc.K8sSource{Namespace: podNS, ResourceKind: "Secret", ResourceName: secretName},
+				})
+			} else if secEnv != podEnv {
 				violations = append(violations, grc.Violation{
 					Field:       "cross_env_secret_reference",
 					Expected:    fmt.Sprintf("Secret env == Pod env (%s)", podEnv),

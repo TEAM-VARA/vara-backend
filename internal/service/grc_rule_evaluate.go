@@ -27,7 +27,7 @@ func VerdictPassFail(verdict string) string {
 //   - semantic / regex / aggregated / code_pattern: JSON objects are marshaled to a string so
 //     keyword and regex matchers see log/policy text (EKS audit exports, etc.).
 func CanonicalEvidenceForRule(rule Rule, payload any) []any {
-	switch rule.JudgementLogic.Type {
+	switch rule.JudgmentLogic.Type {
 	case "structured_match":
 		if m, ok := payload.(map[string]any); ok {
 			return []any{m}
@@ -69,5 +69,5 @@ func (s *GRCService) EvaluateRuleWithEvidence(ctx context.Context, ruleRef strin
 		filenames = []string{"inline"}
 	}
 	data := CanonicalEvidenceForRule(*rule, evidencePayload)
-	return s.evaluateRule(ctx, *rule, data, filenames), nil
+	return s.evaluateRule(ctx, *rule, data, filenames, nil), nil
 }

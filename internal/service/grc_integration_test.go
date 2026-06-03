@@ -82,7 +82,7 @@ func TestMatchEvidenceToRule_K8sSourcePreserved(t *testing.T) {
 			},
 		},
 	}
-	rule := Rule{RuleID: "R005", CheckCategory: "정책_시스템_설정"}
+	rule := Rule{RuleID: "R005"}
 	matched := matchEvidenceToRule(files, rule, nil)
 	if len(matched) != 1 {
 		t.Fatalf("matched len = %d", len(matched))
@@ -108,7 +108,7 @@ func TestMatchEvidenceToRule_TargetRuleIDs_K8sSource(t *testing.T) {
 			},
 		},
 	}
-	rule := Rule{RuleID: "R005", CheckCategory: "정책_시스템_설정"}
+	rule := Rule{RuleID: "R005"}
 	matched := matchEvidenceToRule(files, rule, nil)
 	if len(matched) != 1 {
 		t.Fatalf("matched len = %d", len(matched))
@@ -159,7 +159,7 @@ func TestEndToEnd_K8sAttributionInRecommendation(t *testing.T) {
 	// 4. Generate recommendations
 	ruleset := &Ruleset{
 		Rules: []Rule{
-			{RuleID: "R005", CheckCategory: "정책_시스템_설정"},
+			{RuleID: "R005"},
 		},
 		LegalRefs: []LegalReference{
 			{Law: "개인정보의 안전성 확보조치 기준", Article: "제5조제5항"},
@@ -240,7 +240,7 @@ func TestAggregateSummary_Empty(t *testing.T) {
 func TestIsAccountViolation_FieldMatch(t *testing.T) {
 	record := map[string]string{"days_since_change": "200"}
 	rule := Rule{
-		DeficiencyIndicators: []Indicator{
+		ComplianceIndicators: []Indicator{
 			{Field: "days_since_change", Op: ">", Value: float64(180)},
 		},
 	}
@@ -252,7 +252,7 @@ func TestIsAccountViolation_FieldMatch(t *testing.T) {
 func TestIsAccountViolation_FieldNoMatch(t *testing.T) {
 	record := map[string]string{"days_since_change": "30"}
 	rule := Rule{
-		DeficiencyIndicators: []Indicator{
+		ComplianceIndicators: []Indicator{
 			{Field: "days_since_change", Op: ">", Value: float64(180)},
 		},
 	}
@@ -264,7 +264,7 @@ func TestIsAccountViolation_FieldNoMatch(t *testing.T) {
 func TestIsAccountViolation_PatternMatch(t *testing.T) {
 	record := map[string]string{"status": "inactive_user"}
 	rule := Rule{
-		DeficiencyIndicators: []Indicator{
+		ComplianceIndicators: []Indicator{
 			{Pattern: "inactive"},
 		},
 	}

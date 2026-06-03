@@ -101,21 +101,39 @@ type EvidenceFile struct {
 
 // ── 룰 평가 결과 ──
 
-// RuleResult holds the evaluation result for a single rule.
+// RuleResult holds the evaluation result for a single rule (auto or manual).
 type RuleResult struct {
 	ID                int64       `json:"-"`
 	CheckID           string      `json:"-"`
 	RuleID            string      `json:"rule_id"`
+	ISMSPItemID       string      `json:"isms_p_item_id,omitempty"`
 	CheckCategory     string      `json:"check_category"`
 	EvidenceType      string      `json:"evidence_type"`
 	System            string      `json:"system"`
-	Verdict           string                `json:"verdict"` // 준수 | 미준수 | skipped
+	Verdict           string                `json:"verdict"` // 준수 | 미준수 | skipped (auto); "" (manual)
 	EvidenceFiles     []string              `json:"evidence_files"`
 	EvidenceSources   []EvidenceAttribution `json:"evidence_sources,omitempty"`
 	MatchedIndicators []string              `json:"matched_indicators,omitempty"`
 	Violations          []Violation           `json:"violations,omitempty"`
 	SkipReason          string                `json:"skip_reason,omitempty"`
 	EmbeddingSimilarity *float64              `json:"embedding_similarity,omitempty"`
+
+	// ── 통합 manual 판정 필드 ──
+	// judgment_mode: "auto" (기본값, 기존 R-rule) | "manual" (기존 F-finding)
+	JudgmentMode          string          `json:"judgment_mode,omitempty"`
+	VerdictType           string          `json:"verdict_type,omitempty"` // compliant_indicator | potential_finding | needs_review
+	Matched               bool            `json:"matched"`                // manual 룰: 조건 매칭 여부; auto 룰: 무시
+	Observation           string          `json:"observation,omitempty"`
+	Evidence              map[string]any  `json:"evidence,omitempty"`
+	AffectedResources     []AffectedResource `json:"affected_resources,omitempty"`
+	ManualCheckAreas      json.RawMessage `json:"manual_check_areas,omitempty"`
+	AdditionalReviewItems json.RawMessage `json:"additional_review_items,omitempty"`
+	AutomationCoverage    json.RawMessage `json:"automation_coverage,omitempty"`
+	AlternativeControls   json.RawMessage `json:"alternative_controls,omitempty"`
+	ComplianceMappings    json.RawMessage `json:"compliance_mappings,omitempty"`
+	KisaDefectCaseRefs    json.RawMessage `json:"kisa_defect_case_refs,omitempty"`
+	Deferred              bool            `json:"deferred,omitempty"`
+	DeferredReason        string          `json:"deferred_reason,omitempty"`
 }
 
 // Violation describes a single compliance failure.
@@ -149,6 +167,7 @@ type Summary struct {
 	TotalRules        int    `json:"total_rules"`
 	Passed            int    `json:"passed"`
 	Failed            int    `json:"failed"`
+	NeedsReview       int    `json:"needs_review"`
 	Skipped           int    `json:"skipped"`
 	EvidenceCollected int    `json:"evidence_collected"`
 	SummaryText       string `json:"summary_text,omitempty"`
@@ -302,75 +321,71 @@ type PodGraphEvalListItem struct {
 	TotalRules     int       `json:"total_rules"`
 	Passed         int       `json:"passed"`
 	Failed         int       `json:"failed"`
+	NeedsReview    int       `json:"needs_review"`
 	Skipped        int       `json:"skipped"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-// ── Finding (컴플라이언스 점검 보조 도구 — F-X.X.X-K8S-NN) ──
-
-// Finding represents a compliance finding definition from compliance_findings table.
-type Finding struct {
-	FindingID             string          `json:"finding_id"`
-	ISMSPItemID           string          `json:"isms_p_item_id"`
-	Title                 string          `json:"title"`
-	VerdictType           string          `json:"verdict_type"` // compliant_indicator | potential_finding | needs_review
-	ObservationTemplate   string          `json:"observation_template"`
-	TargetResource        string          `json:"target_resource"`
-	RequiredData          json.RawMessage `json:"required_data"`
-	Condition             json.RawMessage `json:"condition"`
-	ComplianceMappings    json.RawMessage `json:"compliance_mappings"`
-	KisaDefectCaseRefs    json.RawMessage `json:"kisa_defect_case_refs,omitempty"`
-	AdditionalReviewItems json.RawMessage `json:"additional_review_items"`
-	ManualCheckAreas      json.RawMessage `json:"manual_check_areas,omitempty"`
-	AutomationCoverage    json.RawMessage `json:"automation_coverage,omitempty"`
-	K8sOnlyCheck          bool            `json:"k8s_only_check"`
-	AlternativeControls   json.RawMessage `json:"alternative_controls,omitempty"`
-	ExceptionConditions   json.RawMessage `json:"exception_conditions,omitempty"`
-	Enabled               bool            `json:"enabled"`
-	Deferred              bool            `json:"deferred"`
-	DeferredReason        string          `json:"deferred_reason,omitempty"`
-}
-
-// AffectedResource is a K8s resource affected by a finding evaluation.
+// AffectedResource is a K8s resource affected by a manual rule evaluation.
 type AffectedResource struct {
 	Kind      string `json:"kind"`                // Pod | ServiceAccount | Namespace | Ingress | Service | Node
 	Name      string `json:"name"`
 	Namespace string `json:"namespace,omitempty"`
 }
 
-// FindingResult is the evaluation output for a single finding.
-type FindingResult struct {
-	FindingID             string          `json:"finding_id"`
-	ISMSPItemID           string          `json:"isms_p_item_id"`
-	Title                 string          `json:"title"`
-	VerdictType           string          `json:"verdict_type"`
-	Matched               bool            `json:"matched"`
-	Observation           string          `json:"observation"`
-	Evidence              map[string]any  `json:"evidence,omitempty"`
-	ComplianceMappings    json.RawMessage `json:"compliance_mappings,omitempty"`
-	KisaDefectCaseRefs    json.RawMessage `json:"kisa_defect_case_refs,omitempty"`
-	AdditionalReviewItems json.RawMessage `json:"additional_review_items,omitempty"`
-	ManualCheckAreas      json.RawMessage `json:"manual_check_areas,omitempty"`
-	AutomationCoverage    json.RawMessage `json:"automation_coverage,omitempty"`
-	AlternativeControls   json.RawMessage `json:"alternative_controls,omitempty"`
-	AffectedResources     []AffectedResource `json:"affected_resources,omitempty"`
-	Deferred              bool            `json:"deferred,omitempty"`
-	DeferredReason        string          `json:"deferred_reason,omitempty"`
+// FindingClusterResult is the API response for cluster-wide manual rule evaluation.
+type FindingClusterResult struct {
+	ID             int64          `json:"id"`
+	CompanyID      string         `json:"company_id"`
+	ClusterName    string         `json:"cluster_name"`
+	Namespace      string         `json:"namespace,omitempty"`
+	SnapshotAt     string         `json:"snapshot_at"`
+	EvaluatedAt    string         `json:"evaluated_at"`
+	TotalFindings  int            `json:"total_findings"`
+	MatchedCount   int            `json:"matched_count"`
+	UnmatchedCount int            `json:"unmatched_count"`
+	ByVerdict      map[string]int `json:"by_verdict"`
+	Findings       []RuleResult   `json:"findings"`
 }
 
-// FindingClusterResult is the API response for cluster-wide finding evaluation.
-type FindingClusterResult struct {
-	ID             int64            `json:"id"`
-	CompanyID      string           `json:"company_id"`
-	ClusterName    string           `json:"cluster_name"`
-	Namespace      string           `json:"namespace,omitempty"`
-	SnapshotAt     string           `json:"snapshot_at"`
-	EvaluatedAt    string           `json:"evaluated_at"`
-	TotalFindings  int              `json:"total_findings"`
-	MatchedCount   int              `json:"matched_count"`
-	UnmatchedCount int              `json:"unmatched_count"`
-	ByVerdict      map[string]int   `json:"by_verdict"`
-	Findings       []FindingResult  `json:"findings"`
+// ── 통합 클러스터 컴플라이언스 (전체 페이지: ISMS-P 항목별 위반 자산) ──
+
+// ViolatedAsset is a K8s asset that violates one or more rules under an ISMS-P item.
+type ViolatedAsset struct {
+	Kind          string   `json:"kind"`                    // Pod | ServiceAccount | Namespace | Ingress | Service | Node
+	Name          string   `json:"name"`
+	Namespace     string   `json:"namespace,omitempty"`
+	ViolatedRules []string `json:"violated_rules"`          // rule_id list
+}
+
+// ItemComplianceResult holds compliance results for a single ISMS-P item.
+type ItemComplianceResult struct {
+	ISMSPItemID    string          `json:"isms_p_item_id"`
+	ItemName       string          `json:"item_name"`
+	Verdict        string          `json:"verdict"`         // 준수 | 미준수 | 검토필요
+	TotalRules     int             `json:"total_rules"`
+	Passed         int             `json:"passed"`
+	Failed         int             `json:"failed"`
+	NeedsReview    int             `json:"needs_review"`
+	Skipped        int             `json:"skipped"`
+	ViolatedAssets []ViolatedAsset `json:"violated_assets"`
+	RuleResults    []RuleResult    `json:"rule_results,omitempty"`
+}
+
+// ClusterComplianceResult is the unified response for cluster-wide compliance.
+// Merges R-rules (per-pod auto) + F-rules (cluster-wide manual) grouped by ISMS-P item.
+type ClusterComplianceResult struct {
+	CompanyID          string                 `json:"company_id"`
+	ClusterName        string                 `json:"cluster_name"`
+	SnapshotAt         string                 `json:"snapshot_at"`
+	EvaluatedAt        string                 `json:"evaluated_at"`
+	TotalItems         int                    `json:"total_items"`
+	CompliantItems     int                    `json:"compliant_items"`
+	NonCompliantItems  int                    `json:"non_compliant_items"`
+	NeedsReviewItems   int                    `json:"needs_review_items"`
+	TotalRules         int                    `json:"total_rules"`
+	TotalPods          int                    `json:"total_pods"`
+	Items              []ItemComplianceResult `json:"items"`
 }
 
 // ── 에러 ──

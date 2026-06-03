@@ -426,7 +426,7 @@ func (h *GRCHandler) EvaluatePodGraph(c *gin.Context) {
 
 // GET /compliance/pod-graph/rulesets
 func (h *GRCHandler) ListPodRulesets(c *gin.Context) {
-	items, err := h.rulesetStore.ListPodItems()
+	items, err := h.rulesetStore.ListItems()
 	if err != nil {
 		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
@@ -489,9 +489,9 @@ func (h *GRCHandler) GetPodGraphEvaluation(c *gin.Context) {
 // GET /compliance/pod-graph/rulesets/:item_id
 func (h *GRCHandler) GetPodRuleset(c *gin.Context) {
 	itemID := c.Param("item_id")
-	raw, err := h.rulesetStore.GetPodRaw(itemID)
+	raw, err := h.rulesetStore.GetRaw(itemID)
 	if err != nil {
-		grcError(c, http.StatusNotFound, "RULESET_NOT_FOUND", "Pod 룰셋 미존재: "+itemID)
+		grcError(c, http.StatusNotFound, "RULESET_NOT_FOUND", "룰셋 미존재: "+itemID)
 		return
 	}
 	c.Data(http.StatusOK, "application/json; charset=utf-8", raw)
@@ -559,13 +559,14 @@ func (h *GRCHandler) EvaluateClusterFindings(c *gin.Context) {
 
 
 // GET /compliance/findings
+// Returns manual rules (judgment_mode: "manual") from the ruleset catalog.
 func (h *GRCHandler) ListFindings(c *gin.Context) {
-	findings, err := h.svc.ListActiveFindings(c.Request.Context())
+	catalog, err := h.svc.GetRuleCatalog(c.Request.Context())
 	if err != nil {
 		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": findings, "total": len(findings)})
+	c.JSON(http.StatusOK, gin.H{"data": catalog.Findings, "total": len(catalog.Findings)})
 }
 
 // GET /compliance/findings/summaries
@@ -604,6 +605,35 @@ func (h *GRCHandler) GetRuleCatalog(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, catalog)
+}
+
+// POST /compliance/cluster/evaluate — 통합 클러스터 컴플라이언스 (경로 B+C 병합)
+func (h *GRCHandler) EvaluateClusterCompliance(c *gin.Context) {
+	var req service.ClusterComplianceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "JSON 파싱 실패: "+err.Error())
+		return
+	}
+	if req.CompanyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+	if req.ClusterName == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "cluster_name 필수")
+		return
+	}
+
+	result, err := h.svc.EvaluateClusterCompliance(c.Request.Context(), req)
+	if err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // GET /compliance/findings/summary

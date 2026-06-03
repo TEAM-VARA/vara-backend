@@ -1,0 +1,203 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.5.1",
+    "name": "사용자 계정 관리",
+    "category_path": "2. 보호대책 요구사항 > 2.5 인증 및 권한관리 > 2.5.1 사용자 계정 관리",
+    "description": "정보시스템과 개인정보 및 중요정보에 대한 사용자 계정 발급 시 업무상 필요한 최소한의 접근 권한을 부여하고, 불필요한 계정은 삭제하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제5조",
+      "summary": "접근 권한의 관리"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.5.1-01",
+      "name": "default ServiceAccount 사용",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "pod.spec.serviceAccountName",
+          "op": "!=",
+          "value": "default",
+          "description": "Pod가 전용 ServiceAccount를 사용 (default SA 미사용)"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.5.1-02",
+      "name": "ServiceAccount owner 라벨 부재",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "serviceaccount.metadata.labels.isms-p/owner",
+          "op": "!=",
+          "value": null,
+          "description": "ServiceAccount에 소유자(owner) 라벨 존재"
+        },
+        {
+          "field": "serviceaccount.metadata.labels.isms-p/purpose",
+          "op": "!=",
+          "value": null,
+          "description": "ServiceAccount에 용도(purpose) 라벨 존재"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.5.1-03",
+      "name": "팀 간 ServiceAccount 공유",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "sa_shared_across_teams",
+          "op": "==",
+          "value": false,
+          "description": "동일 ServiceAccount를 서로 다른 팀의 워크로드가 공유하지 않음"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "F-2.5.1-01",
+      "name": "default ServiceAccount 사용 발견",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "Pod",
+        "required_data": [
+          "cluster_pods.service_account",
+          "cluster_pods.namespace"
+        ],
+        "condition": {
+          "operator": "in_set",
+          "field": "service_account",
+          "values": [
+            "",
+            "default"
+          ]
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.5.1",
+            "match_strength": "direct"
+          },
+          {
+            "framework": "개인정보보호법",
+            "item": "안전성 확보조치 - 계정 분리",
+            "match_strength": "direct"
+          }
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "공용 계정 사용",
+            "match": "direct"
+          }
+        ],
+        "additional_review_items": [
+          "해당 Pod가 인증범위 내 자산인가",
+          "default SA 사용에 대한 회사 정책상 예외 허용 사례인가",
+          "시스템 namespace는 예외 처리"
+        ],
+        "manual_check_areas": [
+          "계정 관리 정책",
+          "공용 계정 사용 예외 승인 기록"
+        ],
+        "automation_coverage": {
+          "percentage": 100,
+          "covered": "K8s 내 공용계정 패턴",
+          "not_covered": "사람 사용자 계정(외부 IdP)"
+        },
+        "exception_conditions": {
+          "exception_namespaces": [
+            "kube-system",
+            "kube-public",
+            "kube-node-lease"
+          ]
+        },
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "F-2.5.1-02",
+      "name": "미사용(orphan) ServiceAccount 발견",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "ServiceAccount",
+        "required_data": [
+          "cluster_service_accounts",
+          "cluster_role_bindings",
+          "cluster_cluster_role_bindings"
+        ],
+        "condition": {
+          "operator": "orphan_serviceaccount"
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.5.1",
+            "match_strength": "indirect"
+          }
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "불필요 계정 정기 점검/삭제 미흡",
+            "match": "partial"
+          }
+        ],
+        "additional_review_items": [
+          "이 SA들이 계획된 향후 사용을 위한 것인가",
+          "정기 점검 미실시로 잔존한 계정인가",
+          "회사의 계정 정기 점검 주기/기록 확인"
+        ],
+        "manual_check_areas": [
+          "계정 점검 절차서",
+          "최근 점검 기록"
+        ],
+        "automation_coverage": {
+          "percentage": 80,
+          "covered": "K8s SA 정리 상태",
+          "not_covered": "점검 절차 운영 여부"
+        },
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "default SA 미사용 + SA owner/purpose 라벨 존재 + 팀 간 SA 미공유 시 PASS"
+  }
+}

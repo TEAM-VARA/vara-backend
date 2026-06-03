@@ -209,11 +209,14 @@ func newRouter(
 		api.GET("/compliance/pod-graph/rulesets", grc.ListPodRulesets)
 		api.GET("/compliance/pod-graph/rulesets/:item_id", grc.GetPodRuleset)
 
-		// ── Compliance Findings (F-X.X.X-K8S-NN) ──
+		// ── 통합 클러스터 컴플라이언스 (경로 B+C 병합 → ISMS-P 항목별 위반 자산) ──
+		api.POST("/compliance/cluster/evaluate", grc.EvaluateClusterCompliance)
+
+		// ── Compliance Findings (F-X.X.X-K8S-NN) — deprecated, use /compliance/cluster/evaluate ──
 		api.GET("/compliance/findings", grc.ListFindings)
-		api.POST("/compliance/findings/evaluate-cluster", grc.EvaluateClusterFindings)
+		api.POST("/compliance/findings/evaluate-cluster", grc.EvaluateClusterFindings)   // deprecated
 		api.GET("/compliance/findings/summaries", grc.ListFindingClusterSummaries)
-		api.GET("/compliance/findings/summary", grc.GetFindingsSummary) // 변경 3-B: 전체 뷰 집계
+		api.GET("/compliance/findings/summary", grc.GetFindingsSummary)
 
 		// ── Rule Catalog (변경 2) ──
 		api.GET("/compliance/rulesets/catalog", grc.GetRuleCatalog)

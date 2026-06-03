@@ -30,23 +30,46 @@
         {
           "resource_type": "service",
           "api_endpoint": "GET /api/v1/namespaces/{ns}/services/{name}",
-          "fields": [".spec.type", ".spec.loadBalancerSourceRanges", ".metadata.annotations"],
+          "fields": [
+            ".spec.type",
+            ".spec.loadBalancerSourceRanges",
+            ".metadata.annotations"
+          ],
           "python_client": "v1.read_namespaced_service(name, ns)"
         }
       ],
       "compliance_indicators": [
-        { "field": "service.spec.loadBalancerSourceRanges", "op": "!=", "value": null, "description": "loadBalancerSourceRanges 설정됨 — 접근 허용 IP 대역 제한" },
-        { "field": "source_range_not_all_open", "op": "==", "value": true, "description": "0.0.0.0/0 전체 허용이 아닌 특정 IP 대역으로 제한됨" }
+        {
+          "field": "service.spec.loadBalancerSourceRanges",
+          "op": "!=",
+          "value": null,
+          "description": "loadBalancerSourceRanges 설정됨 — 접근 허용 IP 대역 제한"
+        },
+        {
+          "field": "source_range_not_all_open",
+          "op": "==",
+          "value": true,
+          "description": "0.0.0.0/0 전체 허용이 아닌 특정 IP 대역으로 제한됨"
+        }
       ],
       "deficiency_indicators": [
-        { "field": "service.spec.loadBalancerSourceRanges", "op": "==", "value": null, "description": "loadBalancerSourceRanges 미설정 — 모든 IP에서 접근 가능, 공개서버 접근통제 미비" }
+        {
+          "field": "service.spec.loadBalancerSourceRanges",
+          "op": "==",
+          "value": null,
+          "description": "loadBalancerSourceRanges 미설정 — 모든 IP에서 접근 가능, 공개서버 접근통제 미비"
+        }
       ],
       "judgement_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
-      "report": ["Service 이름", "Service type", "loadBalancerSourceRanges 값"]
+      "report": [
+        "Service 이름",
+        "Service type",
+        "loadBalancerSourceRanges 값"
+      ]
     },
     {
       "rule_id": "R-2.10.3-POD-02",
@@ -62,7 +85,10 @@
         {
           "resource_type": "ingress",
           "api_endpoint": "GET /apis/networking.k8s.io/v1/namespaces/{ns}/ingresses",
-          "fields": [".metadata.annotations", ".spec.rules[].host"],
+          "fields": [
+            ".metadata.annotations",
+            ".spec.rules[].host"
+          ],
           "python_client": "networking.list_namespaced_ingress(ns)"
         }
       ],
@@ -72,17 +98,31 @@
         "nginx.ingress.kubernetes.io/modsecurity-snippet"
       ],
       "compliance_indicators": [
-        { "field": "public_ingress_has_waf", "op": "==", "value": true, "description": "공개 Ingress에 WAF(AWS WAFv2 ACL 또는 ModSecurity) annotation 존재" }
+        {
+          "field": "public_ingress_has_waf",
+          "op": "==",
+          "value": true,
+          "description": "공개 Ingress에 WAF(AWS WAFv2 ACL 또는 ModSecurity) annotation 존재"
+        }
       ],
       "deficiency_indicators": [
-        { "field": "public_ingress_has_waf", "op": "==", "value": false, "description": "공개 Ingress에 WAF annotation 부재 — SQL Injection, XSS 등 웹 공격 필터링 없음" }
+        {
+          "field": "public_ingress_has_waf",
+          "op": "==",
+          "value": false,
+          "description": "공개 Ingress에 WAF annotation 부재 — SQL Injection, XSS 등 웹 공격 필터링 없음"
+        }
       ],
       "judgement_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
-      "report": ["Ingress 이름", "호스트 목록", "WAF annotation 존재 여부"]
+      "report": [
+        "Ingress 이름",
+        "호스트 목록",
+        "WAF annotation 존재 여부"
+      ]
     },
     {
       "rule_id": "R-2.10.3-POD-03",
@@ -98,22 +138,44 @@
         {
           "resource_type": "service",
           "api_endpoint": "GET /api/v1/namespaces/{ns}/services",
-          "fields": [".spec.type", ".metadata.labels", ".spec.ports[].nodePort"],
+          "fields": [
+            ".spec.type",
+            ".metadata.labels",
+            ".spec.ports[].nodePort"
+          ],
           "python_client": "v1.list_namespaced_service(ns)"
         }
       ],
       "compliance_indicators": [
-        { "field": "nodeport_service.metadata.labels.exposure-intent", "op": "in", "value": ["public", "internal-only", "debug"], "description": "NodePort Service에 공개 의도 라벨(exposure-intent) 존재 — 의도적 노출임을 명시" }
+        {
+          "field": "nodeport_service.metadata.labels.exposure-intent",
+          "op": "in",
+          "value": [
+            "public",
+            "internal-only",
+            "debug"
+          ],
+          "description": "NodePort Service에 공개 의도 라벨(exposure-intent) 존재 — 의도적 노출임을 명시"
+        }
       ],
       "deficiency_indicators": [
-        { "field": "nodeport_service.metadata.labels.exposure-intent", "op": "==", "value": null, "description": "NodePort Service에 exposure-intent 라벨 부재 — 의도하지 않은 노드 포트 노출 가능" }
+        {
+          "field": "nodeport_service.metadata.labels.exposure-intent",
+          "op": "==",
+          "value": null,
+          "description": "NodePort Service에 exposure-intent 라벨 부재 — 의도하지 않은 노드 포트 노출 가능"
+        }
       ],
       "judgement_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
-      "report": ["Service 이름", "NodePort 포트 번호", "exposure-intent 라벨 값"]
+      "report": [
+        "Service 이름",
+        "NodePort 포트 번호",
+        "exposure-intent 라벨 값"
+      ]
     },
     {
       "rule_id": "R-2.10.3-POD-04",
@@ -129,7 +191,10 @@
         {
           "resource_type": "ingress",
           "api_endpoint": "GET /apis/networking.k8s.io/v1/namespaces/{ns}/ingresses",
-          "fields": [".metadata.annotations", ".spec.rules[].host"],
+          "fields": [
+            ".metadata.annotations",
+            ".spec.rules[].host"
+          ],
           "python_client": "networking.list_namespaced_ingress(ns)"
         }
       ],
@@ -140,17 +205,31 @@
         "alb.ingress.kubernetes.io/actions.rate-limit"
       ],
       "compliance_indicators": [
-        { "field": "public_ingress_has_rate_limit", "op": "==", "value": true, "description": "공개 Ingress에 rate limit annotation 설정됨 — DDoS/과다요청 방어" }
+        {
+          "field": "public_ingress_has_rate_limit",
+          "op": "==",
+          "value": true,
+          "description": "공개 Ingress에 rate limit annotation 설정됨 — DDoS/과다요청 방어"
+        }
       ],
       "deficiency_indicators": [
-        { "field": "public_ingress_has_rate_limit", "op": "==", "value": false, "description": "공개 Ingress에 rate limit annotation 미설정 — 과다 요청에 의한 서비스 장애 위험" }
+        {
+          "field": "public_ingress_has_rate_limit",
+          "op": "==",
+          "value": false,
+          "description": "공개 Ingress에 rate limit annotation 미설정 — 과다 요청에 의한 서비스 장애 위험"
+        }
       ],
       "judgement_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
-      "report": ["Ingress 이름", "호스트 목록", "적용된 rate limit annotation 목록"]
+      "report": [
+        "Ingress 이름",
+        "호스트 목록",
+        "적용된 rate limit annotation 목록"
+      ]
     },
     {
       "rule_id": "R-2.10.3-POD-05",
@@ -166,23 +245,98 @@
         {
           "resource_type": "service",
           "api_endpoint": "GET /api/v1/namespaces/{ns}/services",
-          "fields": [".spec.type", ".metadata.labels", ".metadata.annotations"],
+          "fields": [
+            ".spec.type",
+            ".metadata.labels",
+            ".metadata.annotations"
+          ],
           "python_client": "v1.list_namespaced_service(ns)"
         }
       ],
       "compliance_indicators": [
-        { "field": "lb_service.metadata.labels.exposure-intent", "op": "in", "value": ["public", "internal-only"], "description": "LoadBalancer Service에 공개 의도 라벨(exposure-intent) 존재 — 외부 노출 의도 명시" },
-        { "field": "lb_has_internal_annotation_or_public_label", "op": "==", "value": true, "description": "internal LB annotation 또는 public exposure-intent 라벨 중 하나 존재" }
+        {
+          "field": "lb_service.metadata.labels.exposure-intent",
+          "op": "in",
+          "value": [
+            "public",
+            "internal-only"
+          ],
+          "description": "LoadBalancer Service에 공개 의도 라벨(exposure-intent) 존재 — 외부 노출 의도 명시"
+        },
+        {
+          "field": "lb_has_internal_annotation_or_public_label",
+          "op": "==",
+          "value": true,
+          "description": "internal LB annotation 또는 public exposure-intent 라벨 중 하나 존재"
+        }
       ],
       "deficiency_indicators": [
-        { "field": "lb_service.metadata.labels.exposure-intent", "op": "==", "value": null, "description": "LoadBalancer Service에 exposure-intent 라벨 부재 — 의도하지 않은 외부 노출 가능, 공개서버 관리 대장 누락 위험" }
+        {
+          "field": "lb_service.metadata.labels.exposure-intent",
+          "op": "==",
+          "value": null,
+          "description": "LoadBalancer Service에 exposure-intent 라벨 부재 — 의도하지 않은 외부 노출 가능, 공개서버 관리 대장 누락 위험"
+        }
       ],
       "judgement_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
-      "report": ["Service 이름", "Service type", "exposure-intent 라벨 값", "internal LB annotation 여부"]
+      "report": [
+        "Service 이름",
+        "Service type",
+        "exposure-intent 라벨 값",
+        "internal LB annotation 여부"
+      ]
+    },
+    {
+      "rule_id": "F-2.10.3-K8S-03",
+      "name": "NodePort 노출 현황",
+      "judgment_mode": "manual",
+      "verdict_type": "needs_review",
+      "observation_template": "type=NodePort Service {count}개 발견. 목록: {nodeport_list}",
+      "check_category": "pod_graph",
+      "evidence_type": "manual_evaluation",
+      "system": "K8s",
+      "manual_meta": {
+        "target_resource": "Service",
+        "required_data": [
+          "cluster_services"
+        ],
+        "condition": {
+          "operator": "field_equals",
+          "field": "spec.type",
+          "value": "NodePort"
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.10.3",
+            "match_strength": "indirect"
+          }
+        ],
+        "kisa_defect_case_refs": [],
+        "additional_review_items": [
+          "발견된 NodePort가 의도된 공개인가",
+          "VPC SG에서 노드의 NodePort 차단되어 있는가"
+        ],
+        "manual_check_areas": [
+          "NodePort 사용 정책",
+          "VPC Security Group 설정"
+        ],
+        "automation_coverage": {
+          "percentage": 50,
+          "covered": "NodePort Service 식별",
+          "not_covered": "VPC SG 차단 여부"
+        },
+        "alternative_controls": [
+          "VPC Security Group",
+          "Network ACL"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
     }
   ],
   "evaluation_strategy": {

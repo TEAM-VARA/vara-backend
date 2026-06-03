@@ -67,16 +67,13 @@ func TestCompareValues_Numeric(t *testing.T) {
 
 func TestEvaluateStructured_Compliant(t *testing.T) {
 	rule := Rule{
-		RuleID:        "2.5.4-R005",
-		CheckCategory: "정책_시스템_설정",
-		EvidenceType:  "IAM 패스워드 정책 설정값",
-		System:        "AWS IAM",
+		RuleID: "2.5.4-R005",
 		ComplianceIndicators: []Indicator{
 			{Field: "MinimumPasswordLength", Op: ">=", Value: float64(10)},
 			{Field: "RequireSymbols", Op: "==", Value: true},
 			{Field: "MaxPasswordAge", Op: "<=", Value: float64(180)},
 		},
-		JudgementLogic: JudgementLogic{Type: "structured_match"},
+		JudgmentLogic: JudgmentLogic{Type: "structured_match"},
 	}
 
 	evidenceData := []any{
@@ -103,13 +100,12 @@ func TestEvaluateStructured_Compliant(t *testing.T) {
 
 func TestEvaluateStructured_NonCompliant(t *testing.T) {
 	rule := Rule{
-		RuleID:        "2.5.4-R005",
-		CheckCategory: "정책_시스템_설정",
+		RuleID: "2.5.4-R005",
 		ComplianceIndicators: []Indicator{
 			{Field: "MinimumPasswordLength", Op: ">=", Value: float64(10), Description: "최소 길이 10자 이상"},
 			{Field: "RequireSymbols", Op: "==", Value: true, Description: "특수문자 강제"},
 		},
-		JudgementLogic: JudgementLogic{Type: "structured_match"},
+		JudgmentLogic: JudgmentLogic{Type: "structured_match"},
 	}
 
 	evidenceData := []any{
@@ -146,7 +142,7 @@ func TestEvaluateStructured_MissingField(t *testing.T) {
 		ComplianceIndicators: []Indicator{
 			{Field: "SomeField", Op: ">=", Value: float64(10)},
 		},
-		JudgementLogic: JudgementLogic{Type: "structured_match"},
+		JudgmentLogic: JudgmentLogic{Type: "structured_match"},
 	}
 
 	evidenceData := []any{
@@ -169,8 +165,8 @@ func TestEvaluateStructured_MissingField(t *testing.T) {
 func TestEvaluateKeywordMatch_Compliant(t *testing.T) {
 	rule := Rule{
 		RuleID:                 "2.5.4-R001",
-		IdentificationKeywords: []string{"비밀번호 관리", "패스워드 정책", "계정 관리", "사용자 인증"},
-		JudgementLogic:         JudgementLogic{Type: "semantic_match", MinKeywordMatches: 2},
+		Keywords: []string{"비밀번호 관리", "패스워드 정책", "계정 관리", "사용자 인증"},
+		JudgmentLogic:         JudgmentLogic{Type: "semantic_match", MinKeywordMatches: 2},
 	}
 
 	text := "본 문서는 비밀번호 관리 절차를 규정한다. 사용자 인증 및 패스워드 정책을 포함한다."
@@ -185,8 +181,8 @@ func TestEvaluateKeywordMatch_Compliant(t *testing.T) {
 func TestEvaluateKeywordMatch_NonCompliant(t *testing.T) {
 	rule := Rule{
 		RuleID:                 "2.5.4-R001",
-		IdentificationKeywords: []string{"비밀번호 관리", "패스워드 정책", "계정 관리", "사용자 인증"},
-		JudgementLogic:         JudgementLogic{Type: "semantic_match", MinKeywordMatches: 2},
+		Keywords: []string{"비밀번호 관리", "패스워드 정책", "계정 관리", "사용자 인증"},
+		JudgmentLogic:         JudgmentLogic{Type: "semantic_match", MinKeywordMatches: 2},
 	}
 
 	text := "이 문서는 일반적인 IT 운영 절차를 설명합니다."
@@ -211,7 +207,7 @@ func TestEvaluateElementCoverage_AllPresent(t *testing.T) {
 				{ID: "WR-02", Description: "추측 쉬운 비밀번호", MatchKeywords: []string{"생일", "전화번호", "추측"}},
 			},
 		},
-		JudgementLogic: JudgementLogic{Type: "semantic_match", Method: "element_coverage_check"},
+		JudgmentLogic: JudgmentLogic{Type: "semantic_match", Method: "element_coverage_check"},
 	}
 
 	text := "비밀번호는 10자리 이상이어야 하며, 복잡도 요구사항을 충족해야 합니다. 생일이나 전화번호 등 추측 가능한 비밀번호는 금지합니다."
@@ -232,7 +228,7 @@ func TestEvaluateElementCoverage_Missing(t *testing.T) {
 				{ID: "WR-02", Description: "추측 쉬운 비밀번호", MatchKeywords: []string{"생일", "전화번호", "추측"}},
 			},
 		},
-		JudgementLogic: JudgementLogic{Type: "semantic_match", Method: "element_coverage_check"},
+		JudgmentLogic: JudgmentLogic{Type: "semantic_match", Method: "element_coverage_check"},
 	}
 
 	text := "비밀번호는 10자리 이상이어야 합니다."
@@ -258,11 +254,7 @@ func TestEvaluateRegex_BcryptCompliant(t *testing.T) {
 			{Pattern: `^\$2[aby]\$`, Type: "regex", Description: "bcrypt"},
 			{Pattern: `^\$argon2(i|id)\$`, Type: "regex", Description: "argon2"},
 		},
-		DeficiencyIndicators: []Indicator{
-			{Pattern: `^[0-9a-f]{32}$`, Type: "regex", Description: "MD5"},
-			{Pattern: `^[0-9a-f]{40}$`, Type: "regex", Description: "SHA-1"},
-		},
-		JudgementLogic: JudgementLogic{Type: "regex_match"},
+		JudgmentLogic: JudgmentLogic{Type: "regex_match"},
 	}
 
 	evidenceData := []any{
@@ -282,10 +274,7 @@ func TestEvaluateRegex_MD5NonCompliant(t *testing.T) {
 		ComplianceIndicators: []Indicator{
 			{Pattern: `^\$2[aby]\$`, Type: "regex", Description: "bcrypt"},
 		},
-		DeficiencyIndicators: []Indicator{
-			{Pattern: `^[0-9a-f]{32}$`, Type: "regex", Description: "MD5"},
-		},
-		JudgementLogic: JudgementLogic{Type: "regex_match"},
+		JudgmentLogic: JudgmentLogic{Type: "regex_match"},
 	}
 
 	evidenceData := []any{
@@ -306,10 +295,10 @@ func TestEvaluateRegex_MD5NonCompliant(t *testing.T) {
 func TestEvaluateAggregated_Compliant(t *testing.T) {
 	rule := Rule{
 		RuleID: "2.5.4-R009",
-		DeficiencyIndicators: []Indicator{
+		ComplianceIndicators: []Indicator{
 			{Field: "days_since_change", Op: ">", Value: float64(180)},
 		},
-		JudgementLogic: JudgementLogic{
+		JudgmentLogic: JudgmentLogic{
 			Type:                  "aggregated_statistics",
 			ViolationThresholdPct: 5,
 		},
@@ -335,10 +324,10 @@ func TestEvaluateAggregated_Compliant(t *testing.T) {
 func TestEvaluateAggregated_NonCompliant(t *testing.T) {
 	rule := Rule{
 		RuleID: "2.5.4-R009",
-		DeficiencyIndicators: []Indicator{
+		ComplianceIndicators: []Indicator{
 			{Field: "days_since_change", Op: ">", Value: float64(180)},
 		},
-		JudgementLogic: JudgementLogic{
+		JudgmentLogic: JudgmentLogic{
 			Type:                  "aggregated_statistics",
 			ViolationThresholdPct: 5,
 		},
@@ -369,11 +358,11 @@ func TestEvaluateAggregated_NonCompliant(t *testing.T) {
 func TestEvaluateCodePattern_Compliant(t *testing.T) {
 	rule := Rule{
 		RuleID: "2.5.4-R010",
-		IdentificationKeywords: []string{
+		Keywords: []string{
 			"isTemporary", "temp_password", "must_change_password",
 			"forceChangePassword", "redirect('/change-password')",
 		},
-		JudgementLogic: JudgementLogic{Type: "code_pattern_match", MinPatterns: 2},
+		JudgmentLogic: JudgmentLogic{Type: "code_pattern_match", MinPatterns: 2},
 	}
 
 	code := `
@@ -398,11 +387,11 @@ func login(user User) {
 func TestEvaluateCodePattern_NonCompliant(t *testing.T) {
 	rule := Rule{
 		RuleID: "2.5.4-R010",
-		IdentificationKeywords: []string{
+		Keywords: []string{
 			"isTemporary", "temp_password", "must_change_password",
 			"forceChangePassword", "redirect('/change-password')",
 		},
-		JudgementLogic: JudgementLogic{Type: "code_pattern_match", MinPatterns: 2},
+		JudgmentLogic: JudgmentLogic{Type: "code_pattern_match", MinPatterns: 2},
 	}
 
 	code := `
@@ -431,7 +420,7 @@ func TestMatchEvidenceToRule_ByCategory(t *testing.T) {
 		{Filename: "accounts.csv", EvidenceType: "변경주기_준수"},
 	}
 
-	rule := Rule{RuleID: "2.5.4-R005", CheckCategory: "정책_시스템_설정"}
+	rule := Rule{RuleID: "2.5.4-R005"}
 	matched := matchEvidenceToRule(files, rule, nil)
 
 	if len(matched) != 1 {
@@ -448,7 +437,7 @@ func TestMatchEvidenceToRule_ByTargetRuleIDs(t *testing.T) {
 		{Filename: "iam.json", EvidenceType: "정책_시스템_설정", TargetRuleIDs: []string{"2.5.4-R005"}},
 	}
 
-	rule := Rule{RuleID: "2.5.4-R005", CheckCategory: "정책_시스템_설정"}
+	rule := Rule{RuleID: "2.5.4-R005"}
 	matched := matchEvidenceToRule(files, rule, nil)
 
 	if len(matched) != 1 {
@@ -464,7 +453,7 @@ func TestMatchEvidenceToRule_NoMatch(t *testing.T) {
 		{Filename: "policy.pdf", EvidenceType: "정책_문서_존재"},
 	}
 
-	rule := Rule{RuleID: "2.5.4-R009", CheckCategory: "변경주기_준수"}
+	rule := Rule{RuleID: "2.5.4-R009"}
 	matched := matchEvidenceToRule(files, rule, nil)
 
 	if len(matched) != 0 {
@@ -519,7 +508,7 @@ func TestGenerateRecommendations(t *testing.T) {
 	ruleset := &Ruleset{
 		Rules: []Rule{
 			{RuleID: "2.5.4-R001"},
-			{RuleID: "2.5.4-R005", CheckCategory: "정책_시스템_설정"},
+			{RuleID: "2.5.4-R005"},
 			{RuleID: "2.5.4-R009"},
 		},
 		LegalRefs: []LegalReference{
@@ -556,7 +545,7 @@ func TestGenerateRecommendations_K8sSourcePrefix(t *testing.T) {
 		},
 	}
 	ruleset := &Ruleset{
-		Rules:     []Rule{{RuleID: "2.5.4-R005", CheckCategory: "정책_시스템_설정"}},
+		Rules:     []Rule{{RuleID: "2.5.4-R005"}},
 		LegalRefs: []LegalReference{{Law: "개인정보의 안전성 확보조치 기준", Article: "제5조제5항"}},
 	}
 	recs := generateRecommendations(results, ruleset)

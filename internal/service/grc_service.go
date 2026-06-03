@@ -23,6 +23,7 @@ import (
 	"github.com/vara/backend/internal/platform/embedding"
 	"github.com/vara/backend/internal/platform/ocr"
 	"github.com/vara/backend/internal/platform/pdfext"
+	"github.com/vara/backend/internal/platform/vlm"
 	"github.com/vara/backend/internal/repository/postgres"
 )
 
@@ -37,9 +38,10 @@ type GRCService struct {
 	vlmModel        string
 	ocrClient       *ocr.Client
 	embeddingClient *embedding.Client
+	vlmClient       *vlm.Client
 }
 
-func NewGRCService(repo *postgres.GRCRepo, clusterRepo *postgres.ClusterReaderRepo, rulesetStore *RulesetStore, embClient *embedding.Client) *GRCService {
+func NewGRCService(repo *postgres.GRCRepo, clusterRepo *postgres.ClusterReaderRepo, rulesetStore *RulesetStore, embClient *embedding.Client, vlmClient *vlm.Client) *GRCService {
 	storagePath := os.Getenv("EVIDENCE_STORAGE_PATH")
 	if storagePath == "" {
 		storagePath = "evidence_storage"
@@ -62,6 +64,12 @@ func NewGRCService(repo *postgres.GRCRepo, clusterRepo *postgres.ClusterReaderRe
 		log.Println("[grc] embedding client disabled (server URL not set)")
 	}
 
+	if vlmClient != nil && vlmClient.Available() {
+		log.Println("[grc] VLM judge client enabled")
+	} else {
+		log.Println("[grc] VLM judge client disabled (VLM_SERVER_URL not set)")
+	}
+
 	return &GRCService{
 		repo:            repo,
 		clusterRepo:     clusterRepo,
@@ -72,6 +80,7 @@ func NewGRCService(repo *postgres.GRCRepo, clusterRepo *postgres.ClusterReaderRe
 		vlmModel:        envOrDefault("VLM_MODEL", "claude-sonnet-4-5"),
 		ocrClient:       ocrClient,
 		embeddingClient: embClient,
+		vlmClient:       vlmClient,
 	}
 }
 
@@ -164,7 +173,8 @@ func (s *GRCService) EvaluateCluster(ctx context.Context, req ClusterEvalRequest
 	return result, nil
 }
 
-// EvaluateClusterFindings evaluates all active findings against a cluster snapshot.
+// EvaluateClusterFindings evaluates all manual rules against a cluster snapshot.
+// Manual rules are loaded from the ruleset JSON files (judgment_mode == "manual").
 func (s *GRCService) EvaluateClusterFindings(ctx context.Context, req FindingEvalRequest) (*grc.FindingClusterResult, error) {
 	if req.CompanyID == "" {
 		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
@@ -176,12 +186,16 @@ func (s *GRCService) EvaluateClusterFindings(ctx context.Context, req FindingEva
 		return nil, &GRCError{Code: "NOT_CONFIGURED", Message: "cluster reader repo not configured", HTTPStatus: 500}
 	}
 
-	// 1. Load active findings from DB
-	findings, err := s.repo.LoadActiveFindings(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load findings: %w", err)
+	// 1. Load manual rules from ruleset JSON files
+	var manualRules []Rule
+	for _, rs := range s.rulesetStore.LoadAll() {
+		for _, r := range rs.Rules {
+			if r.IsManual() {
+				manualRules = append(manualRules, r)
+			}
+		}
 	}
-	log.Printf("[finding-eval] loaded %d active findings", len(findings))
+	log.Printf("[finding-eval] loaded %d manual rules from rulesets", len(manualRules))
 
 	// 2. Get latest snapshot
 	snapshotAt, err := s.clusterRepo.GetLatestSnapshotAt(ctx, req.ClusterName)
@@ -211,8 +225,8 @@ func (s *GRCService) EvaluateClusterFindings(ctx context.Context, req FindingEva
 		Related:     related,
 	}
 
-	// 6. Evaluate all findings
-	results := EvaluateFindings(findings, snap)
+	// 6. Evaluate all manual rules
+	results := EvaluateManualRules(manualRules, snap)
 
 	// 7. Compute summary
 	matchedCount := 0
@@ -227,29 +241,8 @@ func (s *GRCService) EvaluateClusterFindings(ctx context.Context, req FindingEva
 		byVerdict[fr.VerdictType]++
 	}
 
-	// 8. Save individual evaluations to DB
-	for _, fr := range results {
-		_, saveErr := s.repo.SaveFindingEvaluation(ctx,
-			fr.FindingID, req.CompanyID, req.ClusterName, req.Namespace, "",
-			fr.Matched, fr.Observation, fr.Evidence)
-		if saveErr != nil {
-			log.Printf("[finding-eval] save finding %s error: %v", fr.FindingID, saveErr)
-		}
-	}
-
-	// 9. Save cluster summary
-	ns := req.Namespace
-	summaryID, err := s.repo.SaveFindingClusterSummary(ctx,
-		req.CompanyID, req.ClusterName, ns, snapshotAt,
-		len(results), matchedCount, unmatchedCount,
-		byVerdict, results)
-	if err != nil {
-		log.Printf("[finding-eval] save cluster summary error: %v", err)
-	}
-
 	now := time.Now().UTC()
 	return &grc.FindingClusterResult{
-		ID:             summaryID,
 		CompanyID:      req.CompanyID,
 		ClusterName:    req.ClusterName,
 		Namespace:      req.Namespace,
@@ -268,14 +261,240 @@ func (s *GRCService) ListFindingClusterSummaries(ctx context.Context, companyID 
 	return s.repo.ListFindingClusterSummaries(ctx, companyID, page, pageSize)
 }
 
-// ListActiveFindings returns all active finding definitions.
-func (s *GRCService) ListActiveFindings(ctx context.Context) ([]grc.Finding, error) {
-	return s.repo.LoadActiveFindings(ctx)
+// ── 통합 클러스터 컴플라이언스 (경로 B+C 병합) ──
+
+// ClusterComplianceRequest is the input for unified cluster compliance evaluation.
+type ClusterComplianceRequest struct {
+	CompanyID   string `json:"company_id"`
+	ClusterName string `json:"cluster_name"`
+	Namespace   string `json:"namespace,omitempty"`
+}
+
+// EvaluateClusterCompliance runs both R-rules (per-pod) and F-rules (cluster-wide)
+// in a single pass, then groups results by ISMS-P item with violated assets.
+func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterComplianceRequest) (*grc.ClusterComplianceResult, error) {
+	if req.CompanyID == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
+	}
+	if req.ClusterName == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "cluster_name 필수", HTTPStatus: 400}
+	}
+	if s.clusterRepo == nil {
+		return nil, &GRCError{Code: "NOT_CONFIGURED", Message: "cluster reader repo not configured", HTTPStatus: 500}
+	}
+
+	// 1. Get latest snapshot (한 번만 로드)
+	snapshotAt, err := s.clusterRepo.GetLatestSnapshotAt(ctx, req.ClusterName)
+	if err != nil {
+		return nil, &GRCError{Code: "NO_SNAPSHOT", Message: fmt.Sprintf("클러스터 스냅샷 없음: %v", err), HTTPStatus: 404}
+	}
+	log.Printf("[cluster-compliance] cluster=%s snapshot=%s", req.ClusterName, snapshotAt.Format(time.RFC3339))
+
+	// 2. Load pods
+	pods, totalPods, err := s.clusterRepo.ListPods(ctx, req.ClusterName, snapshotAt, req.Namespace, 10000, 0)
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+
+	// 3. Load cluster-wide resources (for F-rules)
+	clusterWide, err := s.clusterRepo.GetClusterWideResources(ctx, req.ClusterName, snapshotAt)
+	if err != nil {
+		return nil, fmt.Errorf("get cluster resources: %w", err)
+	}
+
+	// 4. Build cluster snapshot (for F-rules)
+	snap := &ClusterSnapshot{
+		ClusterName: req.ClusterName,
+		SnapshotAt:  snapshotAt,
+		Pods:        pods,
+		Namespaces:  clusterWide.Namespaces,
+		Related:     clusterWide,
+	}
+
+	// ── itemID → item tracker ──
+	type itemTracker struct {
+		itemName    string
+		ruleResults []grc.RuleResult
+		// asset key → violated rules
+		assets map[string]*grc.ViolatedAsset
+	}
+	items := map[string]*itemTracker{}
+	getItem := func(itemID, itemName string) *itemTracker {
+		if it, ok := items[itemID]; ok {
+			return it
+		}
+		it := &itemTracker{
+			itemName: itemName,
+			assets:   map[string]*grc.ViolatedAsset{},
+		}
+		items[itemID] = it
+		return it
+	}
+
+	// 5. R-rules: per-pod evaluation
+	nsRelatedCache := map[string]*postgres.ClusterRelatedRows{}
+	for _, pod := range pods {
+		related, ok := nsRelatedCache[pod.Namespace]
+		if !ok {
+			related, err = s.clusterRepo.GetRelatedResources(ctx, req.ClusterName, snapshotAt, pod.Namespace)
+			if err != nil {
+				log.Printf("[cluster-compliance] skip pod=%s (related err: %v)", pod.Name, err)
+				continue
+			}
+			nsRelatedCache[pod.Namespace] = related
+		}
+
+		pgReq := AssembleClusterPodGraph(req.CompanyID, req.ClusterName, pod, related)
+		evalResult, err := s.EvaluatePodGraph(ctx, pgReq)
+		if err != nil {
+			log.Printf("[cluster-compliance] skip pod=%s (eval err: %v)", pod.Name, err)
+			continue
+		}
+
+		// Collect R-rule results per ISMS-P item
+		for _, rr := range evalResult.RuleResults {
+			it := getItem(rr.ISMSPItem, rr.ISMSPItemName)
+			// Convert PodRuleResult → grc.RuleResult
+			grr := grc.RuleResult{
+				RuleID:            rr.RuleID,
+				ISMSPItemID:       rr.ISMSPItem,
+				CheckCategory:     "pod_graph",
+				Verdict:           rr.Verdict,
+				Violations:        rr.Violations,
+				MatchedIndicators: rr.MatchedIndicators,
+				SkipReason:        rr.SkipReason,
+				JudgmentMode:      "auto",
+			}
+			it.ruleResults = append(it.ruleResults, grr)
+
+			// If failed, record the pod as a violated asset
+			if rr.Verdict == "미준수" {
+				assetKey := fmt.Sprintf("Pod/%s/%s", pod.Namespace, pod.Name)
+				if a, ok := it.assets[assetKey]; ok {
+					a.ViolatedRules = append(a.ViolatedRules, rr.RuleID)
+				} else {
+					it.assets[assetKey] = &grc.ViolatedAsset{
+						Kind:          "Pod",
+						Name:          pod.Name,
+						Namespace:     pod.Namespace,
+						ViolatedRules: []string{rr.RuleID},
+					}
+				}
+			}
+		}
+	}
+
+	// 6. F-rules: cluster-wide evaluation
+	var manualRules []Rule
+	manualRuleItemMap := map[string]string{} // ruleID → itemID
+	manualRuleItemNameMap := map[string]string{} // ruleID → itemName
+	for _, rs := range s.rulesetStore.LoadAll() {
+		for _, r := range rs.Rules {
+			if r.IsManual() {
+				manualRules = append(manualRules, r)
+				manualRuleItemMap[r.RuleID] = rs.Item.ID
+				manualRuleItemNameMap[r.RuleID] = rs.Item.Name
+			}
+		}
+	}
+	log.Printf("[cluster-compliance] R-rules evaluated %d pods, F-rules evaluating %d manual rules", len(pods), len(manualRules))
+
+	fResults := EvaluateManualRules(manualRules, snap)
+	for _, fr := range fResults {
+		itemID := manualRuleItemMap[fr.RuleID]
+		itemName := manualRuleItemNameMap[fr.RuleID]
+		it := getItem(itemID, itemName)
+		fr.ISMSPItemID = itemID
+		it.ruleResults = append(it.ruleResults, fr)
+
+		// If finding matched (potential issue), record affected resources
+		if fr.Verdict == "검토필요" || fr.Verdict == "미준수" {
+			for _, ar := range fr.AffectedResources {
+				assetKey := fmt.Sprintf("%s/%s/%s", ar.Kind, ar.Namespace, ar.Name)
+				if a, ok := it.assets[assetKey]; ok {
+					a.ViolatedRules = append(a.ViolatedRules, fr.RuleID)
+				} else {
+					it.assets[assetKey] = &grc.ViolatedAsset{
+						Kind:          ar.Kind,
+						Name:          ar.Name,
+						Namespace:     ar.Namespace,
+						ViolatedRules: []string{fr.RuleID},
+					}
+				}
+			}
+		}
+	}
+
+	// 7. Build response grouped by ISMS-P item
+	now := time.Now().UTC()
+	result := &grc.ClusterComplianceResult{
+		CompanyID:   req.CompanyID,
+		ClusterName: req.ClusterName,
+		SnapshotAt:  snapshotAt.Format(time.RFC3339),
+		EvaluatedAt: now.Format(time.RFC3339),
+		TotalPods:   totalPods,
+	}
+
+	for itemID, it := range items {
+		item := grc.ItemComplianceResult{
+			ISMSPItemID: itemID,
+			ItemName:    it.itemName,
+			TotalRules:  len(it.ruleResults),
+			RuleResults: it.ruleResults,
+		}
+
+		for _, rr := range it.ruleResults {
+			switch rr.Verdict {
+			case "준수":
+				item.Passed++
+			case "미준수":
+				item.Failed++
+			case "검토필요":
+				item.NeedsReview++
+			default: // skipped 등
+				item.Skipped++
+			}
+		}
+
+		// Determine item-level verdict
+		if item.Failed > 0 {
+			item.Verdict = "미준수"
+		} else if item.NeedsReview > 0 {
+			item.Verdict = "검토필요"
+		} else {
+			item.Verdict = "준수"
+		}
+
+		// Collect violated assets
+		for _, a := range it.assets {
+			item.ViolatedAssets = append(item.ViolatedAssets, *a)
+		}
+
+		result.Items = append(result.Items, item)
+		result.TotalRules += item.TotalRules
+	}
+
+	result.TotalItems = len(result.Items)
+	for _, it := range result.Items {
+		switch it.Verdict {
+		case "준수":
+			result.CompliantItems++
+		case "미준수":
+			result.NonCompliantItems++
+		case "검토필요":
+			result.NeedsReviewItems++
+		}
+	}
+
+	log.Printf("[cluster-compliance] done: %d items, %d compliant, %d non-compliant, %d needs-review",
+		result.TotalItems, result.CompliantItems, result.NonCompliantItems, result.NeedsReviewItems)
+
+	return result, nil
 }
 
 // ── Rule Catalog ──
 
-// FindingCatalogItem is metadata for a single finding definition.
+// FindingCatalogItem is metadata for a single manual rule (previously F-finding).
 type FindingCatalogItem struct {
 	FindingID      string `json:"finding_id"`
 	ISMSPItemID    string `json:"isms_p_item_id"`
@@ -284,14 +503,12 @@ type FindingCatalogItem struct {
 	TargetResource string `json:"target_resource"`
 }
 
-// RuleCatalogItem is metadata for a single ruleset rule.
+// RuleCatalogItem is metadata for a single auto-judgment rule.
 type RuleCatalogItem struct {
 	RuleID         string `json:"rule_id"`
 	ISMSPItemID    string `json:"isms_p_item_id"`
 	Name           string `json:"name"`
-	CheckCategory  string `json:"check_category"`
 	JudgmentSource string `json:"judgment_source,omitempty"`
-	EvidenceType   string `json:"evidence_type,omitempty"`
 }
 
 // RuleCatalogResponse is the response for GET /compliance/rulesets/catalog.
@@ -300,38 +517,35 @@ type RuleCatalogResponse struct {
 	Rules    []RuleCatalogItem    `json:"rules"`
 }
 
-// GetRuleCatalog returns all finding definitions and rule definitions as a catalog.
+// GetRuleCatalog returns all rule definitions split by judgment_mode.
+// "findings" = manual rules (judgment_mode: "manual") from ruleset JSON files.
+// "rules"    = auto rules  (judgment_mode: "" or "auto") from ruleset JSON files.
 func (s *GRCService) GetRuleCatalog(ctx context.Context) (*RuleCatalogResponse, error) {
-	// Load all finding definitions from DB
-	findings, err := s.repo.LoadActiveFindings(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load findings: %w", err)
-	}
-
-	findingItems := make([]FindingCatalogItem, 0, len(findings))
-	for _, f := range findings {
-		findingItems = append(findingItems, FindingCatalogItem{
-			FindingID:      f.FindingID,
-			ISMSPItemID:    f.ISMSPItemID,
-			Title:          f.Title,
-			VerdictType:    f.VerdictType,
-			TargetResource: f.TargetResource,
-		})
-	}
-
-	// Load all rules from rulesets on disk
+	var findingItems []FindingCatalogItem
 	var ruleItems []RuleCatalogItem
-	rulesets := s.rulesetStore.LoadAll()
-	for _, rs := range rulesets {
+
+	for _, rs := range s.rulesetStore.LoadAll() {
 		for _, r := range rs.Rules {
-			ruleItems = append(ruleItems, RuleCatalogItem{
-				RuleID:         r.RuleID,
-				ISMSPItemID:    rs.Item.ID,
-				Name:           r.Name,
-				CheckCategory:  r.CheckCategory,
-				JudgmentSource: r.JudgmentSource,
-				EvidenceType:   r.EvidenceType,
-			})
+			if r.IsManual() {
+				targetResource := ""
+				if r.ManualMeta != nil {
+					targetResource = r.ManualMeta.TargetResource
+				}
+				findingItems = append(findingItems, FindingCatalogItem{
+					FindingID:      r.RuleID,
+					ISMSPItemID:    rs.Item.ID,
+					Title:          r.Name,
+					VerdictType:    r.VerdictType,
+					TargetResource: targetResource,
+				})
+			} else {
+				ruleItems = append(ruleItems, RuleCatalogItem{
+					RuleID:         r.RuleID,
+					ISMSPItemID:    rs.Item.ID,
+					Name:           r.Name,
+					JudgmentSource: r.JudgmentSource,
+				})
+			}
 		}
 	}
 
@@ -430,14 +644,14 @@ func (s *GRCService) GetPodCompliance(ctx context.Context, companyID, clusterNam
 		return nil, err
 	}
 
-	// Filter F-rule findings that mention this pod in AffectedResources
+	// Filter manual rules that mention this pod in AffectedResources
 	for _, fr := range summary.Findings {
 		for _, ar := range fr.AffectedResources {
 			if ar.Kind == "Pod" && ar.Name == podName && (namespace == "" || ar.Namespace == namespace) {
 				result.ClusterFindings = append(result.ClusterFindings, PodComplianceFindingItem{
-					FindingID:   fr.FindingID,
+					FindingID:   fr.RuleID,
 					ISMSPItemID: fr.ISMSPItemID,
-					Title:       fr.Title,
+					Title:       fr.RuleID,
 					VerdictType: fr.VerdictType,
 					Matched:     fr.Matched,
 					Observation: fr.Observation,
@@ -501,7 +715,7 @@ func (s *GRCService) CreateCheck(
 	metadataList []grc.EvidenceMetadata,
 ) (*grc.Check, error) {
 	// Validate ruleset exists (document, pod, or unified).
-	_, err := s.rulesetStore.LoadUnified(ismspItemID)
+	_, err := s.rulesetStore.Load(ismspItemID)
 	if err != nil {
 		return nil, &GRCError{Code: "UNSUPPORTED_ITEM", Message: fmt.Sprintf("지원하지 않는 ISMS-P 항목: %s", ismspItemID), HTTPStatus: 400}
 	}
@@ -877,7 +1091,7 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 		return nil, err
 	}
 
-	ruleset, err := s.rulesetStore.LoadUnified(chk.ISMSPItemID)
+	ruleset, err := s.rulesetStore.Load(chk.ISMSPItemID)
 	if err != nil {
 		return nil, err
 	}
@@ -965,16 +1179,21 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 		matched := matchEvidenceToRule(evidenceFiles, rule, evidenceStore)
 		var result grc.RuleResult
 
-		if len(matched) == 0 {
+		// GL (guideline RAG) rules don't need evidence files — their "evidence"
+		// is the DB guideline text passed via dbGuidelines. Let them through.
+		isGuidelineRAG := rule.JudgmentLogic.Type == "semantic_match" &&
+			rule.JudgmentLogic.Method == "llm_rag_entailment"
+
+		if len(matched) == 0 && !isGuidelineRAG {
 			result = grc.RuleResult{
 				RuleID:        rule.RuleID,
-				CheckCategory: rule.CheckCategory,
-				EvidenceType:  rule.EvidenceType,
-				System:        rule.System,
 				Verdict:       "skipped",
 				SkipReason:    "증적 미제출",
 				EvidenceFiles: []string{},
 			}
+		} else if len(matched) == 0 && isGuidelineRAG {
+			// Guideline RAG: no evidence files needed, evaluate directly.
+			result = s.evaluateRule(ctx, rule, nil, []string{}, dbGuidelines)
 		} else {
 			filenames := make([]string, len(matched))
 			var extractedData []any
@@ -985,7 +1204,7 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 				}
 			}
 
-			result = s.evaluateRule(ctx, rule, extractedData, filenames)
+			result = s.evaluateRule(ctx, rule, extractedData, filenames, dbGuidelines)
 			result.EvidenceSources = evidenceAttributionsFromFiles(matched)
 			result = s.applyGuidelineEmbedding(rule, matched, embByFile, dbGuidelines, result)
 		}
@@ -998,9 +1217,9 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 	// Step 3: Aggregate results.
 	_ = s.repo.UpdateCheckProgress(ctx, checkID, 95)
 	summary := aggregateSummary(ruleResults, len(evidenceFiles))
-	summary.SummaryText = fmt.Sprintf("ISMS-P %s (%s) 점검 결과: %d개 룰 중 통과 %d / 미준수 %d / 스킵 %d",
+	summary.SummaryText = fmt.Sprintf("ISMS-P %s (%s) 점검 결과: %d개 룰 중 통과 %d / 미준수 %d / 검토필요 %d / 스킵 %d",
 		chk.ISMSPItemID, ruleset.Item.Name,
-		summary.TotalRules, summary.Passed, summary.Failed, summary.Skipped)
+		summary.TotalRules, summary.Passed, summary.Failed, summary.NeedsReview, summary.Skipped)
 
 	verdict := "준수"
 	severity := "low"
@@ -1021,6 +1240,8 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 					}
 				}
 			}
+		} else if r.Verdict == "검토필요" && verdict != "미준수" {
+			verdict = "검토필요"
 		}
 	}
 
@@ -1158,16 +1379,10 @@ func (s *GRCService) generateEvidenceEmbeddings(
 func buildGuidelineText(rule Rule) string {
 	var parts []string
 
-	parts = append(parts, fmt.Sprintf("점검항목: %s", rule.CheckCategory))
-	if rule.EvidenceType != "" {
-		parts = append(parts, fmt.Sprintf("증적유형: %s", rule.EvidenceType))
-	}
-	if rule.System != "" {
-		parts = append(parts, fmt.Sprintf("시스템: %s", rule.System))
-	}
+	parts = append(parts, fmt.Sprintf("점검항목: %s", rule.RuleID))
 
-	if len(rule.IdentificationKeywords) > 0 {
-		parts = append(parts, fmt.Sprintf("식별키워드: %s", strings.Join(rule.IdentificationKeywords, ", ")))
+	if len(rule.Keywords) > 0 {
+		parts = append(parts, fmt.Sprintf("식별키워드: %s", strings.Join(rule.Keywords, ", ")))
 	}
 
 	for _, ind := range rule.ComplianceIndicators {
@@ -1177,14 +1392,6 @@ func buildGuidelineText(rule Rule) string {
 			parts = append(parts, fmt.Sprintf("준수기준: %s %s %v", ind.Field, ind.Op, ind.Value))
 		} else if ind.Pattern != "" {
 			parts = append(parts, fmt.Sprintf("준수패턴: %s", ind.Pattern))
-		}
-	}
-
-	for _, ind := range rule.DeficiencyIndicators {
-		if ind.Description != "" {
-			parts = append(parts, fmt.Sprintf("결함기준: %s", ind.Description))
-		} else if ind.Pattern != "" {
-			parts = append(parts, fmt.Sprintf("결함패턴: %s", ind.Pattern))
 		}
 	}
 
@@ -1368,10 +1575,8 @@ func matchEvidenceToRule(files []grc.EvidenceFile, rule Rule, evidenceStore map[
 			}
 			continue
 		}
-		// Phase 1b: match by evidence_type (check_category).
-		if ef.EvidenceType == rule.CheckCategory {
-			matched = append(matched, ef)
-		}
+		// Phase 1b: no check_category matching (field removed from Rule).
+		// Falls through to keyword-based fallback (Phase 2).
 	}
 	if len(matched) > 0 {
 		return matched
@@ -1379,11 +1584,11 @@ func matchEvidenceToRule(files []grc.EvidenceFile, rule Rule, evidenceStore map[
 
 	// Phase 2: Keyword-based fallback matching.
 	// 증적의 추출 텍스트에서 룰의 identification_keywords를 검색하여 자동 매칭.
-	if len(rule.IdentificationKeywords) == 0 {
+	if len(rule.Keywords) == 0 {
 		return nil
 	}
 
-	minKW := rule.JudgementLogic.MinKeywordMatches
+	minKW := rule.JudgmentLogic.MinKeywordMatches
 	if minKW <= 0 {
 		minKW = 1 // default: 키워드 1개 이상 매칭 시 관련 증적으로 간주 (평가는 evaluateRule이 담당)
 	}
@@ -1399,7 +1604,7 @@ func matchEvidenceToRule(files []grc.EvidenceFile, rule Rule, evidenceStore map[
 		}
 		lowerText := strings.ToLower(text)
 		kwHits := 0
-		for _, kw := range rule.IdentificationKeywords {
+		for _, kw := range rule.Keywords {
 			if strings.Contains(lowerText, strings.ToLower(kw)) {
 				kwHits++
 			}
@@ -1407,7 +1612,7 @@ func matchEvidenceToRule(files []grc.EvidenceFile, rule Rule, evidenceStore map[
 		if kwHits >= minKW {
 			matched = append(matched, ef)
 			log.Printf("[grc-match] keyword fallback: %s → rule %s (%d/%d keywords hit)",
-				ef.Filename, rule.RuleID, kwHits, len(rule.IdentificationKeywords))
+				ef.Filename, rule.RuleID, kwHits, len(rule.Keywords))
 		}
 	}
 	return matched
@@ -1437,20 +1642,17 @@ func extractTextString(data any) string {
 // Evaluation Handlers
 // ─────────────────────────────────────────────
 
-func (s *GRCService) evaluateRule(ctx context.Context, rule Rule, evidenceData []any, filenames []string) grc.RuleResult {
+func (s *GRCService) evaluateRule(ctx context.Context, rule Rule, evidenceData []any, filenames []string, dbGuidelines []grc.Guideline) grc.RuleResult {
 	base := grc.RuleResult{
 		RuleID:        rule.RuleID,
-		CheckCategory: rule.CheckCategory,
-		EvidenceType:  rule.EvidenceType,
-		System:        rule.System,
 		EvidenceFiles: filenames,
 	}
 
-	switch rule.JudgementLogic.Type {
+	switch rule.JudgmentLogic.Type {
 	case "structured_match", "manual_evidence_match", "hybrid_match":
 		return evaluateStructured(rule, evidenceData, base)
 	case "semantic_match":
-		return s.evaluateSemantic(ctx, rule, evidenceData, base)
+		return s.evaluateSemantic(ctx, rule, evidenceData, base, dbGuidelines)
 	case "regex_match":
 		return evaluateRegex(rule, evidenceData, base)
 	case "aggregated_statistics":
@@ -1459,7 +1661,7 @@ func (s *GRCService) evaluateRule(ctx context.Context, rule Rule, evidenceData [
 		return evaluateCodePattern(rule, evidenceData, base)
 	default:
 		base.Verdict = "skipped"
-		base.SkipReason = fmt.Sprintf("지원하지 않는 judgement_logic type: %s", rule.JudgementLogic.Type)
+		base.SkipReason = fmt.Sprintf("지원하지 않는 judgment_logic type: %s", rule.JudgmentLogic.Type)
 		return base
 	}
 }
@@ -1597,7 +1799,7 @@ func fieldFamilyExistsInText(field string, rawTextsLower []string) bool {
 	return false
 }
 
-func (s *GRCService) evaluateSemantic(ctx context.Context, rule Rule, evidenceData []any, base grc.RuleResult) grc.RuleResult {
+func (s *GRCService) evaluateSemantic(ctx context.Context, rule Rule, evidenceData []any, base grc.RuleResult, dbGuidelines []grc.Guideline) grc.RuleResult {
 	// For semantic_match with vlm_behavioral_analysis, we need image analysis.
 	// For element_coverage_check, we need embedding search.
 	// Simplified implementation: keyword-based matching on text content.
@@ -1615,12 +1817,14 @@ func (s *GRCService) evaluateSemantic(ctx context.Context, rule Rule, evidenceDa
 		}
 	}
 
-	method := rule.JudgementLogic.Method
+	method := rule.JudgmentLogic.Method
 	switch method {
 	case "embedding_similarity_with_threshold":
 		return s.evaluateEmbeddingSimilarity(ctx, rule, evidenceData, base)
 	case "element_coverage_check":
 		return evaluateElementCoverage(rule, textContent, base)
+	case "llm_rag_entailment":
+		return s.evaluateLLMRAGEntailment(ctx, rule, dbGuidelines, evidenceData, base)
 	case "vlm_behavioral_analysis":
 		return evaluateOCRKeywordMatch(rule, evidenceData, base)
 	default:
@@ -1629,7 +1833,7 @@ func (s *GRCService) evaluateSemantic(ctx context.Context, rule Rule, evidenceDa
 }
 
 func evaluateKeywordMatch(rule Rule, text string, base grc.RuleResult) grc.RuleResult {
-	minMatches := rule.JudgementLogic.MinKeywordMatches
+	minMatches := rule.JudgmentLogic.MinKeywordMatches
 	if minMatches == 0 {
 		minMatches = 2
 	}
@@ -1637,7 +1841,7 @@ func evaluateKeywordMatch(rule Rule, text string, base grc.RuleResult) grc.RuleR
 	matchCount := 0
 	var matched []string
 	textLower := strings.ToLower(text)
-	for _, kw := range rule.IdentificationKeywords {
+	for _, kw := range rule.Keywords {
 		if strings.Contains(textLower, strings.ToLower(kw)) {
 			matchCount++
 			matched = append(matched, kw)
@@ -1749,29 +1953,9 @@ func evaluateOCRKeywordMatch(rule Rule, evidenceData []any, base grc.RuleResult)
 		return strings.Contains(textNoSpace, strings.ReplaceAll(p, " ", ""))
 	}
 
-	// 2. 결함 패턴 매칭 (deficiency_indicators)
 	var violations []grc.Violation
-	for _, ind := range rule.DeficiencyIndicators {
-		if ind.Pattern == "" {
-			continue
-		}
-		if ocrContains(ind.Pattern) {
-			violations = append(violations, grc.Violation{
-				Pattern:     ind.Pattern,
-				Description: ind.Description,
-				Severity:    "high",
-			})
-			log.Printf("[grc-ocr-eval] rule=%s DEFICIENCY matched: %s", rule.RuleID, ind.Pattern)
-		}
-	}
 
-	if rule.JudgementLogic.AnyDeficiencyFails && len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-		return base
-	}
-
-	// 3. 준수 신호 카운트: compliance_indicator 패턴 우선, 없으면 identification_keywords 폴백
+	// 2. 준수 신호 카운트: compliance_indicator 패턴 우선, 없으면 identification_keywords 폴백
 	var matched []string
 	hasPatterns := false
 	for _, ind := range rule.ComplianceIndicators {
@@ -1817,14 +2001,14 @@ func evaluateOCRKeywordMatch(rule Rule, evidenceData []any, base grc.RuleResult)
 
 	// compliance_indicator에 pattern이 없는 경우 (R011 등) → identification_keywords로 폴백
 	if !hasPatterns {
-		for _, kw := range rule.IdentificationKeywords {
+		for _, kw := range rule.Keywords {
 			if ocrContains(kw) {
 				matched = append(matched, fmt.Sprintf("키워드: %s", kw))
 			}
 		}
 	}
 
-	minSignals := rule.JudgementLogic.MinComplianceSignals
+	minSignals := rule.JudgmentLogic.MinComplianceSignals
 	if minSignals == 0 {
 		minSignals = 1
 	}
@@ -1868,33 +2052,7 @@ func evaluateRegex(rule Rule, evidenceData []any, base grc.RuleResult) grc.RuleR
 		}
 	}
 
-	var violations []grc.Violation
-	for _, sample := range samples {
-		for _, ind := range rule.DeficiencyIndicators {
-			if ind.Pattern == "" {
-				continue
-			}
-			re, err := regexp.Compile(ind.Pattern)
-			if err != nil {
-				continue
-			}
-			if re.MatchString(sample) {
-				truncated := sample
-				if len(truncated) > 32 {
-					truncated = truncated[:32] + "..."
-				}
-				violations = append(violations, grc.Violation{
-					Pattern:     ind.Pattern,
-					Actual:      truncated,
-					Description: ind.Description,
-					Severity:    "critical",
-				})
-				break
-			}
-		}
-	}
-
-	// Also check compliance patterns.
+	// Check compliance patterns.
 	hasCompliance := false
 	var matched []string
 	for _, sample := range samples {
@@ -1914,10 +2072,7 @@ func evaluateRegex(rule Rule, evidenceData []any, base grc.RuleResult) grc.RuleR
 		}
 	}
 
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else if hasCompliance {
+	if hasCompliance {
 		base.Verdict = "준수"
 		base.MatchedIndicators = matched
 	} else {
@@ -1952,7 +2107,7 @@ func evaluateAggregated(rule Rule, evidenceData []any, base grc.RuleResult) grc.
 		}
 	}
 
-	thresholdPct := rule.JudgementLogic.ViolationThresholdPct
+	thresholdPct := rule.JudgmentLogic.ViolationThresholdPct
 	violationPct := float64(violators) / float64(len(records)) * 100
 
 	if violationPct > thresholdPct {
@@ -1986,14 +2141,14 @@ func evaluateCodePattern(rule Rule, evidenceData []any, base grc.RuleResult) grc
 	matchCount := 0
 	var matched []string
 	codeLower := strings.ToLower(codeText)
-	for _, kw := range rule.IdentificationKeywords {
+	for _, kw := range rule.Keywords {
 		if strings.Contains(codeLower, strings.ToLower(kw)) {
 			matchCount++
 			matched = append(matched, kw)
 		}
 	}
 
-	minPatterns := rule.JudgementLogic.MinPatterns
+	minPatterns := rule.JudgmentLogic.MinPatterns
 	if minPatterns == 0 {
 		minPatterns = 2
 	}
@@ -2118,10 +2273,11 @@ func toFloat64(v any) (float64, bool) {
 }
 
 func isAccountViolation(record map[string]string, rule Rule) bool {
-	for _, ind := range rule.DeficiencyIndicators {
+	// Check compliance indicators: a record is a violation if it fails any indicator.
+	for _, ind := range rule.ComplianceIndicators {
 		if ind.Field != "" && ind.Op != "" {
 			if actual, ok := record[ind.Field]; ok {
-				if compareValues(actual, ind.Op, ind.Value) {
+				if !compareValues(actual, ind.Op, ind.Value) {
 					return true
 				}
 			}
@@ -2129,7 +2285,7 @@ func isAccountViolation(record map[string]string, rule Rule) bool {
 		if ind.Pattern != "" {
 			for _, val := range record {
 				if strings.Contains(strings.ToLower(val), strings.ToLower(ind.Pattern)) {
-					return true
+					return false // compliance pattern matched → not a violation
 				}
 			}
 		}
@@ -2148,6 +2304,8 @@ func aggregateSummary(results []grc.RuleResult, evidenceCount int) grc.Summary {
 			s.Passed++
 		case "미준수":
 			s.Failed++
+		case "검토필요":
+			s.NeedsReview++
 		case "skipped":
 			s.Skipped++
 		}
@@ -2175,7 +2333,7 @@ func generateRecommendations(results []grc.RuleResult, ruleset *Ruleset) []grc.R
 					}
 					action = "개선 필요: " + strings.Join(parts, "; ")
 				} else {
-					action = fmt.Sprintf("룰 %s (%s) 미준수 항목 개선 필요", rule.RuleID, rule.CheckCategory)
+					action = fmt.Sprintf("룰 %s (%s) 미준수 항목 개선 필요", rule.RuleID, rule.Name)
 				}
 				if src := formatEvidenceSourcesForRecommendation(r.EvidenceSources); src != "" {
 					action = fmt.Sprintf("다음 Kubernetes 구성에서 확인됨 [%s]. %s", src, action)
@@ -2205,7 +2363,7 @@ func generateRecommendations(results []grc.RuleResult, ruleset *Ruleset) []grc.R
 // Returns immediately with check_id; evaluation runs asynchronously.
 func (s *GRCService) CreatePodGraphCheck(ctx context.Context, companyID string, pgReq PodGraphRequest) (*grc.Check, error) {
 	// Validate pod rulesets exist.
-	rulesets := s.rulesetStore.LoadAllPodRulesets()
+	rulesets := s.rulesetStore.LoadAll()
 	if len(rulesets) == 0 {
 		return nil, &GRCError{Code: "NO_POD_RULESETS", Message: "Pod 룰셋이 로드되지 않았습니다", HTTPStatus: 500}
 	}
@@ -2305,7 +2463,7 @@ func (s *GRCService) runPodGraphWorker(checkID string, pgReq PodGraphRequest) {
 }
 
 func (s *GRCService) processPodGraphCheck(ctx context.Context, checkID string, pgReq PodGraphRequest) (*grc.ComplianceCheckResult, error) {
-	rulesets := s.rulesetStore.LoadAllPodRulesets()
+	rulesets := s.rulesetStore.LoadAll()
 	if len(rulesets) == 0 {
 		return nil, &GRCError{Code: "NO_POD_RULESETS", Message: "Pod 룰셋이 로드되지 않았습니다", HTTPStatus: 500}
 	}
@@ -2374,11 +2532,13 @@ func (s *GRCService) processPodGraphCheck(ctx context.Context, checkID string, p
 					severity = v.Severity
 				}
 			}
+		} else if rr.Verdict == "검토필요" && verdict != "미준수" {
+			verdict = "검토필요"
 		}
 	}
 
-	summary.SummaryText = fmt.Sprintf("Pod Graph 점검 (pod=%s ns=%s): %d개 룰 중 통과 %d / 미준수 %d / 스킵 %d",
-		podName, podNS, summary.TotalRules, summary.Passed, summary.Failed, summary.Skipped)
+	summary.SummaryText = fmt.Sprintf("Pod Graph 점검 (pod=%s ns=%s): %d개 룰 중 통과 %d / 미준수 %d / 검토필요 %d / 스킵 %d",
+		podName, podNS, summary.TotalRules, summary.Passed, summary.Failed, summary.NeedsReview, summary.Skipped)
 
 	// Generate recommendations from all rulesets.
 	var recommendations []grc.Recommendation

@@ -30,19 +30,35 @@
         {
           "resource_type": "event",
           "api_endpoint": "GET /api/v1/namespaces/{ns}/events",
-          "fields": [".reason", ".involvedObject", ".message", ".metadata.creationTimestamp"],
+          "fields": [
+            ".reason",
+            ".involvedObject",
+            ".message",
+            ".metadata.creationTimestamp"
+          ],
           "python_client": "v1.list_namespaced_event(ns)"
         },
         {
           "resource_type": "pod",
           "api_endpoint": "GET /api/v1/namespaces/{ns}/pods/{name}",
-          "fields": [".metadata.labels", ".metadata.namespace"],
+          "fields": [
+            ".metadata.labels",
+            ".metadata.namespace"
+          ],
           "python_client": "v1.read_namespaced_pod(name, ns)"
         }
       ],
       "prod_namespace_indicators": {
-        "labels": ["env=production", "env=prod", "environment=production"],
-        "name_patterns": ["prod-*", "*-prod", "*-production"]
+        "labels": [
+          "env=production",
+          "env=prod",
+          "environment=production"
+        ],
+        "name_patterns": [
+          "prod-*",
+          "*-prod",
+          "*-production"
+        ]
       },
       "exec_detection": {
         "audit_log_verb": "create",
@@ -50,10 +66,20 @@
         "description": "Kubernetes Audit Log에서 pods/exec create 이벤트를 탐지하여 운영 환경 shell 접근 모니터링"
       },
       "compliance_indicators": [
-        { "field": "prod_exec_detected", "op": "==", "value": false, "description": "운영 환경 namespace에서 Pod exec 활동 미탐지 — 비인가 shell 접근 없음" }
+        {
+          "field": "prod_exec_detected",
+          "op": "==",
+          "value": false,
+          "description": "운영 환경 namespace에서 Pod exec 활동 미탐지 — 비인가 shell 접근 없음"
+        }
       ],
       "deficiency_indicators": [
-        { "field": "prod_exec_detected", "op": "==", "value": true, "description": "운영 환경에서 Pod exec(shell) 활동 탐지 — 이상행위 가능성, 접근 사유 확인 필요" }
+        {
+          "field": "prod_exec_detected",
+          "op": "==",
+          "value": true,
+          "description": "운영 환경에서 Pod exec(shell) 활동 탐지 — 이상행위 가능성, 접근 사유 확인 필요"
+        }
       ],
       "alert_on_detection": {
         "severity": "high",
@@ -64,7 +90,79 @@
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
-      "report": ["Namespace 이름", "exec 대상 Pod 이름", "exec 실행 시각", "실행 사용자 정보"]
+      "report": [
+        "Namespace 이름",
+        "exec 대상 Pod 이름",
+        "exec 실행 시각",
+        "실행 사용자 정보"
+      ]
+    },
+    {
+      "rule_id": "F-2.11.3-K8S-01",
+      "name": "운영 환경 Shell 활동 관찰 (eBPF)",
+      "judgment_mode": "manual",
+      "verdict_type": "potential_finding",
+      "observation_template": "env=prod namespace Pod에서 shell exec 활동 {count}건 (24h 기준). 상세: {events}",
+      "check_category": "pod_graph",
+      "evidence_type": "manual_evaluation",
+      "system": "K8s",
+      "manual_meta": {
+        "target_resource": "eBPF process events",
+        "required_data": [
+          "ebpf_process_events",
+          "cluster_namespaces"
+        ],
+        "condition": {
+          "operator": "prod_shell_exec_detection",
+          "time_window": "24h",
+          "binary_patterns": [
+            "/bin/sh",
+            "/bin/bash",
+            "/usr/bin/sh",
+            "/usr/bin/bash",
+            "/bin/zsh"
+          ]
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.11.3",
+            "match_strength": "indirect"
+          }
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "모니터링 사각지대 - 운영 중 비정상 활동 미감지",
+            "match": "partial"
+          }
+        ],
+        "additional_review_items": [
+          "발견된 shell exec이 인가된 운영 작업이었는가",
+          "kubectl exec 권한 보유 SA 식별",
+          "활동 시간대가 업무 시간 내인가",
+          "회사의 운영 접근 정책 확인"
+        ],
+        "manual_check_areas": [
+          "이상행위 탐지 도구 운영(Falco, Tetragon)",
+          "탐지 룰 정의 문서",
+          "이상행위 대응 절차",
+          "모니터링 로그 보관 정책"
+        ],
+        "automation_coverage": {
+          "percentage": 30,
+          "covered": "eBPF 기반 shell 활동",
+          "not_covered": "audit log 기반 비정상 활동(burst 요청, Forbidden 응답 등)"
+        },
+        "alternative_controls": [
+          "SSM Session Manager",
+          "Teleport",
+          "외부 PAM 도구"
+        ],
+        "k8s_only_check": true,
+        "deferred": false,
+        "deferred_reason": "K8s audit log 미수집으로 burst/forbidden/unexpected_creator 룰 비활성"
+      }
     }
   ],
   "evaluation_strategy": {

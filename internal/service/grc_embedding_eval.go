@@ -23,7 +23,7 @@ func defaultEmbeddingMinCosine() float64 {
 }
 
 func ruleEmbeddingThreshold(rule Rule) float64 {
-	t := rule.JudgementLogic.SimilarityThreshold
+	t := rule.JudgmentLogic.SimilarityThreshold
 	if t > 0 && t <= 1 {
 		return t
 	}
@@ -112,8 +112,9 @@ func (s *GRCService) applyGuidelineEmbedding(
 	primary grc.RuleResult,
 ) grc.RuleResult {
 	// 1차가 이미 증적↔지침 임베딩 유사도만으로 판정한 경우 중복 호출 방지
-	if rule.JudgementLogic.Type == "semantic_match" &&
-		strings.EqualFold(rule.JudgementLogic.Method, "embedding_similarity_with_threshold") {
+	if rule.JudgmentLogic.Type == "semantic_match" &&
+		(strings.EqualFold(rule.JudgmentLogic.Method, "embedding_similarity_with_threshold") ||
+			strings.EqualFold(rule.JudgmentLogic.Method, "llm_rag_entailment")) {
 		return primary
 	}
 	if primary.Verdict == "skipped" {

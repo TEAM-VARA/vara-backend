@@ -661,6 +661,7 @@ type ClusterPodRow struct {
 	Annotations    json.RawMessage
 	Containers     json.RawMessage
 	Volumes        json.RawMessage
+	HostNetwork    bool
 }
 
 // GetLatestSnapshotAt returns the most recent snapshot_at for a cluster.
@@ -701,7 +702,7 @@ func (r *ClusterReaderRepo) ListPods(
 	}
 
 	// Fetch rows
-	q := `SELECT name, namespace, node, service_account, labels, annotations, containers, volumes
+	q := `SELECT name, namespace, node, service_account, labels, annotations, containers, volumes, COALESCE(host_network, false)
 		  FROM cluster_pods WHERE cluster_name = $1 AND snapshot_at = $2`
 	args := []any{clusterName, snapshotAt}
 	argIdx := 3
@@ -726,7 +727,7 @@ func (r *ClusterReaderRepo) ListPods(
 		var p ClusterPodRow
 		var node, sa *string
 		if err := rows.Scan(&p.Name, &p.Namespace, &node, &sa,
-			&p.Labels, &p.Annotations, &p.Containers, &p.Volumes); err != nil {
+			&p.Labels, &p.Annotations, &p.Containers, &p.Volumes, &p.HostNetwork); err != nil {
 			return nil, 0, fmt.Errorf("scan pod: %w", err)
 		}
 		if node != nil {
@@ -1334,6 +1335,16 @@ func scanWorkloadRows(rows pgx.Rows) ([]map[string]any, error) {
 		_ = json.Unmarshal(selector, &sel)
 		if sel != nil {
 			spec["selector"] = sel
+		}
+		var tmplLabels map[string]any
+		_ = json.Unmarshal(templateLabels, &tmplLabels)
+		if tmplLabels == nil {
+			tmplLabels = map[string]any{}
+		}
+		spec["template"] = map[string]any{
+			"metadata": map[string]any{
+				"labels": tmplLabels,
+			},
 		}
 		m := map[string]any{
 			"kind":     kind,

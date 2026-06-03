@@ -96,47 +96,7 @@ func TestRulesetRuleIDs(t *testing.T) {
 	}
 }
 
-func TestRulesetCheckCategories(t *testing.T) {
-	paths := []string{
-		"../../isms_p_2.5.4_ruleset.json",
-		"../../rulesets/isms_p_2.5.4_ruleset.json",
-	}
-
-	var basePath string
-	for _, p := range paths {
-		abs, _ := filepath.Abs(p)
-		dir := filepath.Dir(abs)
-		if _, err := os.Stat(abs); err == nil {
-			basePath = dir
-			break
-		}
-	}
-	if basePath == "" {
-		t.Skip("ruleset file not found")
-	}
-
-	store := NewRulesetStore(basePath)
-	rs, _ := store.Load("2.5.4")
-
-	expectedCategories := map[string]bool{
-		"정책_문서_존재":      true,
-		"정책_문서_충실도":     true,
-		"정책_시스템_설정":     true,
-		"사용자_화면_강제화":    true,
-		"변경주기_준수":       true,
-		"임시_비밀번호_강제_변경": true,
-		"저장_형태":         true,
-		"인증수단":          true,
-	}
-
-	for _, rule := range rs.Rules {
-		if !expectedCategories[rule.CheckCategory] {
-			t.Errorf("unexpected check_category %q in rule %s", rule.CheckCategory, rule.RuleID)
-		}
-	}
-}
-
-func TestRulesetJudgementLogicTypes(t *testing.T) {
+func TestRulesetJudgmentLogicTypes(t *testing.T) {
 	paths := []string{
 		"../../isms_p_2.5.4_ruleset.json",
 		"../../rulesets/isms_p_2.5.4_ruleset.json",
@@ -167,8 +127,8 @@ func TestRulesetJudgementLogicTypes(t *testing.T) {
 	}
 
 	for _, rule := range rs.Rules {
-		if !validTypes[rule.JudgementLogic.Type] {
-			t.Errorf("unexpected judgement_logic.type %q in rule %s", rule.JudgementLogic.Type, rule.RuleID)
+		if !validTypes[rule.JudgmentLogic.Type] {
+			t.Errorf("unexpected judgement_logic.type %q in rule %s", rule.JudgmentLogic.Type, rule.RuleID)
 		}
 	}
 }

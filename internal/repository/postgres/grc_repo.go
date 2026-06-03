@@ -101,17 +101,53 @@ func (r *GRCRepo) SaveCheckResult(ctx context.Context, result *grc.ComplianceChe
 		if mErr != nil {
 			return fmt.Errorf("marshal evidence_sources: %w", mErr)
 		}
+		evidenceJSON, mErr := json.Marshal(rr.Evidence)
+		if mErr != nil {
+			return fmt.Errorf("marshal evidence_json: %w", mErr)
+		}
+		if string(evidenceJSON) == "null" {
+			evidenceJSON = []byte("{}")
+		}
+		affectedJSON, mErr := json.Marshal(rr.AffectedResources)
+		if mErr != nil {
+			return fmt.Errorf("marshal affected_resources: %w", mErr)
+		}
+		if string(affectedJSON) == "null" {
+			affectedJSON = []byte("[]")
+		}
+
+		jMode := rr.JudgmentMode
+		if jMode == "" {
+			jMode = "auto"
+		}
+		var matchedVal *bool
+		if jMode == "manual" {
+			matchedVal = &rr.Matched
+		}
+
 		var rrID int64
 		err = tx.QueryRow(ctx, `
 			INSERT INTO grc_rule_results
 				(check_id, rule_id, check_category, evidence_type, system,
 				 verdict, evidence_files, evidence_sources, matched_indicators, skip_reason,
-				 embedding_similarity)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11)
+				 embedding_similarity,
+				 judgment_mode, verdict_type, matched, observation, evidence_json,
+				 affected_resources, manual_check_areas, additional_review_items,
+				 automation_coverage, alternative_controls, compliance_mappings,
+				 kisa_defect_case_refs, deferred, deferred_reason, isms_p_item_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,
+			        $12,$13,$14,$15,$16::jsonb,
+			        $17::jsonb,$18,$19,
+			        $20,$21,$22,
+			        $23,$24,$25,$26)
 			RETURNING id
 		`, result.CheckID, rr.RuleID, rr.CheckCategory, rr.EvidenceType, rr.System,
 			rr.Verdict, rr.EvidenceFiles, srcJSON, rr.MatchedIndicators, rr.SkipReason,
 			rr.EmbeddingSimilarity,
+			jMode, nilStrPtr(rr.VerdictType), matchedVal, nilStrPtr(rr.Observation), evidenceJSON,
+			affectedJSON, jsonOrNil(rr.ManualCheckAreas), jsonOrNil(rr.AdditionalReviewItems),
+			jsonOrNil(rr.AutomationCoverage), jsonOrNil(rr.AlternativeControls), jsonOrNil(rr.ComplianceMappings),
+			jsonOrNil(rr.KisaDefectCaseRefs), rr.Deferred, nilStrPtr(rr.DeferredReason), nilStrPtr(rr.ISMSPItemID),
 		).Scan(&rrID)
 		if err != nil {
 			return fmt.Errorf("insert rule_result %s: %w", rr.RuleID, err)
@@ -216,7 +252,11 @@ func (r *GRCRepo) GetCheckRuleResults(ctx context.Context, checkID string) ([]gr
 	rows, err := r.pg.Query(ctx, `
 		SELECT id, rule_id, check_category, evidence_type, system,
 		       verdict, evidence_files, evidence_sources, matched_indicators, skip_reason,
-		       embedding_similarity
+		       embedding_similarity,
+		       judgment_mode, verdict_type, matched, observation, evidence_json,
+		       affected_resources, manual_check_areas, additional_review_items,
+		       automation_coverage, alternative_controls, compliance_mappings,
+		       kisa_defect_case_refs, deferred, deferred_reason, isms_p_item_id
 		FROM grc_rule_results WHERE check_id = $1
 		ORDER BY rule_id
 	`, checkID)
@@ -231,10 +271,21 @@ func (r *GRCRepo) GetCheckRuleResults(ctx context.Context, checkID string) ([]gr
 		var evidenceType, system, skipReason *string
 		var embSim *float64
 		var srcRaw []byte
+		// manual-mode nullable fields
+		var verdictType, observation, deferredReason, ismsPItemID *string
+		var matchedVal *bool
+		var evidenceRaw, affectedRaw []byte
+		var manualCheckRaw, additionalReviewRaw json.RawMessage
+		var automationRaw, alternativeRaw, complianceRaw, kisaRaw json.RawMessage
+
 		if err := rows.Scan(
 			&rr.ID, &rr.RuleID, &rr.CheckCategory, &evidenceType, &system,
 			&rr.Verdict, &rr.EvidenceFiles, &srcRaw, &rr.MatchedIndicators, &skipReason,
 			&embSim,
+			&rr.JudgmentMode, &verdictType, &matchedVal, &observation, &evidenceRaw,
+			&affectedRaw, &manualCheckRaw, &additionalReviewRaw,
+			&automationRaw, &alternativeRaw, &complianceRaw,
+			&kisaRaw, &rr.Deferred, &deferredReason, &ismsPItemID,
 		); err != nil {
 			return nil, err
 		}
@@ -253,6 +304,34 @@ func (r *GRCRepo) GetCheckRuleResults(ctx context.Context, checkID string) ([]gr
 		if len(srcRaw) > 0 {
 			_ = json.Unmarshal(srcRaw, &rr.EvidenceSources)
 		}
+		if verdictType != nil {
+			rr.VerdictType = *verdictType
+		}
+		if matchedVal != nil {
+			rr.Matched = *matchedVal
+		}
+		if observation != nil {
+			rr.Observation = *observation
+		}
+		if deferredReason != nil {
+			rr.DeferredReason = *deferredReason
+		}
+		if ismsPItemID != nil {
+			rr.ISMSPItemID = *ismsPItemID
+		}
+		if len(evidenceRaw) > 0 && string(evidenceRaw) != "{}" {
+			_ = json.Unmarshal(evidenceRaw, &rr.Evidence)
+		}
+		if len(affectedRaw) > 0 && string(affectedRaw) != "[]" {
+			_ = json.Unmarshal(affectedRaw, &rr.AffectedResources)
+		}
+		rr.ManualCheckAreas = manualCheckRaw
+		rr.AdditionalReviewItems = additionalReviewRaw
+		rr.AutomationCoverage = automationRaw
+		rr.AlternativeControls = alternativeRaw
+		rr.ComplianceMappings = complianceRaw
+		rr.KisaDefectCaseRefs = kisaRaw
+
 		results = append(results, rr)
 	}
 
@@ -498,6 +577,15 @@ func nilStrPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// jsonOrNil returns nil when r is empty (so nullable JSONB columns store NULL),
+// otherwise returns the raw bytes for insertion.
+func jsonOrNil(r json.RawMessage) interface{} {
+	if len(r) == 0 {
+		return nil
+	}
+	return []byte(r)
 }
 
 // UpdateEvidenceExtractedText saves the OCR/PDF extracted text for an evidence file.
@@ -1175,100 +1263,7 @@ func TotalPages(totalCount, pageSize int) int {
 	return int(math.Ceil(float64(totalCount) / float64(pageSize)))
 }
 
-// ── Compliance Findings ──
-
-// LoadActiveFindings returns all enabled, non-deferred findings from compliance_findings.
-func (r *GRCRepo) LoadActiveFindings(ctx context.Context) ([]grc.Finding, error) {
-	rows, err := r.pg.Query(ctx, `
-		SELECT finding_id, isms_p_item_id, title, verdict_type,
-		       observation_template, target_resource, required_data, condition,
-		       compliance_mappings, kisa_defect_case_refs,
-		       additional_review_items, manual_check_areas,
-		       automation_coverage, k8s_only_check,
-		       alternative_controls, exception_conditions,
-		       enabled, deferred, deferred_reason
-		FROM compliance_findings
-		WHERE enabled = true
-		ORDER BY finding_id
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var findings []grc.Finding
-	for rows.Next() {
-		var f grc.Finding
-		var deferredReason *string
-		var exceptionConditions []byte
-		if err := rows.Scan(
-			&f.FindingID, &f.ISMSPItemID, &f.Title, &f.VerdictType,
-			&f.ObservationTemplate, &f.TargetResource, &f.RequiredData, &f.Condition,
-			&f.ComplianceMappings, &f.KisaDefectCaseRefs,
-			&f.AdditionalReviewItems, &f.ManualCheckAreas,
-			&f.AutomationCoverage, &f.K8sOnlyCheck,
-			&f.AlternativeControls, &exceptionConditions,
-			&f.Enabled, &f.Deferred, &deferredReason,
-		); err != nil {
-			return nil, err
-		}
-		if deferredReason != nil {
-			f.DeferredReason = *deferredReason
-		}
-		if exceptionConditions != nil {
-			f.ExceptionConditions = exceptionConditions
-		}
-		findings = append(findings, f)
-	}
-	return findings, rows.Err()
-}
-
-// SaveFindingEvaluation inserts a single finding evaluation result.
-func (r *GRCRepo) SaveFindingEvaluation(ctx context.Context, findingID, companyID, clusterName, namespace, podName string, matched bool, observation string, evidence any) (int64, error) {
-	evidenceJSON, err := json.Marshal(evidence)
-	if err != nil {
-		return 0, fmt.Errorf("marshal evidence: %w", err)
-	}
-	var id int64
-	err = r.pg.QueryRow(ctx, `
-		INSERT INTO finding_evaluations
-			(finding_id, company_id, cluster_name, namespace, pod_name, matched, observation_text, evidence)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id
-	`, findingID, companyID, clusterName, nilStrPtr(namespace), nilStrPtr(podName),
-		matched, nilStrPtr(observation), evidenceJSON).Scan(&id)
-	return id, err
-}
-
-// SaveFindingClusterSummary inserts a cluster-level finding summary.
-func (r *GRCRepo) SaveFindingClusterSummary(ctx context.Context, companyID, clusterName, namespace string, snapshotAt time.Time, totalFindings, matchedCount, unmatchedCount int, byVerdict any, findingsDetail any) (int64, error) {
-	byVerdictJSON, err := json.Marshal(byVerdict)
-	if err != nil {
-		return 0, fmt.Errorf("marshal by_verdict: %w", err)
-	}
-	detailJSON, err := json.Marshal(findingsDetail)
-	if err != nil {
-		return 0, fmt.Errorf("marshal findings_detail: %w", err)
-	}
-	var id int64
-	err = r.pg.QueryRow(ctx, `
-		INSERT INTO finding_cluster_summaries
-			(company_id, cluster_name, namespace, snapshot_at,
-			 total_findings, matched_count, unmatched_count, by_verdict, findings_detail)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (company_id, cluster_name, namespace, snapshot_at)
-		DO UPDATE SET
-			total_findings = EXCLUDED.total_findings,
-			matched_count = EXCLUDED.matched_count,
-			unmatched_count = EXCLUDED.unmatched_count,
-			by_verdict = EXCLUDED.by_verdict,
-			findings_detail = EXCLUDED.findings_detail,
-			evaluated_at = NOW()
-		RETURNING id
-	`, companyID, clusterName, namespace, snapshotAt,
-		totalFindings, matchedCount, unmatchedCount, byVerdictJSON, detailJSON).Scan(&id)
-	return id, err
-}
+// ── Compliance Findings (historical archive - read-only) ──
 
 // ListFindingClusterSummaries returns paginated cluster finding summaries.
 func (r *GRCRepo) ListFindingClusterSummaries(ctx context.Context, companyID string, page, pageSize int) ([]grc.FindingClusterResult, int, error) {

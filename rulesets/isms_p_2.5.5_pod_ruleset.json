@@ -15,8 +15,16 @@
     "description": "정보시스템 관리, 개인정보 및 중요정보 관리 등 특수 목적을 위하여 사용하는 계정 및 권한은 최소한으로 부여하고 별도로 식별하여 통제하여야 한다."
   },
   "legal_references": [
-    { "law": "개인정보 보호법", "article": "제29조", "summary": "안전조치의무" },
-    { "law": "개인정보의 안전성 확보조치 기준", "article": "제5조", "summary": "접근 권한의 관리" }
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제5조",
+      "summary": "접근 권한의 관리"
+    }
   ],
   "rules": [
     {
@@ -30,27 +38,90 @@
       "extraction_method": "k8s_api",
       "auto_collectable": true,
       "data_sources": [
-        { "resource_type": "pod", "api_endpoint": "GET /api/v1/namespaces/{ns}/pods/{name}", "fields": [".spec.serviceAccountName"], "python_client": "v1.read_namespaced_pod(name, ns)" },
-        { "resource_type": "clusterrolebinding", "api_endpoint": "GET /apis/rbac.authorization.k8s.io/v1/clusterrolebindings", "fields": [".subjects", ".roleRef"], "python_client": "rbac.list_cluster_role_binding()" },
-        { "resource_type": "rolebinding", "api_endpoint": "GET /apis/rbac.authorization.k8s.io/v1/namespaces/{ns}/rolebindings", "fields": [".subjects", ".roleRef"], "python_client": "rbac.list_namespaced_role_binding(ns)" },
-        { "resource_type": "clusterrole", "api_endpoint": "GET /apis/rbac.authorization.k8s.io/v1/clusterroles/{name}", "fields": [".rules"], "python_client": "rbac.read_cluster_role(name)" }
+        {
+          "resource_type": "pod",
+          "api_endpoint": "GET /api/v1/namespaces/{ns}/pods/{name}",
+          "fields": [
+            ".spec.serviceAccountName"
+          ],
+          "python_client": "v1.read_namespaced_pod(name, ns)"
+        },
+        {
+          "resource_type": "clusterrolebinding",
+          "api_endpoint": "GET /apis/rbac.authorization.k8s.io/v1/clusterrolebindings",
+          "fields": [
+            ".subjects",
+            ".roleRef"
+          ],
+          "python_client": "rbac.list_cluster_role_binding()"
+        },
+        {
+          "resource_type": "rolebinding",
+          "api_endpoint": "GET /apis/rbac.authorization.k8s.io/v1/namespaces/{ns}/rolebindings",
+          "fields": [
+            ".subjects",
+            ".roleRef"
+          ],
+          "python_client": "rbac.list_namespaced_role_binding(ns)"
+        },
+        {
+          "resource_type": "clusterrole",
+          "api_endpoint": "GET /apis/rbac.authorization.k8s.io/v1/clusterroles/{name}",
+          "fields": [
+            ".rules"
+          ],
+          "python_client": "rbac.read_cluster_role(name)"
+        }
       ],
       "compliance_indicators": [
-        { "field": "has_cluster_admin", "op": "==", "value": false, "description": "cluster-admin 바인딩 없음" },
-        { "field": "has_wildcard_permission", "op": "==", "value": false, "description": "verbs:* + resources:* 와일드카드 권한 없음" },
-        { "field": "has_cluster_wide_secrets", "op": "==", "value": false, "description": "클러스터 전체 Secret 접근 권한 없음" }
+        {
+          "field": "has_cluster_admin",
+          "op": "==",
+          "value": false,
+          "description": "cluster-admin 바인딩 없음"
+        },
+        {
+          "field": "has_wildcard_permission",
+          "op": "==",
+          "value": false,
+          "description": "verbs:* + resources:* 와일드카드 권한 없음"
+        },
+        {
+          "field": "has_cluster_wide_secrets",
+          "op": "==",
+          "value": false,
+          "description": "클러스터 전체 Secret 접근 권한 없음"
+        }
       ],
       "deficiency_indicators": [
-        { "field": "has_cluster_admin", "op": "==", "value": true, "description": "ServiceAccount가 cluster-admin에 바인딩됨 — 최소 권한 원칙 위반" },
-        { "field": "has_wildcard_permission", "op": "==", "value": true, "description": "verbs:* + resources:* 와일드카드 권한 보유 — 전체 자원 접근 가능" },
-        { "field": "has_cluster_wide_secrets", "op": "==", "value": true, "description": "클러스터 전체 Secret에 get/list/watch 가능 — 민감정보 유출 위험" }
+        {
+          "field": "has_cluster_admin",
+          "op": "==",
+          "value": true,
+          "description": "ServiceAccount가 cluster-admin에 바인딩됨 — 최소 권한 원칙 위반"
+        },
+        {
+          "field": "has_wildcard_permission",
+          "op": "==",
+          "value": true,
+          "description": "verbs:* + resources:* 와일드카드 권한 보유 — 전체 자원 접근 가능"
+        },
+        {
+          "field": "has_cluster_wide_secrets",
+          "op": "==",
+          "value": true,
+          "description": "클러스터 전체 Secret에 get/list/watch 가능 — 민감정보 유출 위험"
+        }
       ],
       "judgement_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
-      "report": ["위반 바인딩명", "연결된 Role/ClusterRole 규칙"]
+      "report": [
+        "위반 바인딩명",
+        "연결된 Role/ClusterRole 규칙"
+      ]
     },
     {
       "rule_id": "R-2.5.5-POD-02",
@@ -63,36 +134,339 @@
       "extraction_method": "k8s_api",
       "auto_collectable": true,
       "data_sources": [
-        { "resource_type": "pod", "api_endpoint": "GET /api/v1/namespaces/{ns}/pods/{name}", "fields": [".spec.serviceAccountName"], "python_client": "v1.read_namespaced_pod(name, ns)" },
-        { "resource_type": "clusterrole", "api_endpoint": "GET /apis/rbac.authorization.k8s.io/v1/clusterroles/{name}", "fields": [".rules[].verbs", ".rules[].resources", ".rules[].apiGroups"], "python_client": "rbac.read_cluster_role(name)" },
-        { "resource_type": "role", "api_endpoint": "GET /apis/rbac.authorization.k8s.io/v1/namespaces/{ns}/roles/{name}", "fields": [".rules[].verbs", ".rules[].resources", ".rules[].apiGroups"], "python_client": "rbac.read_namespaced_role(name, ns)" }
+        {
+          "resource_type": "pod",
+          "api_endpoint": "GET /api/v1/namespaces/{ns}/pods/{name}",
+          "fields": [
+            ".spec.serviceAccountName"
+          ],
+          "python_client": "v1.read_namespaced_pod(name, ns)"
+        },
+        {
+          "resource_type": "clusterrole",
+          "api_endpoint": "GET /apis/rbac.authorization.k8s.io/v1/clusterroles/{name}",
+          "fields": [
+            ".rules[].verbs",
+            ".rules[].resources",
+            ".rules[].apiGroups"
+          ],
+          "python_client": "rbac.read_cluster_role(name)"
+        },
+        {
+          "resource_type": "role",
+          "api_endpoint": "GET /apis/rbac.authorization.k8s.io/v1/namespaces/{ns}/roles/{name}",
+          "fields": [
+            ".rules[].verbs",
+            ".rules[].resources",
+            ".rules[].apiGroups"
+          ],
+          "python_client": "rbac.read_namespaced_role(name, ns)"
+        }
       ],
       "dangerous_verb_combinations": [
-        { "name": "pod_exec_attach", "verbs": ["create", "get"], "resources": ["pods/exec", "pods/attach", "pods/portforward"], "risk": "컨테이너 내부 임의 명령 실행 — 우회 접근 경로" },
-        { "name": "secret_read_cluster_wide", "verbs": ["get", "list", "watch"], "resources": ["secrets"], "scope": "cluster_wide", "risk": "클러스터 전체 비밀정보 열람" },
-        { "name": "secret_write", "verbs": ["create", "update", "patch", "delete"], "resources": ["secrets"], "risk": "비밀정보 변조·삭제" },
-        { "name": "rbac_escalate", "verbs": ["escalate"], "resources": ["clusterroles", "roles"], "risk": "RBAC 권한 자체 상승" },
-        { "name": "rbac_bind", "verbs": ["bind"], "resources": ["clusterroles", "roles"], "risk": "임의 권한 바인딩 — 자기 자신을 cluster-admin에 연결 가능" },
-        { "name": "impersonate", "verbs": ["impersonate"], "resources": ["users", "groups", "serviceaccounts"], "risk": "다른 계정 가장하여 API 호출" },
-        { "name": "node_proxy", "verbs": ["get", "create"], "resources": ["nodes/proxy"], "risk": "kubelet API 직접 접근 — Pod 명령 실행" },
-        { "name": "sa_token_request", "verbs": ["create"], "resources": ["serviceaccounts/token"], "risk": "임의 ServiceAccount 토큰 발급" }
+        {
+          "name": "pod_exec_attach",
+          "verbs": [
+            "create",
+            "get"
+          ],
+          "resources": [
+            "pods/exec",
+            "pods/attach",
+            "pods/portforward"
+          ],
+          "risk": "컨테이너 내부 임의 명령 실행 — 우회 접근 경로"
+        },
+        {
+          "name": "secret_read_cluster_wide",
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "scope": "cluster_wide",
+          "risk": "클러스터 전체 비밀정보 열람"
+        },
+        {
+          "name": "secret_write",
+          "verbs": [
+            "create",
+            "update",
+            "patch",
+            "delete"
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "risk": "비밀정보 변조·삭제"
+        },
+        {
+          "name": "rbac_escalate",
+          "verbs": [
+            "escalate"
+          ],
+          "resources": [
+            "clusterroles",
+            "roles"
+          ],
+          "risk": "RBAC 권한 자체 상승"
+        },
+        {
+          "name": "rbac_bind",
+          "verbs": [
+            "bind"
+          ],
+          "resources": [
+            "clusterroles",
+            "roles"
+          ],
+          "risk": "임의 권한 바인딩 — 자기 자신을 cluster-admin에 연결 가능"
+        },
+        {
+          "name": "impersonate",
+          "verbs": [
+            "impersonate"
+          ],
+          "resources": [
+            "users",
+            "groups",
+            "serviceaccounts"
+          ],
+          "risk": "다른 계정 가장하여 API 호출"
+        },
+        {
+          "name": "node_proxy",
+          "verbs": [
+            "get",
+            "create"
+          ],
+          "resources": [
+            "nodes/proxy"
+          ],
+          "risk": "kubelet API 직접 접근 — Pod 명령 실행"
+        },
+        {
+          "name": "sa_token_request",
+          "verbs": [
+            "create"
+          ],
+          "resources": [
+            "serviceaccounts/token"
+          ],
+          "risk": "임의 ServiceAccount 토큰 발급"
+        }
       ],
       "compliance_indicators": [
-        { "field": "has_dangerous_verb_combo", "op": "==", "value": false, "description": "위험 verb 조합 미보유" }
+        {
+          "field": "has_dangerous_verb_combo",
+          "op": "==",
+          "value": false,
+          "description": "위험 verb 조합 미보유"
+        }
       ],
       "deficiency_indicators": [
-        { "field": "has_dangerous_verb_combo", "op": "==", "value": true, "description": "위험 verb 조합 보유 — cluster-admin이 아니더라도 사실상 권한 상승 가능" }
+        {
+          "field": "has_dangerous_verb_combo",
+          "op": "==",
+          "value": true,
+          "description": "위험 verb 조합 보유 — cluster-admin이 아니더라도 사실상 권한 상승 가능"
+        }
       ],
       "exception_check": {
         "annotation": "rbac-exception/justification",
-        "system_namespaces": ["kube-system", "kube-node-lease"]
+        "system_namespaces": [
+          "kube-system",
+          "kube-node-lease"
+        ]
       },
       "judgement_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
-      "report": ["매칭된 위험 조합명", "해당 Role/ClusterRole명", "verbs·resources·apiGroups"]
+      "report": [
+        "매칭된 위험 조합명",
+        "해당 Role/ClusterRole명",
+        "verbs·resources·apiGroups"
+      ]
+    },
+    {
+      "rule_id": "F-2.5.5-K8S-01",
+      "name": "클러스터 최고 권한 보유 SA 발견",
+      "judgment_mode": "manual",
+      "verdict_type": "potential_finding",
+      "observation_template": "특수권한 보유 SA 발견 — cluster-admin 바인딩: {cluster_admin_sas}, 와일드카드 권한: {wildcard_sas}, 전체 Secret 접근: {secret_full_sas}",
+      "check_category": "pod_graph",
+      "evidence_type": "manual_evaluation",
+      "system": "K8s",
+      "manual_meta": {
+        "target_resource": "ServiceAccount + RBAC chain",
+        "required_data": [
+          "cluster_pods.service_account",
+          "cluster_role_bindings",
+          "cluster_cluster_role_bindings",
+          "cluster_roles",
+          "cluster_cluster_roles"
+        ],
+        "condition": {
+          "operator": "any_of",
+          "conditions": [
+            {
+              "binding_target": "cluster-admin"
+            },
+            {
+              "rules_contain": {
+                "verbs": [
+                  "*"
+                ],
+                "resources": [
+                  "*"
+                ]
+              }
+            },
+            {
+              "cluster_scope_secret_access": [
+                "get",
+                "list",
+                "watch"
+              ]
+            }
+          ]
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.5.5",
+            "match_strength": "direct"
+          },
+          {
+            "framework": "개인정보보호법",
+            "item": "안전성 확보조치 - 접근권한 차등 부여",
+            "match_strength": "direct"
+          },
+          {
+            "framework": "ISO 27001",
+            "item": "A.9.2.3",
+            "match_strength": "indirect"
+          }
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "관리자 권한 일반 사용자에게 부여",
+            "match": "direct"
+          }
+        ],
+        "additional_review_items": [
+          "이 SA들이 회사의 특수권한자 목록에 등록되어 있는가",
+          "권한 부여 시 승인 결재 기록 확인",
+          "최근 권한 검토 기록(분기/반기) 확인",
+          "이 권한이 업무상 정말 필요한가(최소 권한 원칙)"
+        ],
+        "manual_check_areas": [
+          "특수권한자 목록",
+          "권한 부여 결재 기록",
+          "권한 검토 기록"
+        ],
+        "automation_coverage": {
+          "percentage": 100,
+          "covered": "특수권한 식별",
+          "not_covered": "승인/검토 절차 준수"
+        },
+        "exception_conditions": {
+          "exception_namespaces": [
+            "kube-system"
+          ]
+        },
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "F-2.5.5-K8S-02",
+      "name": "위험 RBAC 권한 보유 SA 발견",
+      "judgment_mode": "manual",
+      "verdict_type": "potential_finding",
+      "observation_template": "위험 권한 조합 보유 SA 발견 — {dangerous_pattern_summary}",
+      "check_category": "pod_graph",
+      "evidence_type": "manual_evaluation",
+      "system": "K8s",
+      "manual_meta": {
+        "target_resource": "ServiceAccount + RBAC chain",
+        "required_data": [
+          "cluster_role_bindings",
+          "cluster_cluster_role_bindings",
+          "cluster_roles",
+          "cluster_cluster_roles"
+        ],
+        "condition": {
+          "operator": "any_dangerous_verb",
+          "patterns": [
+            {
+              "name": "pod_exec",
+              "resource": "pods/exec",
+              "verbs": [
+                "create",
+                "*"
+              ]
+            },
+            {
+              "name": "secret_write",
+              "resource": "secrets",
+              "verbs": [
+                "create",
+                "update",
+                "patch",
+                "*"
+              ]
+            },
+            {
+              "name": "rbac_escalate",
+              "resource": "*",
+              "verbs": [
+                "escalate"
+              ]
+            },
+            {
+              "name": "impersonate",
+              "resource": "users|groups|serviceaccounts",
+              "verbs": [
+                "impersonate"
+              ]
+            }
+          ]
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.5.5",
+            "match_strength": "direct"
+          }
+        ],
+        "kisa_defect_case_refs": [],
+        "additional_review_items": [
+          "각 권한이 회사 표준 RBAC 정책에 정의되어 있는가",
+          "권한 부여 사유와 승인 기록",
+          "권한 보유자 식별 가능성"
+        ],
+        "manual_check_areas": [
+          "RBAC 정책 문서",
+          "권한 부여 결재 기록"
+        ],
+        "automation_coverage": {
+          "percentage": 100,
+          "covered": "위험 권한 식별",
+          "not_covered": "정당성 평가"
+        },
+        "exception_conditions": {
+          "exception_annotation": "rbac-exception/justification"
+        },
+        "k8s_only_check": true,
+        "deferred": false
+      }
     }
   ],
   "evaluation_strategy": {

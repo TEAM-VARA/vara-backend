@@ -483,7 +483,7 @@ func TestEvidence_FullPipeline_StructuredRules(t *testing.T) {
 				t.Fatalf("extractEvidence failed: %v", err)
 			}
 
-			result := svc.evaluateRule(context.Background(), *rule, []any{data}, []string{tc.file})
+			result := svc.evaluateRule(context.Background(), *rule, []any{data}, []string{tc.file}, nil)
 
 			if result.Verdict != expectedVerdict {
 				t.Errorf("verdict = %q, want %q", result.Verdict, expectedVerdict)
@@ -583,7 +583,7 @@ func TestComplianceReport(t *testing.T) {
 			continue
 		}
 
-		evalResult := svc.evaluateRule(context.Background(), *rule, []any{data}, []string{tc.file})
+		evalResult := svc.evaluateRule(context.Background(), *rule, []any{data}, []string{tc.file}, nil)
 
 		actualVerdict := "PASS"
 		if evalResult.Verdict != "준수" {
@@ -685,7 +685,7 @@ func TestComplianceReport(t *testing.T) {
 		if err != nil {
 			continue
 		}
-		evalResult := svc.evaluateRule(context.Background(), *rule, []any{data}, []string{r.tc.file})
+		evalResult := svc.evaluateRule(context.Background(), *rule, []any{data}, []string{r.tc.file}, nil)
 
 		report.WriteString(fmt.Sprintf("  [%s] %s - %s\n", r.tc.ruleID, r.tc.category, r.tc.file))
 		if len(evalResult.Violations) == 0 {
