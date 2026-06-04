@@ -103,8 +103,7 @@
           "책임자 미지정 자산의 사유 확인"
         ],
         "manual_check_areas": [
-          "자산관리시스템(CMDB) 책임자 매핑",
-          "책임자 지정 절차서"
+          "자산관리시스템(CMDB) 책임자 매핑"
         ],
         "automation_coverage": {
           "percentage": 30,
@@ -114,6 +113,9 @@
         "alternative_controls": [
           "외부 CMDB",
           "ITSM 시스템"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "K8s owner 라벨이 없어도 외부 CMDB/ITSM에 워크로드의 책임자·소유팀이 매핑돼 있음"
         ],
         "k8s_only_check": true,
         "deferred": false
@@ -156,6 +158,9 @@
           "covered": "변경 감지",
           "not_covered": "변경 절차 준수 여부"
         },
+        "offcluster_satisfaction_conditions": [
+          "감지된 변경이 변경관리(ITSM) 신청·승인 결재를 거쳤고 자산관리대장에 반영됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }

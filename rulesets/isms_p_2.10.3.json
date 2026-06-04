@@ -175,6 +175,10 @@
           "VPC Security Group",
           "Network ACL"
         ],
+        "offcluster_satisfaction_conditions": [
+          "VPC SG/Network ACL에서 해당 NodePort가 외부로부터 차단",
+          "의도된 공개로 NodePort 사용 정책상 승인·문서화됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }

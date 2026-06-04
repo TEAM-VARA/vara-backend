@@ -115,9 +115,9 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 			cluster_name, snapshot_at, pod_uid, name, namespace,
 			node, pod_ip, phase, restart_count, service_account,
 			labels, annotations, containers, volumes,
-			host_network, started_at
+			host_network, started_at, host_pid
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 		)
 		ON CONFLICT (cluster_name, snapshot_at, pod_uid) DO UPDATE SET
 			phase             = EXCLUDED.phase,
@@ -126,7 +126,8 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 			containers        = EXCLUDED.containers,
 			volumes           = EXCLUDED.volumes,
 			host_network      = EXCLUDED.host_network,
-			started_at        = EXCLUDED.started_at
+			started_at        = EXCLUDED.started_at,
+			host_pid          = EXCLUDED.host_pid
 	`
 
 	saved := 0
@@ -140,7 +141,7 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 			req.Cluster, req.SnapshotAt, p.UID, p.Name, p.Namespace,
 			p.Node, p.PodIP, p.Phase, p.RestartCount, p.ServiceAccount,
 			labelsJSON, annotationsJSON, containersJSON, volumesJSON,
-			p.HostNetwork, p.StartedAt,
+			p.HostNetwork, p.StartedAt, p.HostPID,
 		)
 		if err != nil {
 			return 0, 0, fmt.Errorf("upsert pod %s: %w", p.Name, err)
@@ -739,6 +740,69 @@ func (r *ClusterReaderRepo) ListPods(
 		pods = append(pods, p)
 	}
 	return pods, total, nil
+}
+
+// PodDetailRow is a DB row from cluster_pods with full metadata for the pod detail endpoint.
+type PodDetailRow struct {
+	PodUID         string
+	Name           string
+	Namespace      string
+	Node           string
+	PodIP          string
+	Phase          string
+	ServiceAccount string
+	Labels         json.RawMessage
+	HostNetwork    bool
+	StartedAt      *time.Time
+}
+
+// GetPodByName returns pod metadata + pod_uid from the latest snapshot.
+func (r *ClusterReaderRepo) GetPodByName(ctx context.Context, clusterName, namespace, podName string) (*PodDetailRow, error) {
+	q := `SELECT pod_uid, name, namespace, COALESCE(node,''), COALESCE(pod_ip,''),
+	             COALESCE(phase,''), COALESCE(service_account,''), COALESCE(labels,'{}'),
+	             COALESCE(host_network, false), started_at
+	        FROM cluster_pods
+	       WHERE cluster_name = $1
+	         AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+	         AND name = $2`
+	args := []any{clusterName, podName}
+	argIdx := 3
+	if namespace != "" {
+		q += fmt.Sprintf(` AND namespace = $%d`, argIdx)
+		args = append(args, namespace)
+	}
+	q += ` LIMIT 1`
+
+	var p PodDetailRow
+	err := r.pg.QueryRow(ctx, q, args...).Scan(
+		&p.PodUID, &p.Name, &p.Namespace, &p.Node, &p.PodIP,
+		&p.Phase, &p.ServiceAccount, &p.Labels,
+		&p.HostNetwork, &p.StartedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get pod by name: %w", err)
+	}
+	return &p, nil
+}
+
+// PodMasterRow holds lifecycle metadata from the pod_master table.
+type PodMasterRow struct {
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
+}
+
+// GetPodMasterByName returns lifecycle timestamps from pod_master.
+func (r *ClusterReaderRepo) GetPodMasterByName(ctx context.Context, clusterName, podUID string) (*PodMasterRow, error) {
+	var m PodMasterRow
+	err := r.pg.QueryRow(ctx,
+		`SELECT first_seen_at, last_seen_at FROM pod_master
+		  WHERE cluster_name = $1 AND pod_uid = $2 AND deleted_at IS NULL`,
+		clusterName, podUID,
+	).Scan(&m.FirstSeenAt, &m.LastSeenAt)
+	if err != nil {
+		return nil, fmt.Errorf("get pod master: %w", err)
+	}
+	return &m, nil
 }
 
 // ClusterRelatedRows holds related K8s resources from DB for assembling PodGraphRequest.

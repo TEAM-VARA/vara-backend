@@ -103,6 +103,9 @@
           "Cilium FQDN policy",
           "AWS Network Firewall"
         ],
+        "offcluster_satisfaction_conditions": [
+          "VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -145,6 +148,9 @@
           "covered": "실제 통신 패턴 관찰",
           "not_covered": "통제 정책 자체"
         },
+        "offcluster_satisfaction_conditions": [
+          "관찰된 외부 접속이 화이트리스트 범위 내이고 의심 도메인 없음(DNS 로그 분석 기록으로 확인)"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }

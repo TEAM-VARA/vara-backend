@@ -530,13 +530,18 @@ func evalWorkloadEnvLabel(_ Rule, req PodGraphRequest, base PodRuleResult) PodRu
 	labels := jsonMap(req.Pod, "metadata", "labels")
 
 	val := strVal(labels["env"])
-	allowed := map[string]bool{"prod": true, "stg": true, "dev": true, "test": true}
+	allowed := map[string]bool{
+		"prod": true, "production": true,
+		"stg": true, "staging": true,
+		"dev": true, "development": true,
+		"test": true,
+	}
 
 	if !allowed[val] {
 		base.Verdict = "미준수"
 		base.Violations = []grc.Violation{{
 			Field:       "metadata.labels.env",
-			Expected:    "in [prod, stg, dev, test]",
+			Expected:    "in [prod, production, stg, staging, dev, development, test]",
 			Actual:      val,
 			Description: fmt.Sprintf("워크로드 '%s'에 env 라벨 부재 또는 허용 외 값", podName),
 			Severity:    "high",
@@ -1210,8 +1215,14 @@ func evalImageTagMutable(_ Rule, req PodGraphRequest, base PodRuleResult) PodRul
 		}
 		cName := strVal(cm["name"])
 		image := strVal(cm["image"])
-		tag := extractImageTag(image)
 
+		// digest(@sha256:)가 있으면 immutable — 태그 무관하게 준수
+		if strings.Contains(image, "@sha256:") {
+			matched = append(matched, fmt.Sprintf("컨테이너 '%s': digest 고정", cName))
+			continue
+		}
+
+		tag := extractImageTag(image)
 		if mutableTags[tag] || tag == "" {
 			violations = append(violations, grc.Violation{
 				Field:       "containers[].image",

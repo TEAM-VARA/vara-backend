@@ -76,17 +76,20 @@ type PodGraphResult struct {
 
 // PodRuleResult holds the verdict for a single Pod-graph rule.
 type PodRuleResult struct {
-	RuleID            string          `json:"rule_id"`
-	Name              string          `json:"name"`
-	ISMSPItem         string          `json:"isms_p_item"`
-	ISMSPItemName     string          `json:"isms_p_item_name"`
-	Severity          string          `json:"severity,omitempty"`
-	Verdict           string          `json:"verdict"` // 준수 | 미준수 | skip
-	Violations        []grc.Violation `json:"violations,omitempty"`
-	MatchedIndicators []string        `json:"matched_indicators,omitempty"`
-	FailMessage       string          `json:"fail_message,omitempty"`
-	SkipReason        string          `json:"skip_reason,omitempty"`
-	Remediation       string          `json:"remediation,omitempty"`
+	RuleID            string              `json:"rule_id"`
+	Name              string              `json:"name"`
+	ISMSPItem         string              `json:"isms_p_item"`
+	ISMSPItemName     string              `json:"isms_p_item_name"`
+	Severity          string              `json:"severity,omitempty"`
+	Verdict           string              `json:"verdict"` // MET | NOT_MET | NO_DATA | skip
+	Violations        []grc.Violation     `json:"violations,omitempty"`
+	MatchedIndicators []string            `json:"matched_indicators,omitempty"`
+	FailMessage       string              `json:"fail_message,omitempty"`
+	SkipReason        string              `json:"skip_reason,omitempty"`
+	Remediation       string              `json:"remediation,omitempty"`
+	Reason            string              `json:"reason,omitempty"`
+	MissingInputs     json.RawMessage     `json:"missing_inputs,omitempty"`
+	Layer             string              `json:"layer,omitempty"`
 }
 
 // ─────────────────────────────────────────────
@@ -120,8 +123,8 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 			if strings.HasPrefix(rule.RuleID, "F-") {
 				continue
 			}
-			// Skip non-POD rules from unified rulesets (e.g. R-1.2.1-01 duplicates R-1.2.1-POD-01)
-			if !strings.Contains(rule.RuleID, "-POD-") {
+			// Skip GL- (guideline) rules — handled by text_extraction evaluator
+			if strings.Contains(rule.RuleID, "-GL") {
 				continue
 			}
 			rr := evaluatePodRule(rule, rs.Item.ID, rs.Item.Name, req)
@@ -150,14 +153,18 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 			summary.BySeverity[sev] = &SeverityCount{}
 		}
 		switch rr.Verdict {
-		case "준수":
+		case "준수", grc.VerdictMET:
 			result.Passed++
 			summary.Pass++
 			summary.BySeverity[sev].Pass++
-		case "skip":
+		case "skip", grc.VerdictSKIPPED:
 			result.Skipped++
 			summary.Skip++
-		default: // 미준수
+		case grc.VerdictNO_DATA, grc.VerdictINDETERMINATE:
+			// Data unavailable — count as skipped for backward compat
+			result.Skipped++
+			summary.Skip++
+		default: // 미준수, NOT_MET, NEEDS_REVIEW
 			result.Failed++
 			summary.Fail++
 			summary.BySeverity[sev].Fail++
@@ -261,6 +268,62 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	"R-2.11.3-01": {"프로덕션 환경 Pod에서 대화형 셸(exec) 실행 감지", "프로덕션 Pod에서 대화형 셸 실행을 제한하는 OPA/Kyverno 정책을 적용하세요"},
 }
 
+// dataSourceAvailability tracks which K8s field prefixes have backing data in the DB.
+// Fields whose resource tables lack the required columns (e.g. labels/annotations) are marked false.
+var dataSourceAvailability = map[string]bool{
+	"pod.metadata.labels":                  true,
+	"pod.metadata.annotations":             true,
+	"pod.spec":                             true,
+	"namespace.metadata.labels":            false, // cluster_namespaces has no labels column
+	"namespace.metadata.annotations":       false,
+	"externalname_service.metadata.labels": false, // cluster_services has no labels column
+	"service.metadata.labels":              false,
+	"service.metadata.annotations":         false,
+	"ingress.metadata.labels":              false, // cluster_ingresses has no labels column
+	"ingress.metadata.annotations":         false,
+	"workload.metadata.labels":             false,
+	"workload.metadata.annotations":        false,
+	"node.metadata.labels":                 true, // cluster_nodes has labels
+	// network_policy, role, configmap, etc.: assumed available
+}
+
+// indicatorFieldPrefix extracts the resource-level prefix from a field path.
+// e.g. "namespace.metadata.labels.isms-p/scope" → "namespace.metadata.labels"
+func indicatorFieldPrefix(field string) string {
+	parts := strings.Split(field, ".")
+	// For labels/annotations paths like "namespace.metadata.labels.X", return first 3 segments.
+	if len(parts) >= 3 {
+		prefix := strings.Join(parts[:3], ".")
+		if strings.HasSuffix(prefix, ".labels") || strings.HasSuffix(prefix, ".annotations") {
+			return prefix
+		}
+	}
+	// For spec paths like "pod.spec.hostNetwork", return first 2 segments.
+	if len(parts) >= 2 {
+		return strings.Join(parts[:2], ".")
+	}
+	return field
+}
+
+// checkIndicatorDataAvailability checks if the rule's indicators reference data sources that exist in DB.
+// Returns the count of evaluable and noData indicators.
+func checkIndicatorDataAvailability(indicators []Indicator) (evaluable int, noData int, missingFields []string) {
+	for _, ind := range indicators {
+		if ind.Field == "" {
+			continue
+		}
+		prefix := indicatorFieldPrefix(ind.Field)
+		available, known := dataSourceAvailability[prefix]
+		if known && !available {
+			noData++
+			missingFields = append(missingFields, ind.Field)
+		} else {
+			evaluable++
+		}
+	}
+	return
+}
+
 // evaluatePodRule dispatches to the appropriate rule evaluator by rule_id.
 func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphRequest) PodRuleResult {
 	base := PodRuleResult{
@@ -268,6 +331,20 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		Name:          rule.Name,
 		ISMSPItem:     ismspItemID,
 		ISMSPItemName: ismspItemName,
+	}
+
+	// Pre-check: if all indicators reference unavailable data sources, return NO_DATA.
+	if len(rule.ComplianceIndicators) > 0 {
+		evaluable, noData, missingFields := checkIndicatorDataAvailability(rule.ComplianceIndicators)
+		if noData > 0 && evaluable == 0 {
+			base.Verdict = grc.VerdictNO_DATA
+			base.Reason = fmt.Sprintf("데이터 소스 부재: DB 테이블에 해당 필드 컬럼 없음 (%d개 인디케이터)", noData)
+			base.Layer = grc.LayerR
+			if mj, err := json.Marshal(missingFields); err == nil {
+				base.MissingInputs = mj
+			}
+			return base
+		}
 	}
 
 	var result PodRuleResult
@@ -375,6 +452,11 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		base.Verdict = "skip"
 		base.SkipReason = fmt.Sprintf("알 수 없는 Pod 룰: %s", rule.RuleID)
 		return base
+	}
+
+	// Set layer for all R-rule results
+	if result.Layer == "" {
+		result.Layer = grc.LayerR
 	}
 
 	// 미준수 판정 시 FailMessage/Remediation 자동 부여

@@ -97,12 +97,9 @@
         "kisa_defect_case_refs": [],
         "additional_review_items": [
           "이 통신 관계가 회사 정보흐름도에 반영되어 있는가",
-          "신규 서비스 추가 시 흐름도 갱신 절차 운영",
           "개인정보 처리 흐름이 별도 표시되어 있는가"
         ],
         "manual_check_areas": [
-          "정보흐름도 문서",
-          "흐름도 갱신 절차",
           "개인정보 처리 시스템 흐름도"
         ],
         "automation_coverage": {
@@ -110,6 +107,10 @@
           "covered": "K8s 통신 관계",
           "not_covered": "흐름도 문서 자체, K8s 외 시스템 연계"
         },
+        "offcluster_satisfaction_conditions": [
+          "도출된 통신 관계가 정보서비스 흐름도에 누락 없이 반영됨",
+          "개인정보 처리 흐름이 개인정보 흐름도에 수집·보유·이용/제공·파기 단계로 표시됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -154,6 +155,9 @@
           "covered": "클러스터에서 보이는 외부 연결",
           "not_covered": "K8s 외 시스템의 외부 연결"
         },
+        "offcluster_satisfaction_conditions": [
+          "발견된 외부 연계가 정보흐름도에 모두 등록돼 있고 외부 위탁 계약/외부 연계 시스템 목록과 일치함"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }

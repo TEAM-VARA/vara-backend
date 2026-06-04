@@ -109,6 +109,10 @@
           "covered": "K8s Ingress TLS",
           "not_covered": "mTLS, 외부 LB TLS"
         },
+        "offcluster_satisfaction_conditions": [
+          "외부 LB TLS 종료 + 클러스터 내 mTLS 구조",
+          "해당 경로가 개인정보/중요정보 송수신 경로가 아님(송수신 인터페이스 목록 확인)"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -156,14 +160,16 @@
           "중요 정보 송수신이면 https:// 변경 필요"
         ],
         "manual_check_areas": [
-          "외부 호출 인터페이스 목록",
-          "TLS 적용 정책"
+          "외부 호출 인터페이스 목록"
         ],
         "automation_coverage": {
           "percentage": 100,
           "covered": "ExternalName http:// 점검",
           "not_covered": "실제 호출되는 도메인의 정책"
         },
+        "offcluster_satisfaction_conditions": [
+          "평문 호출 대상이 개인정보/중요정보 비송수신 비중요 외부 서비스로 확인됨(중요정보면 https 전환 필요)"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -49,26 +50,23 @@ func (h *GRCHandler) createFileCheck(c *gin.Context) {
 
 	autoCollect := c.PostForm("auto_collect") == "true"
 
-	metadataStr := c.PostForm("evidence_metadata")
-	if metadataStr == "" {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "evidence_metadata 필수")
-		return
-	}
-
 	var metadataList []grc.EvidenceMetadata
-	if err := json.Unmarshal([]byte(metadataStr), &metadataList); err != nil {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "evidence_metadata JSON 파싱 실패: "+err.Error())
-		return
+	if metadataStr := c.PostForm("evidence_metadata"); metadataStr != "" {
+		if err := json.Unmarshal([]byte(metadataStr), &metadataList); err != nil {
+			grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "evidence_metadata JSON 파싱 실패: "+err.Error())
+			return
+		}
 	}
 
-	form, err := c.MultipartForm()
-	if err != nil {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "multipart form 파싱 실패: "+err.Error())
-		return
+	var files []*multipart.FileHeader
+	if form, err := c.MultipartForm(); err == nil && form != nil {
+		files = form.File["files"]
 	}
-	files := form.File["files"]
-	if len(files) == 0 {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "files 필수")
+
+	// files와 evidence_metadata가 둘 다 없으면 → 지침서 전용 점검 (DB 지침만 사용)
+	// files가 있으면 evidence_metadata도 필수
+	if len(files) > 0 && len(metadataList) == 0 {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "files 업로드 시 evidence_metadata 필수")
 		return
 	}
 
@@ -636,6 +634,27 @@ func (h *GRCHandler) EvaluateClusterCompliance(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// GET /compliance/overview — 전체 항목 한눈에 (최신 평가 결과 조회)
+func (h *GRCHandler) GetComplianceOverview(c *gin.Context) {
+	companyID := c.Query("company_id")
+	if companyID == "" {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
+		return
+	}
+	clusterName := c.Query("cluster_name") // optional
+
+	result, err := h.svc.GetComplianceOverview(c.Request.Context(), companyID, clusterName)
+	if err != nil {
+		if ge, ok := err.(*service.GRCError); ok {
+			grcError(c, ge.HTTPStatus, ge.Code, ge.Message)
+			return
+		}
+		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 // GET /compliance/findings/summary
 func (h *GRCHandler) GetFindingsSummary(c *gin.Context) {
 	companyID := c.Query("company_id")
@@ -643,14 +662,9 @@ func (h *GRCHandler) GetFindingsSummary(c *gin.Context) {
 		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
 		return
 	}
-	clusterName := c.Query("cluster_name")
+	clusterName := c.Query("cluster_name") // optional
 	if clusterName == "" {
-		// fall back to cluster_id for convenience
-		clusterName = c.Query("cluster_id")
-	}
-	if clusterName == "" {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "cluster_name 필수")
-		return
+		clusterName = c.Query("cluster_id") // fallback
 	}
 
 	summary, err := h.svc.GetLatestFindingClusterSummary(c.Request.Context(), companyID, clusterName)
@@ -678,12 +692,8 @@ func (h *GRCHandler) GetPodCompliance(c *gin.Context) {
 		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
 		return
 	}
-	clusterName := c.Query("cluster_name")
-	if clusterName == "" {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "cluster_name 필수")
-		return
-	}
-	namespace := c.Query("namespace")
+	clusterName := c.Query("cluster_name") // optional
+	namespace := c.Query("namespace")      // optional
 
 	result, err := h.svc.GetPodCompliance(c.Request.Context(), companyID, clusterName, namespace, podName)
 	if err != nil {
@@ -709,11 +719,7 @@ func (h *GRCHandler) GetISMSPItemViolations(c *gin.Context) {
 		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
 		return
 	}
-	clusterName := c.Query("cluster_name")
-	if clusterName == "" {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "cluster_name 필수")
-		return
-	}
+	clusterName := c.Query("cluster_name") // optional
 
 	result, err := h.svc.GetISMSPItemViolations(c.Request.Context(), companyID, clusterName, itemID)
 	if err != nil {
@@ -739,12 +745,8 @@ func (h *GRCHandler) GetPodViolations(c *gin.Context) {
 		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
 		return
 	}
-	clusterName := c.Query("cluster_name")
-	if clusterName == "" {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "cluster_name 필수")
-		return
-	}
-	namespace := c.Query("namespace")
+	clusterName := c.Query("cluster_name") // optional
+	namespace := c.Query("namespace")      // optional
 
 	result, err := h.svc.GetPodViolations(c.Request.Context(), companyID, clusterName, namespace, podName)
 	if err != nil {

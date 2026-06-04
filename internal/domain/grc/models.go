@@ -2,6 +2,7 @@ package grc
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -120,6 +121,12 @@ type RuleResult struct {
 	Remediation         string                `json:"remediation,omitempty"`
 	EmbeddingSimilarity *float64              `json:"embedding_similarity,omitempty"`
 
+	// ── Enhanced verdict metadata ──
+	Reason        string          `json:"reason,omitempty"`
+	MissingInputs json.RawMessage `json:"missing_inputs,omitempty"`
+	EvidenceData  json.RawMessage `json:"evidence_data,omitempty"`
+	Layer         string          `json:"layer,omitempty"`
+
 	// ── 통합 manual 판정 필드 ──
 	// judgment_mode: "auto" (기본값, 기존 R-rule) | "manual" (기존 F-finding)
 	JudgmentMode          string          `json:"judgment_mode,omitempty"`
@@ -136,6 +143,7 @@ type RuleResult struct {
 	KisaDefectCaseRefs    json.RawMessage `json:"kisa_defect_case_refs,omitempty"`
 	Deferred              bool            `json:"deferred,omitempty"`
 	DeferredReason        string          `json:"deferred_reason,omitempty"`
+	OffclusterSatisfactionConditions json.RawMessage `json:"offcluster_satisfaction_conditions,omitempty"`
 }
 
 // Violation describes a single compliance failure.
@@ -370,18 +378,29 @@ type ViolatedAsset struct {
 	ViolatedRules []ViolatedRuleInfo `json:"violated_rules"`
 }
 
+// ItemLayers groups rule results by evaluation layer.
+type ItemLayers struct {
+	GL []RuleResult `json:"gl,omitempty"` // 정책 (Guideline) rules
+	R  []RuleResult `json:"r,omitempty"`  // 기술 (K8s native) rules
+	F  []RuleResult `json:"f,omitempty"`  // 보조 (Finding/Manual) rules
+}
+
 // ItemComplianceResult holds compliance results for a single ISMS-P item.
 type ItemComplianceResult struct {
 	ISMSPItemID    string          `json:"isms_p_item_id"`
 	ItemName       string          `json:"item_name"`
-	Verdict        string          `json:"verdict"`         // 준수 | 미준수 | 검토필요
+	Verdict        string          `json:"verdict"`
+	Note           string          `json:"note,omitempty"`
 	TotalRules     int             `json:"total_rules"`
 	Passed         int             `json:"passed"`
 	Failed         int             `json:"failed"`
 	NeedsReview    int             `json:"needs_review"`
+	NoData         int             `json:"no_data,omitempty"`
+	Indeterminate  int             `json:"indeterminate,omitempty"`
 	Skipped        int             `json:"skipped"`
 	ViolatedAssets []ViolatedAsset `json:"violated_assets"`
 	RuleResults    []RuleResult    `json:"rule_results,omitempty"`
+	Layers         *ItemLayers     `json:"layers,omitempty"`
 }
 
 // ClusterComplianceResult is the unified response for cluster-wide compliance.
@@ -395,6 +414,8 @@ type ClusterComplianceResult struct {
 	CompliantItems     int                    `json:"compliant_items"`
 	NonCompliantItems  int                    `json:"non_compliant_items"`
 	NeedsReviewItems   int                    `json:"needs_review_items"`
+	NoDataItems        int                    `json:"no_data_items,omitempty"`
+	IndeterminateItems int                    `json:"indeterminate_items,omitempty"`
 	TotalRules         int                    `json:"total_rules"`
 	TotalPods          int                    `json:"total_pods"`
 	Items              []ItemComplianceResult `json:"items"`
@@ -442,3 +463,73 @@ const (
 	MaxTotalSize = 200 * 1024 * 1024 // 200MB total
 	MaxFileCount = 50
 )
+
+// ── Verdict Enum ──
+
+const (
+	VerdictMET           = "MET"           // 충족/준수
+	VerdictNOT_MET       = "NOT_MET"       // 미충족/미준수 (실제 위반)
+	VerdictNO_DATA       = "NO_DATA"       // 평가불가 (데이터 미수집)
+	VerdictINDETERMINATE = "INDETERMINATE" // 확인불가
+	VerdictNEEDS_REVIEW  = "NEEDS_REVIEW"  // 검토필요
+	VerdictSKIPPED       = "SKIPPED"       // 건너뜀
+)
+
+// ── Rule Layer Tags ──
+
+const (
+	LayerGL = "GL" // 정책 (Guideline)
+	LayerR  = "R"  // 기술 (Runtime/K8s native)
+	LayerF  = "F"  // 보조 (Finding/Manual)
+)
+
+// NormalizeVerdict maps legacy Korean verdict strings to the new enum.
+func NormalizeVerdict(v string) string {
+	switch v {
+	case "준수", "MET":
+		return VerdictMET
+	case "미준수", "NOT_MET":
+		return VerdictNOT_MET
+	case "검토필요", "NEEDS_REVIEW":
+		return VerdictNEEDS_REVIEW
+	case "NO_DATA":
+		return VerdictNO_DATA
+	case "INDETERMINATE":
+		return VerdictINDETERMINATE
+	case "skip", "skipped", "SKIPPED":
+		return VerdictSKIPPED
+	default:
+		return v
+	}
+}
+
+// LegacyVerdict maps the new enum back to legacy Korean strings for backward compatibility.
+func LegacyVerdict(v string) string {
+	switch v {
+	case VerdictMET:
+		return "준수"
+	case VerdictNOT_MET:
+		return "미준수"
+	case VerdictNEEDS_REVIEW:
+		return "검토필요"
+	case VerdictNO_DATA:
+		return "평가불가"
+	case VerdictINDETERMINATE:
+		return "확인불가"
+	case VerdictSKIPPED:
+		return "skipped"
+	default:
+		return v
+	}
+}
+
+// RuleLayer returns the layer tag for a rule_id.
+func RuleLayer(ruleID string) string {
+	if len(ruleID) > 0 && ruleID[0] == 'F' {
+		return LayerF
+	}
+	if strings.Contains(ruleID, "-GL") {
+		return LayerGL
+	}
+	return LayerR
+}

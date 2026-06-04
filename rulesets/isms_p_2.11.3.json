@@ -95,7 +95,6 @@
         "manual_check_areas": [
           "이상행위 탐지 도구 운영(Falco, Tetragon)",
           "탐지 룰 정의 문서",
-          "이상행위 대응 절차",
           "모니터링 로그 보관 정책"
         ],
         "automation_coverage": {
@@ -107,6 +106,10 @@
           "SSM Session Manager",
           "Teleport",
           "외부 PAM 도구"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "탐지된 shell exec이 인가된 운영 작업(결재·SSM Session Manager/Teleport/PAM 기록)으로 확인",
+          "이상행위 탐지 도구(Falco/Tetragon)·로그 보관 정책 운영 중"
         ],
         "k8s_only_check": true,
         "deferred": false,

@@ -182,9 +182,10 @@
           ]
         },
         "manual_check_areas": [
-          "특수권한자 목록 등록 여부",
-          "권한 부여 결재 기록",
-          "권한 검토 기록 (분기/반기)"
+          "권한 부여 결재 기록"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "최고권한(cluster-admin 등) 부여가 신청·승인 결재로 정당화되고 별도 식별·감사(책임추적성) 대상으로 관리됨"
         ]
       }
     },
@@ -214,6 +215,9 @@
         "manual_check_areas": [
           "RBAC 정책 문서 확인",
           "권한 부여 결재 기록"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "위험 권한이 결재 승인 + RBAC 정책 문서상 정당화되고 예외 사유(rbac-exception)·감사로 통제됨"
         ]
       }
     }

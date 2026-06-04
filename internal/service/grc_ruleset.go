@@ -10,19 +10,20 @@ import (
 
 // ManualRuleMeta holds F-finding-specific metadata for manual judgment rules.
 type ManualRuleMeta struct {
-	TargetResource        string          `json:"target_resource,omitempty"`
-	RequiredData          []string        `json:"required_data,omitempty"`
-	Condition             json.RawMessage `json:"condition"`
-	ComplianceMappings    json.RawMessage `json:"compliance_mappings,omitempty"`
-	KisaDefectCaseRefs    json.RawMessage `json:"kisa_defect_case_refs,omitempty"`
-	AdditionalReviewItems []string        `json:"additional_review_items,omitempty"`
-	ManualCheckAreas      []string        `json:"manual_check_areas,omitempty"`
-	AutomationCoverage    json.RawMessage `json:"automation_coverage,omitempty"`
-	AlternativeControls   json.RawMessage `json:"alternative_controls,omitempty"`
-	ExceptionConditions   json.RawMessage `json:"exception_conditions,omitempty"`
-	K8sOnlyCheck          bool            `json:"k8s_only_check,omitempty"`
-	Deferred              bool            `json:"deferred,omitempty"`
-	DeferredReason        string          `json:"deferred_reason,omitempty"`
+	TargetResource                   string          `json:"target_resource,omitempty"`
+	RequiredData                     []string        `json:"required_data,omitempty"`
+	Condition                        json.RawMessage `json:"condition"`
+	ComplianceMappings               json.RawMessage `json:"compliance_mappings,omitempty"`
+	KisaDefectCaseRefs               json.RawMessage `json:"kisa_defect_case_refs,omitempty"`
+	AdditionalReviewItems            []string        `json:"additional_review_items,omitempty"`
+	ManualCheckAreas                 []string        `json:"manual_check_areas,omitempty"`
+	AutomationCoverage               json.RawMessage `json:"automation_coverage,omitempty"`
+	AlternativeControls              json.RawMessage `json:"alternative_controls,omitempty"`
+	ExceptionConditions              json.RawMessage `json:"exception_conditions,omitempty"`
+	OffclusterSatisfactionConditions []string        `json:"offcluster_satisfaction_conditions,omitempty"`
+	K8sOnlyCheck                     bool            `json:"k8s_only_check,omitempty"`
+	Deferred                         bool            `json:"deferred,omitempty"`
+	DeferredReason                   string          `json:"deferred_reason,omitempty"`
 }
 
 // Ruleset is the top-level structure of an ISMS-P ruleset JSON file (schema 4.0.0).

@@ -128,7 +128,6 @@
           "시스템 namespace는 예외 처리"
         ],
         "manual_check_areas": [
-          "계정 관리 정책",
           "공용 계정 사용 예외 승인 기록"
         ],
         "automation_coverage": {
@@ -143,6 +142,10 @@
             "kube-node-lease"
           ]
         },
+        "offcluster_satisfaction_conditions": [
+          "시스템 namespace(kube-system·kube-public·kube-node-lease) 예외 대상",
+          "공용/default SA 사용에 책임자 예외 승인 기록 있음(인증범위 내 일반 워크로드면 전용 SA 필요)"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -183,7 +186,6 @@
           "회사의 계정 정기 점검 주기/기록 확인"
         ],
         "manual_check_areas": [
-          "계정 점검 절차서",
           "최근 점검 기록"
         ],
         "automation_coverage": {
@@ -191,6 +193,9 @@
           "covered": "K8s SA 정리 상태",
           "not_covered": "점검 절차 운영 여부"
         },
+        "offcluster_satisfaction_conditions": [
+          "해당 SA가 예정 사용분으로 문서화돼 있거나 계정 정기 점검 기록상 인지·관리됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }

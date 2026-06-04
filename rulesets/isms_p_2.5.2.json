@@ -113,13 +113,16 @@
           "회사 명명 규칙 문서와 비교"
         ],
         "manual_check_areas": [
-          "계정 명명 규칙 문서"
+
         ],
         "automation_coverage": {
           "percentage": 80,
           "covered": "K8s SA 명명 점검",
           "not_covered": "사람 사용자 ID 체계"
         },
+        "offcluster_satisfaction_conditions": [
+          "명명 규칙 문서상 허용된 명칭이거나, SA 권한이 최소화돼 위험이 통제됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -153,13 +156,16 @@
           "운영 표준 명명 규칙과 일치하는가"
         ],
         "manual_check_areas": [
-          "계정 명명 규칙 문서"
+
         ],
         "automation_coverage": {
           "percentage": 80,
           "covered": "명명 규칙 점검만",
           "not_covered": "실제 사용 패턴"
         },
+        "offcluster_satisfaction_conditions": [
+          "운영 표준 명명 규칙 문서상 용도가 의미적으로 식별 가능하게 매핑·관리됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }

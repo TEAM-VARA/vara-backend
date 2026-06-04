@@ -316,7 +316,10 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		itemName    string
 		ruleResults []grc.RuleResult
 		// asset key → violated rules
-		assets map[string]*grc.ViolatedAsset
+		assets    map[string]*grc.ViolatedAsset
+		glResults []grc.RuleResult
+		rResults  []grc.RuleResult
+		fResults  []grc.RuleResult
 	}
 	items := map[string]*itemTracker{}
 	getItem := func(itemID, itemName string) *itemTracker {
@@ -366,8 +369,15 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 				FailMessage:       rr.FailMessage,
 				Remediation:       rr.Remediation,
 				JudgmentMode:      "auto",
+				Reason:            rr.Reason,
+				MissingInputs:     rr.MissingInputs,
+				Layer:             rr.Layer,
+			}
+			if grr.Layer == "" {
+				grr.Layer = grc.LayerR
 			}
 			it.ruleResults = append(it.ruleResults, grr)
+			it.rResults = append(it.rResults, grr)
 
 			// If failed, record the pod as a violated asset
 			if rr.Verdict == "미준수" {
@@ -412,10 +422,14 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		itemName := manualRuleItemNameMap[fr.RuleID]
 		it := getItem(itemID, itemName)
 		fr.ISMSPItemID = itemID
+		if fr.Layer == "" {
+			fr.Layer = grc.LayerF
+		}
 		it.ruleResults = append(it.ruleResults, fr)
+		it.fResults = append(it.fResults, fr)
 
 		// If finding matched (potential issue), record affected resources
-		if fr.Verdict == "검토필요" || fr.Verdict == "미준수" {
+		if fr.Verdict == "검토필요" || fr.Verdict == "미준수" || fr.Verdict == grc.VerdictNEEDS_REVIEW || fr.Verdict == grc.VerdictNOT_MET {
 			ri := grc.ViolatedRuleInfo{
 				RuleID:      fr.RuleID,
 				FailMessage: fr.FailMessage,
@@ -453,28 +467,42 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 			ItemName:    it.itemName,
 			TotalRules:  len(it.ruleResults),
 			RuleResults: it.ruleResults,
+			Layers: &grc.ItemLayers{
+				GL: it.glResults,
+				R:  it.rResults,
+				F:  it.fResults,
+			},
 		}
 
 		for _, rr := range it.ruleResults {
 			switch rr.Verdict {
-			case "준수":
+			case "준수", grc.VerdictMET:
 				item.Passed++
-			case "미준수":
+			case "미준수", grc.VerdictNOT_MET:
 				item.Failed++
-			case "검토필요":
+			case "검토필요", grc.VerdictNEEDS_REVIEW:
 				item.NeedsReview++
+			case grc.VerdictNO_DATA:
+				item.NoData++
+			case grc.VerdictINDETERMINATE:
+				item.Indeterminate++
 			default: // skipped 등
 				item.Skipped++
 			}
 		}
 
-		// Determine item-level verdict
+		// Determine item-level composite verdict:
+		// GL NOT_MET or R NOT_MET → 항목 = NOT_MET (결함)
+		// No clear failures but R NO_DATA or F NEEDS_REVIEW or GL INDETERMINATE → NEEDS_REVIEW (확인필요)
+		// All MET → MET (준수)
 		if item.Failed > 0 {
-			item.Verdict = "미준수"
-		} else if item.NeedsReview > 0 {
-			item.Verdict = "검토필요"
+			item.Verdict = grc.VerdictNOT_MET
+		} else if item.NeedsReview > 0 || item.NoData > 0 || item.Indeterminate > 0 {
+			item.Verdict = grc.VerdictNEEDS_REVIEW
+		} else if item.Passed > 0 {
+			item.Verdict = grc.VerdictMET
 		} else {
-			item.Verdict = "준수"
+			item.Verdict = grc.VerdictSKIPPED
 		}
 
 		// Collect violated assets
@@ -489,12 +517,16 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 	result.TotalItems = len(result.Items)
 	for _, it := range result.Items {
 		switch it.Verdict {
-		case "준수":
+		case "준수", grc.VerdictMET:
 			result.CompliantItems++
-		case "미준수":
+		case "미준수", grc.VerdictNOT_MET:
 			result.NonCompliantItems++
-		case "검토필요":
+		case "검토필요", grc.VerdictNEEDS_REVIEW:
 			result.NeedsReviewItems++
+		case grc.VerdictNO_DATA:
+			result.NoDataItems++
+		case grc.VerdictINDETERMINATE:
+			result.IndeterminateItems++
 		}
 	}
 
@@ -508,7 +540,212 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		log.Printf("[cluster-compliance] saved id=%d", id)
 	}
 
+	// 9. Persist F-rule findings to finding_cluster_summaries (for [13] findings/summary)
+	if len(fResults) > 0 {
+		matchedCount := 0
+		unmatchedCount := 0
+		byVerdict := map[string]int{}
+		for _, fr := range fResults {
+			if fr.Matched {
+				matchedCount++
+			} else {
+				unmatchedCount++
+			}
+			byVerdict[fr.VerdictType]++
+		}
+		findingResult := &grc.FindingClusterResult{
+			CompanyID:      req.CompanyID,
+			ClusterName:    req.ClusterName,
+			SnapshotAt:     snapshotAt.Format(time.RFC3339),
+			EvaluatedAt:    now.Format(time.RFC3339),
+			TotalFindings:  len(fResults),
+			MatchedCount:   matchedCount,
+			UnmatchedCount: unmatchedCount,
+			ByVerdict:      byVerdict,
+			Findings:       fResults,
+		}
+		if fid, ferr := s.repo.SaveFindingClusterSummary(ctx, findingResult); ferr != nil {
+			log.Printf("[cluster-compliance] finding summary save failed: %v", ferr)
+		} else {
+			log.Printf("[cluster-compliance] finding summary saved id=%d (%d findings)", fid, len(fResults))
+		}
+	}
+
 	return result, nil
+}
+
+// ── Compliance Overview (전체 항목 한눈에) ──
+
+// GetComplianceOverview returns the latest cluster compliance result merged with GL check results.
+func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clusterName string) (*grc.ClusterComplianceResult, error) {
+	if companyID == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
+	}
+
+	// 1. Load latest cluster evaluation (R+F rules)
+	result, err := s.repo.GetLatestClusterComplianceResult(ctx, companyID, clusterName)
+	if err != nil {
+		// No cluster eval yet — start with empty result
+		result = &grc.ClusterComplianceResult{
+			CompanyID:   companyID,
+			ClusterName: clusterName,
+		}
+	}
+
+	// 2. Load latest GL check per ISMS-P item
+	glChecks, err := s.repo.GetLatestGLCheckPerItem(ctx, companyID)
+	if err != nil {
+		log.Printf("[overview] GL checks query failed: %v", err)
+		// continue with R+F only
+		if result.TotalItems == 0 {
+			return nil, &GRCError{Code: "NOT_FOUND", Message: "평가 결과 없음", HTTPStatus: 404}
+		}
+		return result, nil
+	}
+
+	// 3. Build item map from existing R+F results
+	itemMap := map[string]int{} // isms_p_item_id → index in result.Items
+	for i, item := range result.Items {
+		itemMap[item.ISMSPItemID] = i
+	}
+
+	// 4. Merge GL results into items
+	rulesetStore := s.rulesetStore.LoadAll()
+	itemNameMap := map[string]string{}
+	for _, rs := range rulesetStore {
+		itemNameMap[rs.Item.ID] = rs.Item.Name
+	}
+
+	for _, gl := range glChecks {
+		idx, exists := itemMap[gl.ISMSPItemID]
+		if exists {
+			// Merge into existing item
+			item := &result.Items[idx]
+			item.TotalRules += gl.TotalRules
+			item.Passed += gl.Passed
+			item.Failed += gl.Failed
+			item.NeedsReview += gl.NeedsReview
+			result.TotalRules += gl.TotalRules
+		} else {
+			// New item (only has GL rules)
+			item := grc.ItemComplianceResult{
+				ISMSPItemID: gl.ISMSPItemID,
+				ItemName:    itemNameMap[gl.ISMSPItemID],
+				TotalRules:  gl.TotalRules,
+				Passed:      gl.Passed,
+				Failed:      gl.Failed,
+				NeedsReview: gl.NeedsReview,
+			}
+			result.Items = append(result.Items, item)
+			itemMap[gl.ISMSPItemID] = len(result.Items) - 1
+			result.TotalRules += gl.TotalRules
+		}
+	}
+
+	// 5. Fill missing items from ruleset (평가 안 된 항목도 표시)
+	for _, rs := range rulesetStore {
+		if _, exists := itemMap[rs.Item.ID]; !exists {
+			result.Items = append(result.Items, grc.ItemComplianceResult{
+				ISMSPItemID: rs.Item.ID,
+				ItemName:    rs.Item.Name,
+				Verdict:     "데이터없음",
+			})
+			itemMap[rs.Item.ID] = len(result.Items) - 1
+		}
+	}
+
+	// 6. Recalculate item verdicts, totals, and generate notes
+	result.TotalItems = len(result.Items)
+	result.CompliantItems = 0
+	result.NonCompliantItems = 0
+	result.NeedsReviewItems = 0
+	noDataItems := 0
+	for i := range result.Items {
+		item := &result.Items[i]
+
+		// Determine verdict
+		if item.Failed > 0 {
+			item.Verdict = "미준수"
+			result.NonCompliantItems++
+		} else if item.NeedsReview > 0 {
+			item.Verdict = "검토필요"
+			result.NeedsReviewItems++
+		} else if item.Passed > 0 {
+			item.Verdict = "준수"
+			result.CompliantItems++
+		} else {
+			item.Verdict = "데이터없음"
+			noDataItems++
+		}
+
+		// Generate note per verdict
+		switch item.Verdict {
+		case "미준수":
+			podCount := len(item.ViolatedAssets)
+			// Collect unique fail reasons
+			reasons := map[string]bool{}
+			remediations := map[string]bool{}
+			for _, a := range item.ViolatedAssets {
+				for _, r := range a.ViolatedRules {
+					if r.FailMessage != "" {
+						reasons[r.FailMessage] = true
+					}
+					if r.Remediation != "" {
+						remediations[r.Remediation] = true
+					}
+				}
+			}
+			reasonList := mapKeys(reasons)
+			remList := mapKeys(remediations)
+			item.Note = fmt.Sprintf("%d개 룰 미준수, %d개 Pod 위반", item.Failed, podCount)
+			if len(reasonList) > 0 {
+				top := reasonList
+				if len(top) > 3 {
+					top = top[:3]
+				}
+				item.Note += " — 원인: " + strings.Join(top, "; ")
+			}
+			if len(remList) > 0 {
+				top := remList
+				if len(top) > 2 {
+					top = top[:2]
+				}
+				item.Note += " — 조치: " + strings.Join(top, "; ")
+			}
+		case "검토필요":
+			item.Note = fmt.Sprintf("%d개 룰 검토 필요 (자동 판단 불가, 수동 확인 권장)", item.NeedsReview)
+		case "준수":
+			item.Note = fmt.Sprintf("%d개 룰 전부 통과", item.Passed)
+			// Add matched indicators from rule results if available
+			indicators := []string{}
+			for _, rr := range item.RuleResults {
+				if rr.Verdict == "준수" && len(rr.MatchedIndicators) > 0 {
+					for _, mi := range rr.MatchedIndicators {
+						if len(indicators) < 3 {
+							indicators = append(indicators, mi)
+						}
+					}
+				}
+			}
+			if len(indicators) > 0 {
+				item.Note += " — " + strings.Join(indicators, "; ")
+			}
+		case "데이터없음":
+			item.Note = "아직 평가되지 않은 항목 — 클러스터 평가 또는 GL 점검 실행 필요"
+		}
+	}
+	result.NoDataItems = noDataItems
+
+	return result, nil
+}
+
+// mapKeys returns sorted keys from a map[string]bool.
+func mapKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // ── Rule Catalog ──
@@ -578,21 +815,19 @@ func (s *GRCService) GetRuleCatalog(ctx context.Context) (*RuleCatalogResponse, 
 
 // GetLatestFindingClusterSummary returns the most recent cluster finding summary.
 func (s *GRCService) GetLatestFindingClusterSummary(ctx context.Context, companyID, clusterName string) (*grc.FindingClusterResult, error) {
-	items, _, err := s.repo.ListFindingClusterSummaries(ctx, companyID, 1, 1)
+	items, _, err := s.repo.ListFindingClusterSummaries(ctx, companyID, 1, 200)
 	if err != nil {
 		return nil, err
 	}
-	// Find the one matching clusterName
-	for i := range items {
-		if items[i].ClusterName == clusterName {
-			return &items[i], nil
-		}
+	if len(items) == 0 {
+		return nil, &GRCError{Code: "NOT_FOUND", Message: "finding summary 없음", HTTPStatus: 404}
 	}
-	// Try broader search with larger page
-	items, _, err = s.repo.ListFindingClusterSummaries(ctx, companyID, 1, 200)
-	if err != nil {
-		return nil, err
+
+	// cluster_name이 비면 최신 결과 반환
+	if clusterName == "" {
+		return &items[0], nil
 	}
+
 	for i := range items {
 		if items[i].ClusterName == clusterName {
 			return &items[i], nil
@@ -653,10 +888,21 @@ func (s *GRCService) GetPodCompliance(ctx context.Context, companyID, clusterNam
 		ClusterName: clusterName,
 	}
 
-	// Load latest cluster summary
+	// Build rule_compliance from R-rule pod graph evaluation (most recent snapshot)
+	podEval, err := s.repo.GetLatestPodGraphEvalByPod(ctx, companyID, clusterName, namespace, podName)
+	if err == nil && podEval != nil {
+		result.Summary.RuleCompliance = RuleComplianceSummary{
+			Compliant:    podEval.Passed,
+			NonCompliant: podEval.Failed,
+			Skipped:      podEval.Skipped,
+			Evaluated:    podEval.Passed + podEval.Failed,
+		}
+	}
+
+	// Load latest cluster finding summary (F-rules)
 	summary, err := s.GetLatestFindingClusterSummary(ctx, companyID, clusterName)
 	if err != nil {
-		// No summary yet is ok — return empty result
+		// No finding summary yet is ok — return result with R-rule data only
 		if ge, ok := err.(*GRCError); ok && ge.HTTPStatus == 404 {
 			return result, nil
 		}
@@ -692,18 +938,6 @@ func (s *GRCService) GetPodCompliance(ctx context.Context, companyID, clusterNam
 		}
 	}
 
-	// Build rule_compliance from R-rule pod graph evaluation (most recent snapshot)
-	podEval, err := s.repo.GetLatestPodGraphEvalByPod(ctx, companyID, clusterName, namespace, podName)
-	if err == nil && podEval != nil {
-		result.Summary.RuleCompliance = RuleComplianceSummary{
-			Compliant:    podEval.Passed,
-			NonCompliant: podEval.Failed,
-			Skipped:      podEval.Skipped,
-			Evaluated:    podEval.Passed + podEval.Failed,
-		}
-	}
-	// If no pod graph eval exists yet, rule_compliance stays zero-valued (acceptable).
-
 	return result, nil
 }
 
@@ -723,9 +957,6 @@ type ISMSPItemViolationsResult struct {
 func (s *GRCService) GetISMSPItemViolations(ctx context.Context, companyID, clusterName, ismspItemID string) (*ISMSPItemViolationsResult, error) {
 	if companyID == "" {
 		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
-	}
-	if clusterName == "" {
-		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "cluster_name 필수", HTTPStatus: 400}
 	}
 	if ismspItemID == "" {
 		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "item_id 필수", HTTPStatus: 400}
@@ -794,9 +1025,6 @@ type PodViolationsResult struct {
 func (s *GRCService) GetPodViolations(ctx context.Context, companyID, clusterName, namespace, podName string) (*PodViolationsResult, error) {
 	if companyID == "" {
 		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
-	}
-	if clusterName == "" {
-		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "cluster_name 필수", HTTPStatus: 400}
 	}
 	if podName == "" {
 		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "pod_name 필수", HTTPStatus: 400}
@@ -906,13 +1134,33 @@ func (s *GRCService) CreateCheck(
 		return nil, &GRCError{Code: "UNSUPPORTED_ITEM", Message: fmt.Sprintf("지원하지 않는 ISMS-P 항목: %s", ismspItemID), HTTPStatus: 400}
 	}
 
+	// 파일 없이 지침서 전용 점검 가능 (DB 지침만 사용)
+	if len(files) == 0 {
+		checkID := GenerateJobID()
+		now := time.Now().UTC()
+		chk := &grc.Check{
+			CheckID:     checkID,
+			CompanyID:   companyID,
+			ISMSPItemID: ismspItemID,
+			Status:      "queued",
+			ProgressPct: 0,
+			AutoCollect: autoCollect,
+			SubmittedAt: now,
+		}
+		if err := s.repo.CreateCheck(ctx, chk); err != nil {
+			return nil, fmt.Errorf("check 생성 실패: %w", err)
+		}
+		go s.runWorker(checkID)
+		return chk, nil
+	}
+
 	// Validate file count matches metadata count.
 	if len(files) != len(metadataList) {
 		return nil, &GRCError{Code: "INVALID_EVIDENCE_METADATA", Message: "files와 evidence_metadata 길이 불일치", HTTPStatus: 400}
 	}
 
 	// Validate file count limits.
-	if len(files) == 0 || len(files) > grc.MaxFileCount {
+	if len(files) > grc.MaxFileCount {
 		return nil, &GRCError{Code: "INVALID_REQUEST", Message: fmt.Sprintf("파일 수는 1~%d개여야 합니다", grc.MaxFileCount), HTTPStatus: 400}
 	}
 
@@ -1393,6 +1641,14 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 	// Step 2: Evaluate each rule.
 	var ruleResults []grc.RuleResult
 	for i, rule := range ruleset.Rules {
+		// Skip k8s_api/k8s_native rules — handled by pod_graph_evaluator
+		if rule.JudgmentSource == "k8s_api" || rule.JudgmentSource == "k8s_native" {
+			continue
+		}
+		// Skip F- (finding) rules — handled by finding_evaluator
+		if strings.HasPrefix(rule.RuleID, "F-") {
+			continue
+		}
 		matched := matchEvidenceToRule(evidenceFiles, rule, evidenceStore)
 		var result grc.RuleResult
 
@@ -2050,6 +2306,8 @@ func (s *GRCService) evaluateSemantic(ctx context.Context, rule Rule, evidenceDa
 }
 
 func evaluateKeywordMatch(rule Rule, text string, base grc.RuleResult) grc.RuleResult {
+	base.Layer = grc.LayerGL
+
 	minMatches := rule.JudgmentLogic.MinKeywordMatches
 	if minMatches == 0 {
 		minMatches = 2
@@ -2066,10 +2324,12 @@ func evaluateKeywordMatch(rule Rule, text string, base grc.RuleResult) grc.RuleR
 	}
 
 	if matchCount >= minMatches {
-		base.Verdict = "준수"
+		base.Verdict = grc.VerdictMET
+		base.Reason = fmt.Sprintf("%d건 키워드 매칭 (%s)", matchCount, strings.Join(matched, ", "))
 		base.MatchedIndicators = []string{fmt.Sprintf("식별 키워드 %d개 매칭 (%s)", matchCount, strings.Join(matched, ", "))}
 	} else {
-		base.Verdict = "미준수"
+		base.Verdict = grc.VerdictNOT_MET
+		base.Reason = fmt.Sprintf("%d건 검색, 규정 없음 (최소 %d개 필요)", matchCount, minMatches)
 		base.Violations = []grc.Violation{{
 			Description: fmt.Sprintf("식별 키워드 %d개만 매칭 (최소 %d개 필요)", matchCount, minMatches),
 			Severity:    "medium",
@@ -2079,9 +2339,12 @@ func evaluateKeywordMatch(rule Rule, text string, base grc.RuleResult) grc.RuleR
 }
 
 func evaluateElementCoverage(rule Rule, text string, base grc.RuleResult) grc.RuleResult {
+	base.Layer = grc.LayerGL
+
 	if rule.RequiredContentElements == nil {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictSKIPPED
 		base.SkipReason = "required_content_elements 정의 없음"
+		base.Reason = "required_content_elements 정의 없음"
 		return base
 	}
 
@@ -2110,11 +2373,13 @@ func evaluateElementCoverage(rule Rule, text string, base grc.RuleResult) grc.Ru
 	}
 
 	if len(missing) > 0 {
-		base.Verdict = "미준수"
+		base.Verdict = grc.VerdictNOT_MET
+		base.Reason = fmt.Sprintf("필수 요소 %d건 누락, %d건 충족", len(missing), len(matched))
 		base.Violations = missing
 		base.MatchedIndicators = matched
 	} else {
-		base.Verdict = "준수"
+		base.Verdict = grc.VerdictMET
+		base.Reason = fmt.Sprintf("필수 요소 %d건 전부 충족", len(matched))
 		base.MatchedIndicators = matched
 	}
 	return base

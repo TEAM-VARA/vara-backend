@@ -203,6 +203,9 @@
           "Calico GlobalNetworkPolicy",
           "별도 클러스터 운영"
         ],
+        "offcluster_satisfaction_conditions": [
+          "영역 분리가 VPC 서브넷+SG / 별도 클러스터 / Istio AuthorizationPolicy / Calico GlobalNetworkPolicy 등으로 적용됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -253,6 +256,9 @@
           "Service Mesh",
           "외부 NetFW"
         ],
+        "offcluster_satisfaction_conditions": [
+          "AWS VPC CNI+SG, Service Mesh, 외부 방화벽 등으로 통신 통제가 강제됨(정책 강제 CNI 미발견이어도)"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -298,6 +304,10 @@
           "VPC 라우팅",
           "Service Mesh",
           "별도 클러스터"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "운영/개발 영역이 별도 VPC(서브넷+SG)/별도 클러스터로 분리",
+          "Service Mesh AuthorizationPolicy/mTLS로 ns 간 통신 차단"
         ],
         "k8s_only_check": true,
         "deferred": false

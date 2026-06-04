@@ -131,7 +131,6 @@
           "namespace 네이밍 컨벤션으로 식별되는가"
         ],
         "manual_check_areas": [
-          "환경 분리 정책 문서",
           "클러스터/VPC 분리 설계"
         ],
         "automation_coverage": {
@@ -143,6 +142,9 @@
           "별도 클러스터",
           "별도 VPC",
           "namespace 네이밍 컨벤션"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "env 라벨이 없어도 별도 클러스터/별도 VPC/namespace 네이밍 컨벤션으로 환경 식별·분리됨"
         ],
         "k8s_only_check": true,
         "deferred": false
@@ -183,13 +185,16 @@
           "cluster 분리 정책이면 namespace 내 혼재는 무관"
         ],
         "manual_check_areas": [
-          "환경 분리 정책 문서"
+
         ],
         "automation_coverage": {
           "percentage": 100,
           "covered": "env 라벨 부여 시 namespace 내 혼재 점검",
           "not_covered": "라벨 미부여 시 점검 불가"
         },
+        "offcluster_satisfaction_conditions": [
+          "환경 분리 정책이 cluster/VPC 단위이고 그 수준에서 분리됨 → ns 내 혼재 무관(ns 단위 분리 정책이면 결함)"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }

@@ -60,6 +60,7 @@ type ClusterPod struct {
 	RestartCount   int                      `json:"restart_count"`
 	ServiceAccount string                   `json:"service_account"`
 	HostNetwork    bool                     `json:"host_network"`
+	HostPID		   bool                     `json:"host_pid"`
 	StartedAt 	   *time.Time 				`json:"started_at,omitempty"`
 	Labels         map[string]string        `json:"labels"`
 	Annotations    map[string]string        `json:"annotations"`

@@ -40,195 +40,6 @@
   ],
   "rules": [
     {
-      "rule_id": "R-2.5.4-01",
-      "name": "정보보호 지침서에 비밀번호/패스워드 관리 정책이 구체적으로 규정되어 있는지 확인",
-      "judgment_source": "text_extraction",
-      "extraction_method": "rag",
-      "keywords": [
-        "정보보호 지침서에 비밀번호 관리 정책이 구체적으로 규정되어 있다."
-      ],
-      "compliance_indicators": [
-        {
-          "description": "정보보호 지침서 또는 별도 지침에 비밀번호/패스워드 관리 관련 챕터·조항 존재"
-        },
-        {
-          "description": "최소 2개 이상 식별 키워드가 문서 내에 명시"
-        }
-      ],
-      "judgment_logic": {
-        "type": "semantic_match",
-        "method": "llm_rag_entailment",
-        "min_keyword_matches": 2,
-        "any_deficiency_fails": true
-      }
-    },
-    {
-      "rule_id": "R-2.5.4-02",
-      "name": "비밀번호 작성규칙(길이·복잡도·추측금지·반복제한)과 관리절차(초기변경·마스킹·저장제한·침해시변경·재발급·변경주기·관리자별도·단방향암호화) 8개 항목이 지침서에 모두 규정되어 있는지 확인",
-      "judgment_source": "text_extraction",
-      "extraction_method": "rag",
-      "keywords": [
-        "비밀번호 작성규칙(길이·복잡도·추측금지·반복제한)과 관리절차(초기 변경·마스킹·저장 제한·침해 시 변경·재발급·변경주기·관리자 별도·단방향 암호화)가 모두 규정되어 있다."
-      ],
-      "required_content_elements": {
-        "writing_rules": [
-          {
-            "id": "WR-01",
-            "description": "길이·복잡도: 2종류 조합 시 10자리 이상 / 3종류 조합 시 8자리 이상",
-            "match_keywords": [
-              "10자리",
-              "8자리",
-              "영문",
-              "숫자",
-              "특수문자",
-              "복잡도",
-              "조합",
-              "2종류",
-              "3종류"
-            ],
-            "legal_basis": "개인정보의 기술적·관리적 보호조치 기준 제4조제8항"
-          },
-          {
-            "id": "WR-02",
-            "description": "추측 쉬운 비밀번호 사용 금지 (생일, 전화번호, ID 유사)",
-            "match_keywords": [
-              "생일",
-              "전화번호",
-              "추측",
-              "ID",
-              "아이디",
-              "추측 쉬운",
-              "개인정보"
-            ],
-            "legal_basis": "개인정보의 기술적·관리적 보호조치 기준 제4조제8항"
-          },
-          {
-            "id": "WR-03",
-            "description": "동일 문자 반복·연속 숫자 제한",
-            "match_keywords": [
-              "반복",
-              "연속",
-              "동일 문자",
-              "동일한 문자",
-              "연속된 숫자"
-            ],
-            "legal_basis": "KISA 안내서 권고사항"
-          }
-        ],
-        "management_procedures": [
-          {
-            "id": "MP-01",
-            "description": "시스템 도입 시 초기/임시 비밀번호 강제 변경",
-            "match_keywords": [
-              "초기 비밀번호",
-              "임시 비밀번호",
-              "강제 변경",
-              "초기화",
-              "최초 로그인"
-            ]
-          },
-          {
-            "id": "MP-02",
-            "description": "비밀번호 입력·변경 시 마스킹 처리",
-            "match_keywords": [
-              "마스킹",
-              "masking",
-              "비밀번호 입력 시",
-              "******"
-            ]
-          },
-          {
-            "id": "MP-03",
-            "description": "종이·파일·모바일 기록·저장 제한 (부득이한 경우 암호화)",
-            "match_keywords": [
-              "종이",
-              "파일",
-              "모바일",
-              "기록",
-              "저장 제한",
-              "암호화"
-            ]
-          },
-          {
-            "id": "MP-04",
-            "description": "침해사고·노출 의심 시 즉시 변경",
-            "match_keywords": [
-              "침해사고",
-              "노출",
-              "유출",
-              "의심",
-              "즉시 변경",
-              "지체 없이"
-            ]
-          },
-          {
-            "id": "MP-05",
-            "description": "분실 시 본인확인 후 안전한 재발급",
-            "match_keywords": [
-              "분실",
-              "재발급",
-              "본인확인",
-              "재설정",
-              "본인인증"
-            ]
-          },
-          {
-            "id": "MP-06",
-            "description": "변경 주기 설정 (반기 1회 이상 권고)",
-            "match_keywords": [
-              "변경 주기",
-              "유효기간",
-              "반기",
-              "정기 변경",
-              "주기적 변경",
-              "90일",
-              "180일"
-            ],
-            "legal_basis": "개인정보의 기술적·관리적 보호조치 기준 제4조제8항"
-          },
-          {
-            "id": "MP-07",
-            "description": "관리자 비밀번호 별도 등급 관리",
-            "match_keywords": [
-              "관리자",
-              "특수 계정",
-              "별도 관리",
-              "비밀등급",
-              "관리자 비밀번호"
-            ]
-          },
-          {
-            "id": "MP-08",
-            "description": "저장 시 단방향 암호화 (해시)",
-            "match_keywords": [
-              "단방향 암호화",
-              "일방향 암호화",
-              "해시",
-              "hash",
-              "복호화 불가",
-              "bcrypt",
-              "argon2"
-            ],
-            "legal_basis": "개인정보의 안전성 확보조치 기준 제7조제1항"
-          }
-        ]
-      },
-      "compliance_indicators": [
-        {
-          "description": "writing_rules 3개 항목 모두 지침서에 명시"
-        },
-        {
-          "description": "management_procedures 8개 항목 모두 지침서에 명시"
-        }
-      ],
-      "judgment_logic": {
-        "type": "semantic_match",
-        "method": "llm_rag_entailment",
-        "required_coverage_pct": 100,
-        "description": "writing_rules 3개 + management_procedures 8개 = 총 11개 요소를 LLM RAG 함의 판정으로 확인. 모든 요소가 지침서에 명시되어야 PASS"
-      }
-    },
-    {
       "rule_id": "R-2.5.4-03",
       "name": "OS 패스워드 정책 설정값 점검",
       "judgment_source": "k8s_api",
@@ -974,6 +785,118 @@
       ],
       "compliance_indicators": [
         {"description": "로그인 실패 시 아이디·비밀번호 구분 정보 미노출 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL09",
+      "name": "추측하기 쉬운 비밀번호 사용 금지",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "생일·전화번호·아이디처럼 추측하기 쉬운 비밀번호를 쓰지 못하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "추측하기 쉬운 비밀번호 사용 금지 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL10",
+      "name": "반복·연속 문자 비밀번호 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "같은 문자 반복이나 연속된 숫자로 된 비밀번호를 제한하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "반복·연속 문자 비밀번호 제한 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL11",
+      "name": "비밀번호 입력 시 화면 가림(마스킹)",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호를 입력하거나 변경할 때 화면에 마스킹 처리하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "비밀번호 입력 시 화면 가림(마스킹) 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL12",
+      "name": "비밀번호 기록·보관 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호를 종이·파일·모바일 등에 기록·보관하는 것을 제한하고 부득이하면 암호화하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "비밀번호 기록·보관 제한 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL13",
+      "name": "유출 의심 시 즉시 변경",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호 노출이나 침해가 의심되면 지체 없이 변경하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "유출 의심 시 즉시 변경 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL14",
+      "name": "분실 시 본인확인 후 재발급",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호 분실 시 본인 확인을 거쳐 안전하게 재발급하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "분실 시 본인확인 후 재발급 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL15",
+      "name": "관리자 비밀번호 별도 강화 관리",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "관리자 비밀번호는 일반 사용자와 분리해 더 강한 기준으로 관리하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "관리자 비밀번호 별도 강화 관리 규정"}
       ],
       "judgment_logic": {
         "type": "semantic_match",

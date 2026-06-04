@@ -34,17 +34,21 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	base grc.RuleResult,
 ) grc.RuleResult {
 
+	base.Layer = grc.LayerGL
+
 	// ── Guard: VLM client must be available ──
 	if s.vlmClient == nil || !s.vlmClient.Available() {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "VLM 서버 비가동 (llm_rag_entailment)"
+		base.Reason = "VLM 서버 비가동"
 		return base
 	}
 
 	// ── Guard: embedding client must be available for retrieval ──
 	if s.embeddingClient == nil || !s.embeddingClient.Available() {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "임베딩 서버 비가동 (retrieval 불가)"
+		base.Reason = "임베딩 서버 비가동"
 		return base
 	}
 
@@ -59,11 +63,13 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	}
 	if len(sentences) == 0 {
 		if rule.JudgmentSource == "text_extraction" {
-			base.Verdict = "skipped"
+			base.Verdict = grc.VerdictINDETERMINATE
 			base.SkipReason = "지침 문장 없음 (DB 지침 미등록)"
+			base.Reason = "지침 미등록"
 		} else {
-			base.Verdict = "skipped"
+			base.Verdict = grc.VerdictINDETERMINATE
 			base.SkipReason = "증적 텍스트 없음 (PDF 추출 실패 또는 미업로드)"
+			base.Reason = "증적 텍스트 없음"
 		}
 		return base
 	}
@@ -144,13 +150,15 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	judgeResp, err := s.vlmClient.Judge(ctx, judgeReq)
 	if err != nil {
 		log.Printf("[grc-rag] VLM judge error: %v", err)
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = fmt.Sprintf("VLM 판정 오류: %v", err)
+		base.Reason = fmt.Sprintf("VLM 판정 오류: %v", err)
 		return base
 	}
 	if judgeResp == nil {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "VLM 서버 응답 없음 (연결 실패)"
+		base.Reason = "VLM 서버 응답 없음"
 		return base
 	}
 
@@ -264,6 +272,7 @@ func extractRulePolarity(rule Rule) (string, map[string]string) {
 // mapVLMVerdictToResult converts the VLM response into a grc.RuleResult.
 func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, base grc.RuleResult) grc.RuleResult {
 	verdict := resp.Verdict
+	base.Layer = grc.LayerGL
 
 	// ── 후처리: "부분"인데 누락요소가 근거문장에 이미 있으면 "충족"으로 보정 ──
 	if verdict == "부분" && resp.MissingElem != "" && len(resp.BasisIdx) > 0 {
@@ -275,19 +284,36 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 
 	switch verdict {
 	case "충족":
-		base.Verdict = "준수"
+		base.Verdict = grc.VerdictMET
+		base.Reason = fmt.Sprintf("LLM 충족 판정, 근거 문장 %d건", len(resp.BasisIdx))
 		var indicators []string
 		indicators = append(indicators, fmt.Sprintf("LLM 판정: 충족 (양태: %s)", resp.Modality))
+		// Build evidence_data JSON
+		type evidenceEntry struct {
+			SentenceIndex int     `json:"sentence_index"`
+			Text          string  `json:"text"`
+			CosineScore   float64 `json:"cosine_score"`
+		}
+		var evidenceEntries []evidenceEntry
 		for _, idx := range resp.BasisIdx {
 			if idx >= 1 && idx <= len(topHits) {
 				hit := topHits[idx-1]
 				indicators = append(indicators, fmt.Sprintf("근거[%d]: %s (cos=%.3f)", idx, ragTruncate(hit.text, 80), hit.score))
+				evidenceEntries = append(evidenceEntries, evidenceEntry{
+					SentenceIndex: hit.index,
+					Text:          hit.text,
+					CosineScore:   hit.score,
+				})
 			}
 		}
 		base.MatchedIndicators = indicators
+		if ej, err := json.Marshal(evidenceEntries); err == nil {
+			base.EvidenceData = ej
+		}
 
 	case "부분":
-		base.Verdict = "검토필요"
+		base.Verdict = grc.VerdictNEEDS_REVIEW
+		base.Reason = fmt.Sprintf("LLM 부분충족, 누락요소: %s", resp.MissingElem)
 		var indicators []string
 		indicators = append(indicators, fmt.Sprintf("LLM 판정: 부분충족 (양태: %s)", resp.Modality))
 		if resp.MissingElem != "" {
@@ -296,10 +322,13 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 		base.MatchedIndicators = indicators
 
 	case "불충족":
-		base.Verdict = "미준수"
+		base.Verdict = grc.VerdictNOT_MET
 		desc := fmt.Sprintf("LLM 판정: 불충족 (양태: %s)", resp.Modality)
 		if resp.MissingElem != "" {
 			desc += fmt.Sprintf(" / 누락요소: %s", resp.MissingElem)
+			base.Reason = fmt.Sprintf("LLM 불충족, 누락요소: %s", resp.MissingElem)
+		} else {
+			base.Reason = "LLM 불충족"
 		}
 		base.Violations = []grc.Violation{{
 			Description: desc,
@@ -307,7 +336,8 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 		}}
 
 	default: // 판정불가
-		base.Verdict = "검토필요"
+		base.Verdict = grc.VerdictINDETERMINATE
+		base.Reason = "LLM 판정불가 (수동 검토)"
 		base.MatchedIndicators = []string{"LLM 판정: 판정불가 (수동 검토 필요)"}
 	}
 

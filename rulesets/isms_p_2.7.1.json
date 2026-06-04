@@ -334,9 +334,7 @@
           "진짜 HTTP 평문이라면 즉시 시정"
         ],
         "manual_check_areas": [
-          "암호화 정책 문서",
-          "저장 데이터 암호화 적용",
-          "키 관리 정책/기록"
+          "저장 데이터 암호화 적용"
         ],
         "automation_coverage": {
           "percentage": 20,
@@ -346,6 +344,10 @@
         "alternative_controls": [
           "CloudFront/외부 LB TLS",
           "외부 인증서 관리"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "외부 LB(CloudFront/ALB) TLS 종료 후 내부는 mTLS 보호 구조",
+          "저장 데이터 암호화(Secret etcd·KMS)가 별도 적용됨"
         ],
         "k8s_only_check": true,
         "deferred": false,

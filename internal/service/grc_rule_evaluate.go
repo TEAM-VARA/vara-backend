@@ -11,11 +11,17 @@ import (
 // VerdictPassFail maps internal verdicts to fixture / API style tokens.
 func VerdictPassFail(verdict string) string {
 	switch verdict {
-	case "준수":
+	case "준수", grc.VerdictMET:
 		return "PASS"
-	case "미준수":
+	case "미준수", grc.VerdictNOT_MET:
 		return "FAIL"
-	case "skipped":
+	case grc.VerdictNO_DATA:
+		return "NO_DATA"
+	case grc.VerdictINDETERMINATE:
+		return "INDETERMINATE"
+	case "검토필요", grc.VerdictNEEDS_REVIEW:
+		return "NEEDS_REVIEW"
+	case "skipped", grc.VerdictSKIPPED:
 		return "SKIP"
 	default:
 		return verdict

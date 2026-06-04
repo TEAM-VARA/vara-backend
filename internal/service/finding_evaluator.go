@@ -64,14 +64,16 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 	}
 
 	// Copy manual meta fields
-	base.ComplianceMappings    = meta.ComplianceMappings
-	base.KisaDefectCaseRefs    = meta.KisaDefectCaseRefs
-	base.AdditionalReviewItems = toRawJSON(meta.AdditionalReviewItems)
-	base.ManualCheckAreas      = toRawJSON(meta.ManualCheckAreas)
-	base.AutomationCoverage    = meta.AutomationCoverage
-	base.AlternativeControls   = meta.AlternativeControls
-	base.Deferred               = meta.Deferred
-	base.DeferredReason         = meta.DeferredReason
+	base.ComplianceMappings                = meta.ComplianceMappings
+	base.KisaDefectCaseRefs                = meta.KisaDefectCaseRefs
+	base.AdditionalReviewItems             = toRawJSON(meta.AdditionalReviewItems)
+	base.ManualCheckAreas                  = toRawJSON(meta.ManualCheckAreas)
+	base.AutomationCoverage                = meta.AutomationCoverage
+	base.AlternativeControls               = meta.AlternativeControls
+	base.Deferred                          = meta.Deferred
+	base.DeferredReason                    = meta.DeferredReason
+	base.OffclusterSatisfactionConditions  = toRawJSON(meta.OffclusterSatisfactionConditions)
+	base.Layer                             = grc.LayerF
 
 	if meta.Deferred {
 		base.Matched = false
@@ -167,7 +169,9 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 	}
 
 	if reportOperators[op] {
-		result.Verdict = "준수"
+		result.Verdict = grc.VerdictMET
+		result.Reason = "보고서형 결과 (정보 제공)"
+		result.Layer = grc.LayerF
 		return result
 	}
 	return deriveManualVerdict(result)
@@ -182,26 +186,36 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 //   needs_review       (any)           → 검토필요
 //   additional_evidence (any)          → 준수  (informational only)
 func deriveManualVerdict(rr grc.RuleResult) grc.RuleResult {
+	if rr.Layer == "" {
+		rr.Layer = grc.LayerF
+	}
 	switch rr.VerdictType {
 	case "potential_finding":
 		if rr.Matched {
-			rr.Verdict = "검토필요"
+			rr.Verdict = grc.VerdictNEEDS_REVIEW
+			rr.Reason = "잠재적 결함 탐지"
 		} else {
-			rr.Verdict = "준수"
+			rr.Verdict = grc.VerdictMET
+			rr.Reason = "잠재적 결함 미탐지"
 		}
 	case "compliant_indicator":
 		if rr.Matched {
-			rr.Verdict = "준수"
+			rr.Verdict = grc.VerdictMET
+			rr.Reason = "준수 지표 확인됨"
 		} else {
-			rr.Verdict = "검토필요"
+			rr.Verdict = grc.VerdictNEEDS_REVIEW
+			rr.Reason = "준수 지표 미확인"
 		}
 	case "needs_review":
-		rr.Verdict = "검토필요"
+		rr.Verdict = grc.VerdictNEEDS_REVIEW
+		rr.Reason = "수동 검토 필수 항목"
 	case "additional_evidence":
-		rr.Verdict = "준수"
+		rr.Verdict = grc.VerdictMET
+		rr.Reason = "보충 증거 (참고용)"
 	default:
 		// Unknown or empty verdict_type: treat as informational.
-		rr.Verdict = "준수"
+		rr.Verdict = grc.VerdictMET
+		rr.Reason = "정보 제공 항목"
 	}
 	return rr
 }

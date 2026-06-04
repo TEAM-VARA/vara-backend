@@ -655,7 +655,7 @@ func parseToxicConditionsToLayers(conditions string) []string {
 
 // ComputeIdentityEdges는 RBAC 정보로부터 identity layer edges를 적재합니다.
 // 3개 INSERT 실행:
-//  1. Pod → SA (assumes)
+//  1. Pod → SA (assumes) — 시스템 pod(tetragon/ebs-csi-node) 제외
 //  2. SA → Role (binds, namespace-level)
 //  3. SA → ClusterRole (binds, cluster-level)
 func (r *EdgesRepo) ComputeIdentityEdges(ctx context.Context, clusterName string) (*edge.IdentityComputeResult, error) {
@@ -672,6 +672,8 @@ func (r *EdgesRepo) ComputeIdentityEdges(ctx context.Context, clusterName string
 			WHERE cluster_name = $1
 			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
 			  AND service_account IS NOT NULL AND service_account != ''
+			  AND name NOT LIKE 'tetragon%'
+			  AND name NOT LIKE 'ebs-csi-node%'
 		)
 		INSERT INTO edges (
 			cluster_name,
@@ -810,65 +812,68 @@ func (r *EdgesRepo) ComputeIdentityEdges(ctx context.Context, clusterName string
 }
 
 // ComputeSupplyChainEdges는 SBOM/CVE 정보로부터 supply_chain layer edges를 적재합니다.
-// 2개 INSERT 실행:
-//  1. shares_image: 같은 image_digest 공유하는 Pod 쌍
+// 1개 INSERT 실행:
+//  1. shares_image: 비활성화됨 (아래 참조)
 //  2. shares_cve: 다른 image지만 같은 KEV CVE 공유 (cross-image)
 func (r *EdgesRepo) ComputeSupplyChainEdges(ctx context.Context, clusterName string) (*edge.SupplyChainComputeResult, error) {
 	start := time.Now()
 	snapAt := time.Now()
 
 	// ─────────────────────────────────────────────
-	// Step 1: shares_image (같은 이미지)
-	// sboms 테이블로 cluster_pods.containers[].image → image_digest 매핑
+	// Step 1: shares_image — 비활성화 (2026-06)
+	// 사유: 공통 사이드카 이미지 공유로 N² 엣지 폭발 (3,500+)
+	// TODO: CVE 허브 노드 구조로 재설계 예정 (실측: 943→41 검증 완료)
 	// ─────────────────────────────────────────────
-	qSharesImage := `
-		WITH pod_digests AS (
-			SELECT DISTINCT cp.pod_uid, cp.pod_name, cp.pod_namespace, s.image_digest
-			FROM (
-				SELECT pod_uid, name AS pod_name, namespace AS pod_namespace,
-				       jsonb_array_elements(containers)->>'image' AS pod_image
-				FROM cluster_pods 
-				WHERE cluster_name = $1
-				  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
-			) cp
-			JOIN sboms s ON s.image = cp.pod_image
-		)
-		INSERT INTO edges (
-			cluster_name,
-			source_pod_uid, target_pod_uid,
-			source_name, source_namespace,
-			target_name, target_namespace,
-			source_kind, target_kind,
-			target_type, target_service_name,
-			layer, edge_type, mode,
-			weight, traffic_weight,
-			snapshot_at, computed_at
-		)
-		SELECT
-			$1,
-			a.pod_uid, b.pod_uid,
-			a.pod_name, a.pod_namespace,
-			b.pod_name, b.pod_namespace,
-			'pod', 'pod',
-			'pod',
-			'img:' || LEFT(a.image_digest, 19),
-			'supply_chain', 'shares_image', 'declared',
-			1, 0.6,
-			$2::timestamptz, NOW()
-		FROM pod_digests a 
-		JOIN pod_digests b ON a.image_digest = b.image_digest 
-		                  AND a.pod_uid < b.pod_uid
-		ON CONFLICT DO NOTHING
-	`
-	tag1, err := r.pool.Exec(ctx, qSharesImage, clusterName, snapAt)
-	if err != nil {
-		return nil, fmt.Errorf("insert shares_image: %w", err)
-	}
-	sharesImageInserted := tag1.RowsAffected()
+	// qSharesImage := `
+	// 	WITH pod_digests AS (
+	// 		SELECT DISTINCT cp.pod_uid, cp.pod_name, cp.pod_namespace, s.image_digest
+	// 		FROM (
+	// 			SELECT pod_uid, name AS pod_name, namespace AS pod_namespace,
+	// 			       jsonb_array_elements(containers)->>'image' AS pod_image
+	// 			FROM cluster_pods
+	// 			WHERE cluster_name = $1
+	// 			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+	// 		) cp
+	// 		JOIN sboms s ON s.image = cp.pod_image
+	// 	)
+	// 	INSERT INTO edges (
+	// 		cluster_name,
+	// 		source_pod_uid, target_pod_uid,
+	// 		source_name, source_namespace,
+	// 		target_name, target_namespace,
+	// 		source_kind, target_kind,
+	// 		target_type, target_service_name,
+	// 		layer, edge_type, mode,
+	// 		weight, traffic_weight,
+	// 		snapshot_at, computed_at
+	// 	)
+	// 	SELECT
+	// 		$1,
+	// 		a.pod_uid, b.pod_uid,
+	// 		a.pod_name, a.pod_namespace,
+	// 		b.pod_name, b.pod_namespace,
+	// 		'pod', 'pod',
+	// 		'pod',
+	// 		'img:' || LEFT(a.image_digest, 19),
+	// 		'supply_chain', 'shares_image', 'declared',
+	// 		1, 0.6,
+	// 		$2::timestamptz, NOW()
+	// 	FROM pod_digests a
+	// 	JOIN pod_digests b ON a.image_digest = b.image_digest
+	// 	                  AND a.pod_uid < b.pod_uid
+	// 	ON CONFLICT DO NOTHING
+	// `
+	// tag1, err := r.pool.Exec(ctx, qSharesImage, clusterName, snapAt)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("insert shares_image: %w", err)
+	// }
+	// sharesImageInserted := tag1.RowsAffected()
+	sharesImageInserted := int64(0)
 
 	// ─────────────────────────────────────────────
 	// Step 2: shares_cve (KEV + cross-image)
 	// 각 Pod 쌍당 1개 edge, 대표 CVE를 target_service_name에 라벨
+	// 시스템 pod(tetragon/ebs-csi-node)은 제외
 	// ─────────────────────────────────────────────
 	qSharesCVE := `
 		WITH pod_digests AS (
@@ -879,6 +884,8 @@ func (r *EdgesRepo) ComputeSupplyChainEdges(ctx context.Context, clusterName str
 				FROM cluster_pods 
 				WHERE cluster_name = $1
 				  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+				  AND name NOT LIKE 'tetragon%'
+				  AND name NOT LIKE 'ebs-csi-node%'
 			) cp
 			JOIN sboms s ON s.image = cp.pod_image
 		),
@@ -947,7 +954,9 @@ func (r *EdgesRepo) ComputeSupplyChainEdges(ctx context.Context, clusterName str
 //  1. selected_by: Service → Pod (labels matching)
 //  2. allows:      NetworkPolicy (Pod → Pod)
 //  3. routed_by:   Ingress → Service
-//  4. namespace_cross: 다른 namespace 간 관계 (derived)
+//  4. connects_to: eBPF 관찰된 pod→pod 통신
+//
+// 시스템 pod(tetragon/ebs-csi-node)은 제외.
 func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string) (*edge.NetworkComputeResult, error) {
 	start := time.Now()
 	snapAt := time.Now()
@@ -961,6 +970,8 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			FROM cluster_pods 
 			WHERE cluster_name = $1
 			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+			  AND name NOT LIKE 'tetragon%'
+			  AND name NOT LIKE 'ebs-csi-node%'
 		),
 		latest_services AS (
 			SELECT service_uid, name AS svc_name, namespace AS svc_namespace, selector 
@@ -1010,6 +1021,8 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			FROM cluster_pods 
 			WHERE cluster_name = $1
 			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+			  AND name NOT LIKE 'tetragon%'
+			  AND name NOT LIKE 'ebs-csi-node%'
 		),
 		latest_np AS (
 			SELECT name, namespace, pod_selector, ingress_rules
@@ -1114,6 +1127,8 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			FROM cluster_pods
 			WHERE cluster_name = $1
 			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+			  AND name NOT LIKE 'tetragon%'
+			  AND name NOT LIKE 'ebs-csi-node%'
 		),
 		observed AS (
 			SELECT
@@ -1196,6 +1211,7 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 
 // ComputeHostEdges — Host layer edges 적재
 // runs_on (Pod→Node 배치). escape_path는 agent 수집 확장 후 활성화.
+// 시스템 pod(tetragon/ebs-csi-node)은 제외.
 func (r *EdgesRepo) ComputeHostEdges(ctx context.Context, clusterName string) (*edge.HostComputeResult, error) {
 	start := time.Now()
 	snapAt := time.Now()
@@ -1211,6 +1227,8 @@ func (r *EdgesRepo) ComputeHostEdges(ctx context.Context, clusterName string) (*
 			WHERE cluster_name = $1
 			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
 			  AND node IS NOT NULL AND node != ''
+			  AND name NOT LIKE 'tetragon%'
+			  AND name NOT LIKE 'ebs-csi-node%'
 		),
 		latest_nodes AS (
 			SELECT node_uid, name AS node_name
@@ -1381,6 +1399,8 @@ func (r *EdgesRepo) fetchPodNodes(ctx context.Context, cluster string) ([]edge.T
 		) fs ON true
 		WHERE cp.cluster_name = $1
 		  AND cp.snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+		  AND cp.name NOT LIKE 'tetragon%'
+		  AND cp.name NOT LIKE 'ebs-csi-node%'
 		ORDER BY cp.namespace, cp.name
 	`
 	// 기존 Scan 그대로
