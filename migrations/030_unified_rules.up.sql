@@ -25,14 +25,13 @@ ALTER TABLE grc_rule_results
     ADD COLUMN IF NOT EXISTS isms_p_item_id          VARCHAR(20);
 
 -- Constraints
-ALTER TABLE grc_rule_results
-    ADD CONSTRAINT IF NOT EXISTS grc_rule_results_judgment_mode_check
-        CHECK (judgment_mode IN ('auto', 'manual'));
+ALTER TABLE grc_rule_results DROP CONSTRAINT IF EXISTS grc_rule_results_judgment_mode_check;
+ALTER TABLE grc_rule_results ADD  CONSTRAINT grc_rule_results_judgment_mode_check
+    CHECK (judgment_mode IN ('auto','manual'));
 
-ALTER TABLE grc_rule_results
-    ADD CONSTRAINT IF NOT EXISTS grc_rule_results_verdict_type_check
-        CHECK (verdict_type IS NULL OR verdict_type IN (
-            'compliant_indicator', 'potential_finding', 'needs_review'));
+ALTER TABLE grc_rule_results DROP CONSTRAINT IF EXISTS grc_rule_results_verdict_type_check;
+ALTER TABLE grc_rule_results ADD  CONSTRAINT grc_rule_results_verdict_type_check
+    CHECK (verdict_type IS NULL OR verdict_type IN ('compliant_indicator','potential_finding','needs_review'));
 
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_grc_rr_judgment_mode ON grc_rule_results(judgment_mode);
