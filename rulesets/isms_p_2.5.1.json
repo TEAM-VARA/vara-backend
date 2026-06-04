@@ -128,7 +128,6 @@
           "시스템 namespace는 예외 처리"
         ],
         "manual_check_areas": [
-          "계정 관리 정책",
           "공용 계정 사용 예외 승인 기록"
         ],
         "automation_coverage": {
@@ -143,6 +142,10 @@
             "kube-node-lease"
           ]
         },
+        "offcluster_satisfaction_conditions": [
+          "시스템 namespace(kube-system·kube-public·kube-node-lease) 예외 대상",
+          "공용/default SA 사용에 책임자 예외 승인 기록 있음(인증범위 내 일반 워크로드면 전용 SA 필요)"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -183,7 +186,6 @@
           "회사의 계정 정기 점검 주기/기록 확인"
         ],
         "manual_check_areas": [
-          "계정 점검 절차서",
           "최근 점검 기록"
         ],
         "automation_coverage": {
@@ -191,8 +193,98 @@
           "covered": "K8s SA 정리 상태",
           "not_covered": "점검 절차 운영 여부"
         },
+        "offcluster_satisfaction_conditions": [
+          "해당 SA가 예정 사용분으로 문서화돼 있거나 계정 정기 점검 기록상 인지·관리됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
+      }
+    },
+    {
+      "rule_id": "R-2.5.1-GL01",
+      "name": "계정·권한 생애주기 절차 수립",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정보시스템 및 개인정보처리시스템의 사용자 등록·해지 및 접근권한 부여·변경·말소에 관한 공식적인 절차를 수립·이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "사용자 등록·해지 및 접근권한 부여·변경·말소 공식 절차를 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.5.1-GL02",
+      "name": "직무별 최소권한 부여",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "사용자 등록·변경 시 직무별 접근권한 분류체계에 따라 업무상 필요한 최소한의 권한만 부여한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "직무별 접근권한 분류체계에 따라 최소권한만 부여하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.5.1-GL03",
+      "name": "계정 보안책임 인식",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "사용자에게 계정 및 접근권한을 부여할 때 해당 계정의 보안책임이 본인에게 있음을 명확히 인식시킨다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "계정 보안책임이 본인에게 있음을 인식시키도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     }
   ],

@@ -34,17 +34,21 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	base grc.RuleResult,
 ) grc.RuleResult {
 
+	base.Layer = grc.LayerGL
+
 	// ── Guard: VLM client must be available ──
 	if s.vlmClient == nil || !s.vlmClient.Available() {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "VLM 서버 비가동 (llm_rag_entailment)"
+		base.Reason = "VLM 서버 비가동"
 		return base
 	}
 
 	// ── Guard: embedding client must be available for retrieval ──
 	if s.embeddingClient == nil || !s.embeddingClient.Available() {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "임베딩 서버 비가동 (retrieval 불가)"
+		base.Reason = "임베딩 서버 비가동"
 		return base
 	}
 
@@ -59,11 +63,13 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	}
 	if len(sentences) == 0 {
 		if rule.JudgmentSource == "text_extraction" {
-			base.Verdict = "skipped"
+			base.Verdict = grc.VerdictINDETERMINATE
 			base.SkipReason = "지침 문장 없음 (DB 지침 미등록)"
+			base.Reason = "지침 미등록"
 		} else {
-			base.Verdict = "skipped"
+			base.Verdict = grc.VerdictINDETERMINATE
 			base.SkipReason = "증적 텍스트 없음 (PDF 추출 실패 또는 미업로드)"
+			base.Reason = "증적 텍스트 없음"
 		}
 		return base
 	}
@@ -144,13 +150,15 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	judgeResp, err := s.vlmClient.Judge(ctx, judgeReq)
 	if err != nil {
 		log.Printf("[grc-rag] VLM judge error: %v", err)
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = fmt.Sprintf("VLM 판정 오류: %v", err)
+		base.Reason = fmt.Sprintf("VLM 판정 오류: %v", err)
 		return base
 	}
 	if judgeResp == nil {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "VLM 서버 응답 없음 (연결 실패)"
+		base.Reason = "VLM 서버 응답 없음"
 		return base
 	}
 
@@ -263,21 +271,49 @@ func extractRulePolarity(rule Rule) (string, map[string]string) {
 
 // mapVLMVerdictToResult converts the VLM response into a grc.RuleResult.
 func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, base grc.RuleResult) grc.RuleResult {
-	switch resp.Verdict {
+	verdict := resp.Verdict
+	base.Layer = grc.LayerGL
+
+	// ── 후처리: "부분"인데 누락요소가 근거문장에 이미 있으면 "충족"으로 보정 ──
+	if verdict == "부분" && resp.MissingElem != "" && len(resp.BasisIdx) > 0 {
+		if missingFoundInBasis(resp.MissingElem, resp.BasisIdx, topHits) {
+			log.Printf("[grc-rag] post-fix: 부분→충족 (누락요소 %q가 근거문장에 존재)", resp.MissingElem)
+			verdict = "충족"
+		}
+	}
+
+	switch verdict {
 	case "충족":
-		base.Verdict = "준수"
+		base.Verdict = grc.VerdictMET
+		base.Reason = fmt.Sprintf("LLM 충족 판정, 근거 문장 %d건", len(resp.BasisIdx))
 		var indicators []string
 		indicators = append(indicators, fmt.Sprintf("LLM 판정: 충족 (양태: %s)", resp.Modality))
+		// Build evidence_data JSON
+		type evidenceEntry struct {
+			SentenceIndex int     `json:"sentence_index"`
+			Text          string  `json:"text"`
+			CosineScore   float64 `json:"cosine_score"`
+		}
+		var evidenceEntries []evidenceEntry
 		for _, idx := range resp.BasisIdx {
 			if idx >= 1 && idx <= len(topHits) {
 				hit := topHits[idx-1]
 				indicators = append(indicators, fmt.Sprintf("근거[%d]: %s (cos=%.3f)", idx, ragTruncate(hit.text, 80), hit.score))
+				evidenceEntries = append(evidenceEntries, evidenceEntry{
+					SentenceIndex: hit.index,
+					Text:          hit.text,
+					CosineScore:   hit.score,
+				})
 			}
 		}
 		base.MatchedIndicators = indicators
+		if ej, err := json.Marshal(evidenceEntries); err == nil {
+			base.EvidenceData = ej
+		}
 
 	case "부분":
-		base.Verdict = "검토필요"
+		base.Verdict = grc.VerdictNEEDS_REVIEW
+		base.Reason = fmt.Sprintf("LLM 부분충족, 누락요소: %s", resp.MissingElem)
 		var indicators []string
 		indicators = append(indicators, fmt.Sprintf("LLM 판정: 부분충족 (양태: %s)", resp.Modality))
 		if resp.MissingElem != "" {
@@ -286,10 +322,13 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 		base.MatchedIndicators = indicators
 
 	case "불충족":
-		base.Verdict = "미준수"
+		base.Verdict = grc.VerdictNOT_MET
 		desc := fmt.Sprintf("LLM 판정: 불충족 (양태: %s)", resp.Modality)
 		if resp.MissingElem != "" {
 			desc += fmt.Sprintf(" / 누락요소: %s", resp.MissingElem)
+			base.Reason = fmt.Sprintf("LLM 불충족, 누락요소: %s", resp.MissingElem)
+		} else {
+			base.Reason = "LLM 불충족"
 		}
 		base.Violations = []grc.Violation{{
 			Description: desc,
@@ -297,11 +336,67 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 		}}
 
 	default: // 판정불가
-		base.Verdict = "검토필요"
+		base.Verdict = grc.VerdictINDETERMINATE
+		base.Reason = "LLM 판정불가 (수동 검토)"
 		base.MatchedIndicators = []string{"LLM 판정: 판정불가 (수동 검토 필요)"}
 	}
 
 	return base
+}
+
+// missingFoundInBasis checks if the "missing element" text is actually present
+// in the basis sentences. Handles synonym matching for common Korean compliance terms.
+func missingFoundInBasis(missing string, basisIdx []int, topHits []scoredSentence) bool {
+	// 동의어 매핑: LLM이 누락이라 한 표현 → 실제 문장에 있을 수 있는 표현들
+	synonyms := map[string][]string{
+		"즉시 회수":    {"즉시 회수", "즉시 반환", "회수한다"},
+		"즉시 회수 조항": {"즉시 회수", "즉시 반환", "회수한다"},
+		"승인 절차":    {"승인 절차", "승인을 거치", "별도 승인"},
+		"공동 사용 금지": {"공용", "공유", "공동 사용", "금지한다"},
+		"로깅":       {"로깅", "로그", "기록한다", "사용 내역"},
+		"로깅 확보":    {"로깅", "로그", "기록한다", "사용 내역"},
+	}
+
+	// 근거문장 텍스트 수집
+	var basisTexts []string
+	for _, idx := range basisIdx {
+		if idx >= 1 && idx <= len(topHits) {
+			basisTexts = append(basisTexts, topHits[idx-1].text)
+		}
+	}
+	if len(basisTexts) == 0 {
+		return false
+	}
+
+	combined := strings.Join(basisTexts, " ")
+
+	// 1) 누락요소 키워드를 동의어로 분해하여 검색
+	for key, syns := range synonyms {
+		if strings.Contains(missing, key) {
+			for _, syn := range syns {
+				if strings.Contains(combined, syn) {
+					return true
+				}
+			}
+		}
+	}
+
+	// 2) 누락요소 텍스트를 공백으로 분리하여 개별 키워드 검색
+	//    키워드의 절반 이상이 근거문장에 있으면 이미 포함된 것으로 판단
+	keywords := strings.Fields(missing)
+	if len(keywords) == 0 {
+		return false
+	}
+	matched := 0
+	for _, kw := range keywords {
+		if len([]rune(kw)) < 2 {
+			continue // 조사/접속사 무시
+		}
+		if strings.Contains(combined, kw) {
+			matched++
+		}
+	}
+	return matched > 0 && matched >= (len(keywords)+1)/2
 }
 
 func ragTruncate(s string, maxLen int) string {

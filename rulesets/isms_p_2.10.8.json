@@ -112,14 +112,16 @@
           "패치 일정 계획 확인"
         ],
         "manual_check_areas": [
-          "패치 정책 문서",
-          "정기 패치 적용 기록"
+
         ],
         "automation_coverage": {
           "percentage": 100,
           "covered": "K8s 자체 버전",
           "not_covered": "제어 플레인(EKS 관리형), 노드 OS 버전"
         },
+        "offcluster_satisfaction_conditions": [
+          "kubeletVersion이 EKS 지원 버전 범위 내이거나, 패치 일정 계획상 지원 버전 업그레이드가 결재·관리됨(EOL 운영이면 결함)"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -166,6 +168,9 @@
           "covered": "이미지 태그 안정성",
           "not_covered": "실제 패치 적용 추적"
         },
+        "offcluster_satisfaction_conditions": [
+          "mutable 태그여도 CI/CD 빌드 추적 시스템으로 실제 배포 이미지·패치 시점 추적 가능"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -205,6 +210,9 @@
           "covered": "디지스트 고정 여부",
           "not_covered": "외부 스캐너 기반 취약점 점검"
         },
+        "offcluster_satisfaction_conditions": [
+          "digest 미고정이어도 이미지 서명/검증(Cosign/Notation 등)으로 무결성 보장됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -246,7 +254,6 @@
         ],
         "manual_check_areas": [
           "취약점 관리 정책",
-          "패치 적용 기록",
           "이미지 스캔 운영 현황"
         ],
         "automation_coverage": {
@@ -254,8 +261,111 @@
           "covered": "Trivy 기반 CVE 스캔",
           "not_covered": "OS 패치, 커스텀 취약점"
         },
+        "offcluster_satisfaction_conditions": [
+          "발견된 CVE가 취약점 관리 정책상 예외 승인/완화조치로 처리됐거나 긴급 패치 프로세스로 조치(예정)됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-GL01",
+      "name": "패치 적용 절차 및 정기 적용",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "소프트웨어, 운영체제, 보안장비 등의 보안 패치 적용 절차를 수립하고 정기적으로 패치를 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "보안 패치 적용 절차를 수립하고 정기적으로 패치를 적용하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-GL02",
+      "name": "패치 적용 곤란 시 보완대책",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "서비스 영향도 등으로 최신 패치 적용이 어려운 경우 보완대책을 마련한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "최신 패치 적용이 어려운 경우 보완대책을 마련하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-GL03",
+      "name": "주요 시스템 패치 경로 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "주요 서버·네트워크시스템·보안시스템 등은 공개 인터넷 접속을 통한 패치를 제한한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "주요 시스템의 공개 인터넷을 통한 패치를 제한하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-GL04",
+      "name": "패치관리시스템 보호",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "패치관리시스템(PMS)을 활용하는 경우 접근통제 등 충분한 보호대책을 마련한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "패치관리시스템 활용 시 접근통제 등 보호대책을 마련하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
       }
     }
   ],

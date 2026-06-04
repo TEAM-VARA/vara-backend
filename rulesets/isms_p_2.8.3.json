@@ -131,7 +131,6 @@
           "namespace 네이밍 컨벤션으로 식별되는가"
         ],
         "manual_check_areas": [
-          "환경 분리 정책 문서",
           "클러스터/VPC 분리 설계"
         ],
         "automation_coverage": {
@@ -143,6 +142,9 @@
           "별도 클러스터",
           "별도 VPC",
           "namespace 네이밍 컨벤션"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "env 라벨이 없어도 별도 클러스터/별도 VPC/namespace 네이밍 컨벤션으로 환경 식별·분리됨"
         ],
         "k8s_only_check": true,
         "deferred": false
@@ -183,15 +185,68 @@
           "cluster 분리 정책이면 namespace 내 혼재는 무관"
         ],
         "manual_check_areas": [
-          "환경 분리 정책 문서"
+
         ],
         "automation_coverage": {
           "percentage": 100,
           "covered": "env 라벨 부여 시 namespace 내 혼재 점검",
           "not_covered": "라벨 미부여 시 점검 불가"
         },
+        "offcluster_satisfaction_conditions": [
+          "환경 분리 정책이 cluster/VPC 단위이고 그 수준에서 분리됨 → ns 내 혼재 무관(ns 단위 분리 정책이면 결함)"
+        ],
         "k8s_only_check": true,
         "deferred": false
+      }
+    },
+    {
+      "rule_id": "R-2.8.3-GL01",
+      "name": "개발·시험과 운영 환경 분리 원칙",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "개발 및 시험 시스템을 운영시스템과 원칙적으로 분리한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "개발·시험 시스템을 운영시스템과 원칙적으로 분리하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.8.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.8.3-GL02",
+      "name": "분리 곤란 시 보완통제",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "불가피하게 개발과 운영 환경의 분리가 어려운 경우 상호검토, 상급자 모니터링, 변경 승인, 책임추적성 확보 등의 보안대책을 마련한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "환경 분리가 어려운 경우 상호검토·모니터링·변경승인·책임추적성 등 보완통제를 마련하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.8.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
       }
     }
   ],

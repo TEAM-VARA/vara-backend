@@ -10,6 +10,7 @@ func TestRulesetStoreLoad(t *testing.T) {
 	// Find the ruleset file relative to project root.
 	// Tests may run from different directories, try multiple paths.
 	paths := []string{
+		"../../rulesets/isms_p_2.5.4.json",
 		"../../isms_p_2.5.4_ruleset.json",
 		"../../rulesets/isms_p_2.5.4_ruleset.json",
 	}
@@ -39,8 +40,8 @@ func TestRulesetStoreLoad(t *testing.T) {
 	if rs.Item.Name != "비밀번호 관리" {
 		t.Errorf("item.name = %q, want 비밀번호 관리", rs.Item.Name)
 	}
-	if len(rs.Rules) != 15 {
-		t.Errorf("rules count = %d, want 15", len(rs.Rules))
+	if len(rs.Rules) != 23 {
+		t.Errorf("rules count = %d, want 23", len(rs.Rules))
 	}
 	if rs.ISMSPRevision != "2023.11" {
 		t.Errorf("isms_p_revision = %q, want 2023.11", rs.ISMSPRevision)
@@ -57,6 +58,7 @@ func TestRulesetStoreLoadUnsupported(t *testing.T) {
 
 func TestRulesetRuleIDs(t *testing.T) {
 	paths := []string{
+		"../../rulesets/isms_p_2.5.4.json",
 		"../../isms_p_2.5.4_ruleset.json",
 		"../../rulesets/isms_p_2.5.4_ruleset.json",
 	}
@@ -81,9 +83,11 @@ func TestRulesetRuleIDs(t *testing.T) {
 	}
 
 	expectedIDs := []string{
-		"2.5.4-R001", "2.5.4-R002", "2.5.4-R003", "2.5.4-R004", "2.5.4-R005",
-		"2.5.4-R006", "2.5.4-R007", "2.5.4-R008", "2.5.4-R009", "2.5.4-R010",
-		"2.5.4-R011", "2.5.4-R012", "2.5.4-R013", "2.5.4-R014", "2.5.4-R015",
+		"R-2.5.4-01", "R-2.5.4-02", "R-2.5.4-03", "R-2.5.4-04", "R-2.5.4-05",
+		"R-2.5.4-06", "R-2.5.4-07", "R-2.5.4-08", "R-2.5.4-09", "R-2.5.4-10",
+		"R-2.5.4-11", "R-2.5.4-12", "R-2.5.4-13", "R-2.5.4-14", "R-2.5.4-15",
+		"R-2.5.4-GL01", "R-2.5.4-GL02", "R-2.5.4-GL03", "R-2.5.4-GL04",
+		"R-2.5.4-GL05", "R-2.5.4-GL06", "R-2.5.4-GL07", "R-2.5.4-GL08",
 	}
 
 	for i, expected := range expectedIDs {
@@ -98,6 +102,7 @@ func TestRulesetRuleIDs(t *testing.T) {
 
 func TestRulesetJudgmentLogicTypes(t *testing.T) {
 	paths := []string{
+		"../../rulesets/isms_p_2.5.4.json",
 		"../../isms_p_2.5.4_ruleset.json",
 		"../../rulesets/isms_p_2.5.4_ruleset.json",
 	}
@@ -135,6 +140,7 @@ func TestRulesetJudgmentLogicTypes(t *testing.T) {
 
 func TestRulesetStoreGetRaw(t *testing.T) {
 	paths := []string{
+		"../../rulesets/isms_p_2.5.4.json",
 		"../../isms_p_2.5.4_ruleset.json",
 		"../../rulesets/isms_p_2.5.4_ruleset.json",
 	}
@@ -168,6 +174,7 @@ func TestRulesetStoreGetRaw(t *testing.T) {
 
 func TestRulesetStoreCaching(t *testing.T) {
 	paths := []string{
+		"../../rulesets/isms_p_2.5.4.json",
 		"../../isms_p_2.5.4_ruleset.json",
 		"../../rulesets/isms_p_2.5.4_ruleset.json",
 	}

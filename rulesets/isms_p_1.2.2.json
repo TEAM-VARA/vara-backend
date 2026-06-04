@@ -97,12 +97,9 @@
         "kisa_defect_case_refs": [],
         "additional_review_items": [
           "이 통신 관계가 회사 정보흐름도에 반영되어 있는가",
-          "신규 서비스 추가 시 흐름도 갱신 절차 운영",
           "개인정보 처리 흐름이 별도 표시되어 있는가"
         ],
         "manual_check_areas": [
-          "정보흐름도 문서",
-          "흐름도 갱신 절차",
           "개인정보 처리 시스템 흐름도"
         ],
         "automation_coverage": {
@@ -110,6 +107,10 @@
           "covered": "K8s 통신 관계",
           "not_covered": "흐름도 문서 자체, K8s 외 시스템 연계"
         },
+        "offcluster_satisfaction_conditions": [
+          "도출된 통신 관계가 정보서비스 흐름도에 누락 없이 반영됨",
+          "개인정보 처리 흐름이 개인정보 흐름도에 수집·보유·이용/제공·파기 단계로 표시됨"
+        ],
         "k8s_only_check": true,
         "deferred": false
       }
@@ -154,8 +155,69 @@
           "covered": "클러스터에서 보이는 외부 연결",
           "not_covered": "K8s 외 시스템의 외부 연결"
         },
+        "offcluster_satisfaction_conditions": [
+          "발견된 외부 연계가 정보흐름도에 모두 등록돼 있고 외부 위탁 계약/외부 연계 시스템 목록과 일치함"
+        ],
         "k8s_only_check": true,
         "deferred": false
+      }
+    },
+    {
+      "rule_id": "R-1.2.2-GL01",
+      "name": "정보서비스·개인정보 흐름도 작성",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "관리체계 범위 내 정보서비스 및 개인정보 처리 현황을 분석하고 정보서비스 흐름도·개인정보 흐름도 등으로 문서화한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "업무절차와 흐름을 파악하여 정보서비스 흐름도·개인정보 흐름도로 문서화하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-1.2.2-GL02",
+      "name": "흐름도 최신성 유지",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "서비스·업무·정보자산의 변화에 따라 업무절차 및 개인정보 흐름을 주기적으로 검토하여 흐름도 등 관련 문서의 최신성을 유지한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "변화에 따라 흐름도 등 관련 문서를 주기적으로 검토·갱신하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     }
   ],

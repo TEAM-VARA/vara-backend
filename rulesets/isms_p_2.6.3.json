@@ -75,6 +75,106 @@
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       }
+    },
+    {
+      "rule_id": "R-2.6.3-GL01",
+      "name": "응용프로그램 접근권한 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "사용자별 업무 및 정보의 중요도에 따라 응용프로그램 접근권한을 제한한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "사용자별 업무·정보 중요도에 따라 응용프로그램 접근권한을 제한하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.3-GL02",
+      "name": "표시제한 보호조치 기준 수립",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "개인정보 및 중요정보의 표시제한 보호조치의 일관성을 확보할 수 있도록 관련 기준을 수립하여 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "개인정보·중요정보 표시제한 보호조치 기준을 수립·적용하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.3-GL03",
+      "name": "정보 노출 최소화",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "개인정보 및 중요정보의 불필요한 노출(조회, 화면표시, 인쇄, 다운로드 등)을 최소화하도록 응용프로그램을 구현·운영한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "불필요한 정보 노출을 최소화하도록 응용프로그램을 구현·운영하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.3-GL04",
+      "name": "세션 통제",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "동일 사용자의 동시 접속 세션 수를 제한하고 일정시간 미사용 시 세션을 자동 차단한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "동시 세션 제한 및 미사용 세션 자동 차단을 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
     }
   ],
   "evaluation_strategy": {

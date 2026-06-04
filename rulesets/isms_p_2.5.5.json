@@ -25,7 +25,9 @@
       "name": "특수 권한 현황을 정기적으로 검토하고 불필요한 권한을 회수하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["특수 권한", "정기 검토", "권한 회수", "분기", "반기"],
+      "keywords": [
+        "특수 권한 현황을 분기 이내 주기로 정기 검토하고 불필요한 권한을 회수하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"field": "검토주기", "op": "<=", "value": "분기", "description": "특수 권한 검토 주기를 분기 이내로 규정"}
       ],
@@ -39,7 +41,9 @@
       "name": "불필요한 특수 권한을 즉시 회수하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["권한 회수", "불필요 권한", "즉시 회수", "권한 해제"],
+      "keywords": [
+        "불필요한 특수 권한을 발견 즉시 회수하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"description": "불필요한 특수 권한 발견 시 즉시 회수 규정"}
       ],
@@ -53,7 +57,9 @@
       "name": "특수 계정 사용 시 책임추적성(로깅·감사)을 확보하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["책임추적성", "로깅", "감사", "감사 로그", "접근 기록", "특수 계정 사용 기록"],
+      "keywords": [
+        "특수 계정 사용 시 로그 기록 및 감사를 통해 책임추적성을 확보하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"description": "특수 계정 사용 시 로그 기록 및 감사 수행 규정"}
       ],
@@ -67,7 +73,9 @@
       "name": "특수 계정 목록을 최신 상태로 관리하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["특수 계정 목록", "계정 현황", "식별", "관리 대장"],
+      "keywords": [
+        "특수 계정 목록을 별도로 식별하여 최신 상태로 관리하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"description": "특수 계정 목록을 최신 상태로 유지·관리 규정"}
       ],
@@ -81,7 +89,9 @@
       "name": "특수 권한 부여 시 승인 절차를 거치도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["승인", "결재", "권한 부여", "신청", "승인 절차"],
+      "keywords": [
+        "특수 권한 부여 시 신청·승인(결재) 절차를 거치도록 규정한다."
+      ],
       "compliance_indicators": [
         {"description": "특수 권한 부여 시 승인 절차(신청·결재) 규정"}
       ],
@@ -95,7 +105,9 @@
       "name": "특수 계정의 공동 사용을 금지하도록 규정",
       "judgment_source": "text_extraction",
       "extraction_method": "rag",
-      "keywords": ["공동 사용", "공용 계정", "개인 계정", "1인 1계정"],
+      "keywords": [
+        "특수 계정의 공동 사용을 금지하고 개인별로 계정을 부여하도록 규정한다."
+      ],
       "compliance_indicators": [
         {"description": "특수 계정의 공동 사용 금지 및 개인별 계정 부여 규정"}
       ],
@@ -170,9 +182,10 @@
           ]
         },
         "manual_check_areas": [
-          "특수권한자 목록 등록 여부",
-          "권한 부여 결재 기록",
-          "권한 검토 기록 (분기/반기)"
+          "권한 부여 결재 기록"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "최고권한(cluster-admin 등) 부여가 신청·승인 결재로 정당화되고 별도 식별·감사(책임추적성) 대상으로 관리됨"
         ]
       }
     },
@@ -202,6 +215,9 @@
         "manual_check_areas": [
           "RBAC 정책 문서 확인",
           "권한 부여 결재 기록"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "위험 권한이 결재 승인 + RBAC 정책 문서상 정당화되고 예외 사유(rbac-exception)·감사로 통제됨"
         ]
       }
     }

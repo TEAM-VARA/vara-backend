@@ -32,6 +32,7 @@ func newRouter(
 	rbacChain *handler.RBACChainHandler,
 	grc *handler.GRCHandler,
 	breakdownH *handler.BreakdownHandler,
+	podDetail *handler.PodDetailHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -209,20 +210,27 @@ func newRouter(
 		api.GET("/compliance/pod-graph/rulesets", grc.ListPodRulesets)
 		api.GET("/compliance/pod-graph/rulesets/:item_id", grc.GetPodRuleset)
 
-		// ── 통합 클러스터 컴플라이언스 (경로 B+C 병합 → ISMS-P 항목별 위반 자산) ──
-		api.POST("/compliance/cluster/evaluate", grc.EvaluateClusterCompliance)
+		// ── 전체 항목 한눈에 (Overview) ──
+		api.GET("/compliance/overview", grc.GetComplianceOverview)                       // 최신 평가 결과 조회
+		api.POST("/compliance/cluster/evaluate", grc.EvaluateClusterCompliance)          // 평가 실행 트리거
 
-		// ── Compliance Findings (F-X.X.X-K8S-NN) — deprecated, use /compliance/cluster/evaluate ──
-		api.GET("/compliance/findings", grc.ListFindings)
-		api.POST("/compliance/findings/evaluate-cluster", grc.EvaluateClusterFindings)   // deprecated
-		api.GET("/compliance/findings/summaries", grc.ListFindingClusterSummaries)
-		api.GET("/compliance/findings/summary", grc.GetFindingsSummary)
+		// ── 특정 항목 상세 ──
+		api.GET("/compliance/items/:item_id", grc.GetISMSPItemViolations)                // 항목별 위반 자산
+		api.GET("/compliance/items/:item_id/violations", grc.GetISMSPItemViolations)     // backward-compat
 
-		// ── Rule Catalog (변경 2) ──
-		api.GET("/compliance/rulesets/catalog", grc.GetRuleCatalog)
-
-		// ── Pod Compliance (변경 3-A: Pod 상세 뷰) ──
+		// ── Pod 상세 ──
 		api.GET("/compliance/pods/:pod_name/compliance", grc.GetPodCompliance)
+		api.GET("/compliance/pods/:pod_name/violations", grc.GetPodViolations)
+		api.GET("/compliance/pods/:pod_name/detail", podDetail.GetPodDetail)
+
+		// ── Findings (F-rule) ──
+		api.GET("/compliance/findings", grc.ListFindings)
+		api.GET("/compliance/findings/summary", grc.GetFindingsSummary)
+		api.GET("/compliance/findings/summaries", grc.ListFindingClusterSummaries)
+		api.POST("/compliance/findings/evaluate-cluster", grc.EvaluateClusterFindings)   // deprecated
+
+		// ── Rule Catalog ──
+		api.GET("/compliance/rulesets/catalog", grc.GetRuleCatalog)
 
 		// ── Backward-compat aliases (deprecated) ──
 		api.POST("/compliance/check", grc.CreateCheck)

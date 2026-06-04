@@ -50,9 +50,12 @@ func cosineSimilarity(a, b []float32) float64 {
 
 // evaluateEmbeddingSimilarity embeds evidence text and this rule's guideline text, then compares cosine to threshold.
 func (s *GRCService) evaluateEmbeddingSimilarity(ctx context.Context, rule Rule, evidenceData []any, base grc.RuleResult) grc.RuleResult {
+	base.Layer = grc.LayerGL
+
 	if s.embeddingClient == nil || !s.embeddingClient.Available() {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "임베딩 서버 비가동 (embedding_similarity_with_threshold)"
+		base.Reason = "임베딩 서버 비가동"
 		return base
 	}
 	var evText strings.Builder
@@ -70,29 +73,34 @@ func (s *GRCService) evaluateEmbeddingSimilarity(ctx context.Context, rule Rule,
 	}
 	text := strings.TrimSpace(evText.String())
 	if text == "" {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "임베딩 비교용 증적 텍스트 없음"
+		base.Reason = "증적 텍스트 없음"
 		return base
 	}
 	guide := buildGuidelineText(rule)
 	if strings.TrimSpace(guide) == "" {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "룰 지침 텍스트 비어 있음"
+		base.Reason = "룰 지침 텍스트 비어 있음"
 		return base
 	}
 	embs, err := s.embeddingClient.EmbedBatch(ctx, []string{text, guide})
 	if err != nil || len(embs) < 2 || embs[0] == nil || embs[1] == nil {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "임베딩 생성 실패"
+		base.Reason = "임베딩 생성 실패"
 		return base
 	}
 	sim := cosineSimilarity(embs[0], embs[1])
 	th := ruleEmbeddingThreshold(rule)
 	if sim >= th {
-		base.Verdict = "준수"
+		base.Verdict = grc.VerdictMET
+		base.Reason = fmt.Sprintf("임베딩 유사도 %.3f ≥ 임계 %.3f", sim, th)
 		base.MatchedIndicators = []string{fmt.Sprintf("임베딩 유사도 %.3f ≥ 임계 %.3f (증적↔룰 지침)", sim, th)}
 	} else {
-		base.Verdict = "미준수"
+		base.Verdict = grc.VerdictNOT_MET
+		base.Reason = fmt.Sprintf("임베딩 유사도 %.3f < 임계 %.3f, 규정 불일치", sim, th)
 		base.Violations = []grc.Violation{{
 			Description: fmt.Sprintf("임베딩 유사도 %.3f < 임계 %.3f (증적 내용이 룰 지침 맥락과 불일치)", sim, th),
 			Severity:    "medium",

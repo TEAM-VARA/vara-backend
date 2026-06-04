@@ -3,12 +3,14 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vara/backend/internal/domain/grc"
@@ -134,12 +136,14 @@ func (r *GRCRepo) SaveCheckResult(ctx context.Context, result *grc.ComplianceChe
 				 judgment_mode, verdict_type, matched, observation, evidence_json,
 				 affected_resources, manual_check_areas, additional_review_items,
 				 automation_coverage, alternative_controls, compliance_mappings,
-				 kisa_defect_case_refs, deferred, deferred_reason, isms_p_item_id)
+				 kisa_defect_case_refs, deferred, deferred_reason, isms_p_item_id,
+				 reason, missing_inputs, evidence_data, layer, offcluster_satisfaction_conditions)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,
 			        $12,$13,$14,$15,$16::jsonb,
 			        $17::jsonb,$18,$19,
 			        $20,$21,$22,
-			        $23,$24,$25,$26)
+			        $23,$24,$25,$26,
+			        $27,$28::jsonb,$29::jsonb,$30,$31::jsonb)
 			RETURNING id
 		`, result.CheckID, rr.RuleID, rr.CheckCategory, rr.EvidenceType, rr.System,
 			rr.Verdict, rr.EvidenceFiles, srcJSON, rr.MatchedIndicators, rr.SkipReason,
@@ -148,6 +152,7 @@ func (r *GRCRepo) SaveCheckResult(ctx context.Context, result *grc.ComplianceChe
 			affectedJSON, jsonOrNil(rr.ManualCheckAreas), jsonOrNil(rr.AdditionalReviewItems),
 			jsonOrNil(rr.AutomationCoverage), jsonOrNil(rr.AlternativeControls), jsonOrNil(rr.ComplianceMappings),
 			jsonOrNil(rr.KisaDefectCaseRefs), rr.Deferred, nilStrPtr(rr.DeferredReason), nilStrPtr(rr.ISMSPItemID),
+			nilStrPtr(rr.Reason), jsonOrNil(rr.MissingInputs), jsonOrNil(rr.EvidenceData), nilStrPtr(rr.Layer), jsonOrNil(rr.OffclusterSatisfactionConditions),
 		).Scan(&rrID)
 		if err != nil {
 			return fmt.Errorf("insert rule_result %s: %w", rr.RuleID, err)
@@ -1018,17 +1023,27 @@ func (r *GRCRepo) GetLatestPodGraphEvalByPod(ctx context.Context, companyID, clu
 	var item grc.PodGraphEvalListItem
 	var clusterNamePtr, namespacePtr *string
 
-	err := r.pg.QueryRow(ctx, `
+	query := `
 		SELECT id, company_id, cluster_name, pod_name, namespace,
 		       overall_verdict, total_rules, passed, failed, skipped, created_at
 		FROM grc_pod_graph_evaluations
-		WHERE company_id = $1
-		  AND cluster_name = $2
-		  AND namespace = $3
-		  AND pod_name = $4
-		ORDER BY created_at DESC
-		LIMIT 1
-	`, companyID, nilStrPtr(clusterName), nilStrPtr(namespace), podName).Scan(
+		WHERE company_id = $1 AND pod_name = $2`
+	args := []any{companyID, podName}
+	argIdx := 3
+
+	if clusterName != "" {
+		query += fmt.Sprintf(" AND cluster_name = $%d", argIdx)
+		args = append(args, clusterName)
+		argIdx++
+	}
+	if namespace != "" {
+		query += fmt.Sprintf(" AND namespace = $%d", argIdx)
+		args = append(args, namespace)
+		argIdx++
+	}
+	query += " ORDER BY created_at DESC LIMIT 1"
+
+	err := r.pg.QueryRow(ctx, query, args...).Scan(
 		&item.ID, &item.CompanyID, &clusterNamePtr, &item.PodName, &namespacePtr,
 		&item.OverallVerdict, &item.TotalRules, &item.Passed, &item.Failed,
 		&item.Skipped, &item.CreatedAt,
@@ -1043,6 +1058,146 @@ func (r *GRCRepo) GetLatestPodGraphEvalByPod(ctx context.Context, companyID, clu
 		item.Namespace = *namespacePtr
 	}
 	return &item, nil
+}
+
+// ── Item Violations (ISMS-P 항목별 위반 자산 조회) ──
+
+// ViolatedPodRow is a row returned by the ISMS-P item violation query.
+type ViolatedPodRow struct {
+	PodName       string
+	Namespace     string
+	ViolatedRules []string
+	ISMSPItemName string
+}
+
+// GetViolatedAssetsByISMSPItem returns pods that violate rules under a specific ISMS-P item.
+// Queries the latest evaluation per pod, filters rule_results JSONB by item_id and verdict.
+func (r *GRCRepo) GetViolatedAssetsByISMSPItem(
+	ctx context.Context,
+	companyID, clusterName, ismspItemID string,
+) ([]ViolatedPodRow, error) {
+	// cluster_name이 비면 해당 company의 전체 클러스터 대상
+	clusterFilter := ""
+	args := []any{companyID}
+	argIdx := 2
+
+	if clusterName != "" {
+		clusterFilter = fmt.Sprintf("AND cluster_name = $%d", argIdx)
+		args = append(args, clusterName)
+		argIdx++
+	}
+	args = append(args, ismspItemID)
+	itemArgRef := fmt.Sprintf("$%d", argIdx)
+
+	query := fmt.Sprintf(`
+		WITH latest_evals AS (
+			SELECT DISTINCT ON (company_id, cluster_name, namespace, pod_name)
+			       pod_name, namespace, rule_results
+			FROM grc_pod_graph_evaluations
+			WHERE company_id = $1 %s
+			  AND jsonb_typeof(rule_results) = 'array'
+			ORDER BY company_id, cluster_name, namespace, pod_name, created_at DESC
+		)
+		SELECT le.pod_name,
+		       le.namespace,
+		       jsonb_agg(rr->>'rule_id') AS violated_rule_ids,
+		       (array_agg(rr->>'isms_p_item_name'))[1] AS item_name
+		FROM latest_evals le,
+		     jsonb_array_elements(le.rule_results) AS rr
+		WHERE rr->>'isms_p_item' = %s
+		  AND rr->>'verdict' = '미준수'
+		GROUP BY le.pod_name, le.namespace
+	`, clusterFilter, itemArgRef)
+
+	rows, err := r.pg.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []ViolatedPodRow
+	for rows.Next() {
+		var row ViolatedPodRow
+		var namespace *string
+		var rulesJSON json.RawMessage
+		if err := rows.Scan(&row.PodName, &namespace, &rulesJSON, &row.ISMSPItemName); err != nil {
+			return nil, err
+		}
+		if namespace != nil {
+			row.Namespace = *namespace
+		}
+		if err := json.Unmarshal(rulesJSON, &row.ViolatedRules); err != nil {
+			return nil, fmt.Errorf("unmarshal violated_rule_ids: %w", err)
+		}
+		result = append(result, row)
+	}
+	return result, nil
+}
+
+// ── Cluster Compliance Results (통합 클러스터 컴플라이언스 저장) ──
+
+// SaveClusterComplianceResult persists a cluster compliance evaluation result.
+func (r *GRCRepo) SaveClusterComplianceResult(ctx context.Context, result *grc.ClusterComplianceResult) (int64, error) {
+	itemsJSON, err := json.Marshal(result.Items)
+	if err != nil {
+		return 0, fmt.Errorf("marshal items: %w", err)
+	}
+
+	snapshotAt, _ := time.Parse(time.RFC3339, result.SnapshotAt)
+	evaluatedAt, _ := time.Parse(time.RFC3339, result.EvaluatedAt)
+	if evaluatedAt.IsZero() {
+		evaluatedAt = time.Now().UTC()
+	}
+
+	var id int64
+	err = r.pg.QueryRow(ctx, `
+		INSERT INTO grc_cluster_compliance_results
+			(company_id, cluster_name, snapshot_at, evaluated_at,
+			 total_items, compliant_items, non_compliant_items, needs_review_items,
+			 no_data_items, indeterminate_items,
+			 total_rules, total_pods, items)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		RETURNING id
+	`, result.CompanyID, result.ClusterName, snapshotAt, evaluatedAt,
+		result.TotalItems, result.CompliantItems, result.NonCompliantItems, result.NeedsReviewItems,
+		result.NoDataItems, result.IndeterminateItems,
+		result.TotalRules, result.TotalPods, itemsJSON).Scan(&id)
+	return id, err
+}
+
+// GetLatestClusterComplianceResult returns the most recent cluster compliance result.
+func (r *GRCRepo) GetLatestClusterComplianceResult(ctx context.Context, companyID, clusterName string) (*grc.ClusterComplianceResult, error) {
+	var result grc.ClusterComplianceResult
+	var itemsRaw json.RawMessage
+	var snapshotAt, evaluatedAt time.Time
+
+	query := `
+		SELECT company_id, cluster_name, snapshot_at, evaluated_at,
+		       total_items, compliant_items, non_compliant_items, needs_review_items,
+		       total_rules, total_pods, items
+		FROM grc_cluster_compliance_results
+		WHERE company_id = $1`
+	args := []any{companyID}
+	if clusterName != "" {
+		query += " AND cluster_name = $2"
+		args = append(args, clusterName)
+	}
+	query += " ORDER BY created_at DESC LIMIT 1"
+
+	err := r.pg.QueryRow(ctx, query, args...).Scan(
+		&result.CompanyID, &result.ClusterName, &snapshotAt, &evaluatedAt,
+		&result.TotalItems, &result.CompliantItems, &result.NonCompliantItems, &result.NeedsReviewItems,
+		&result.TotalRules, &result.TotalPods, &itemsRaw,
+	)
+	if err != nil {
+		return nil, err
+	}
+	result.SnapshotAt = snapshotAt.Format(time.RFC3339)
+	result.EvaluatedAt = evaluatedAt.Format(time.RFC3339)
+	if err := json.Unmarshal(itemsRaw, &result.Items); err != nil {
+		return nil, fmt.Errorf("unmarshal items: %w", err)
+	}
+	return &result, nil
 }
 
 // ── Guidelines ──
@@ -1061,6 +1216,35 @@ func (r *GRCRepo) InsertGuideline(ctx context.Context, g *grc.Guideline) error {
 	).Scan(&g.ID, &g.UploadedAt, &g.UpdatedAt)
 }
 
+// GetLatestGuidelineVersion returns the latest version metadata for a guideline
+// keyed by (company_id, isms_p_item_id, filename). ismspItemID may be nil for
+// company-wide guidelines. found is false if no prior version exists.
+func (r *GRCRepo) GetLatestGuidelineVersion(
+	ctx context.Context, companyID string, ismspItemID *string, filename string,
+) (id int64, version int, contentHash string, uploadedAt time.Time, found bool, err error) {
+	var hashPtr *string
+	err = r.pg.QueryRow(ctx, `
+		SELECT id, content_hash, uploaded_at
+		FROM grc_guidelines
+		WHERE company_id = $1
+		  AND isms_p_item_id IS NOT DISTINCT FROM $2
+		  AND filename = $3
+		ORDER BY uploaded_at DESC
+		LIMIT 1
+	`, companyID, ismspItemID, filename).Scan(&id, &hashPtr, &uploadedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, 0, "", time.Time{}, false, nil
+		}
+		return 0, 0, "", time.Time{}, false, err
+	}
+	if hashPtr != nil {
+		contentHash = *hashPtr
+	}
+	version = 1
+	return id, version, contentHash, uploadedAt, true, nil
+}
+
 // UpdateGuidelineText updates the extracted text and embedding for a guideline.
 func (r *GRCRepo) UpdateGuidelineText(ctx context.Context, id int64, text string, emb []float32) error {
 	_, err := r.pg.Exec(ctx, `
@@ -1076,16 +1260,24 @@ func (r *GRCRepo) ListGuidelines(ctx context.Context, companyID, ismspItemID str
 	where := "WHERE company_id = $1"
 	args := []any{companyID}
 	if ismspItemID != "" {
-		where += " AND isms_p_item_id = $2"
+		where += " AND (isms_p_item_id = $2 OR isms_p_item_id IS NULL)"
 		args = append(args, ismspItemID)
 	}
 
+	// 최신만 반환: (company_id, isms_p_item_id, filename)별 uploaded_at DESC 1건.
 	rows, err := r.pg.Query(ctx, fmt.Sprintf(`
 		SELECT id, company_id, isms_p_item_id, filename, file_size_bytes,
-		       (extracted_text IS NOT NULL AND extracted_text != '') AS has_extracted_text,
-		       (embedding IS NOT NULL) AS has_embedding,
-		       uploaded_at
-		FROM grc_guidelines %s
+		       has_extracted_text, has_embedding, uploaded_at
+		FROM (
+			SELECT DISTINCT ON (company_id, isms_p_item_id, filename)
+			       id, company_id, isms_p_item_id, filename, file_size_bytes,
+			       (extracted_text IS NOT NULL AND extracted_text != '') AS has_extracted_text,
+			       (embedding IS NOT NULL) AS has_embedding,
+			       uploaded_at
+			FROM grc_guidelines
+			%s
+			ORDER BY company_id, isms_p_item_id, filename, uploaded_at DESC
+		) t
 		ORDER BY uploaded_at DESC
 	`, where), args...)
 	if err != nil {
@@ -1110,13 +1302,15 @@ func (r *GRCRepo) ListGuidelines(ctx context.Context, companyID, ismspItemID str
 
 // GetGuidelinesForItem returns full guideline records (with embedding) for compliance evaluation.
 func (r *GRCRepo) GetGuidelinesForItem(ctx context.Context, companyID, ismspItemID string) ([]grc.Guideline, error) {
+	// (isms_p_item_id, filename)별 최신 1건만 평가에 사용.
 	rows, err := r.pg.Query(ctx, `
-		SELECT id, company_id, isms_p_item_id, filename, storage_path,
+		SELECT DISTINCT ON (isms_p_item_id, filename)
+		       id, company_id, isms_p_item_id, filename, storage_path,
 		       file_size_bytes, content_hash, extracted_text,
 		       embedding::text, uploaded_at, updated_at
 		FROM grc_guidelines
-		WHERE company_id = $1 AND isms_p_item_id = $2
-		ORDER BY uploaded_at DESC
+		WHERE company_id = $1 AND (isms_p_item_id = $2 OR isms_p_item_id IS NULL)
+		ORDER BY isms_p_item_id, filename, uploaded_at DESC
 	`, companyID, ismspItemID)
 	if err != nil {
 		return nil, err
@@ -1263,7 +1457,94 @@ func TotalPages(totalCount, pageSize int) int {
 	return int(math.Ceil(float64(totalCount) / float64(pageSize)))
 }
 
-// ── Compliance Findings (historical archive - read-only) ──
+// ── Latest GL Checks per ISMS-P Item ──
+
+// GLCheckSummary holds the latest completed GL check verdict for an ISMS-P item.
+type GLCheckSummary struct {
+	ISMSPItemID string
+	Verdict     string
+	TotalRules  int
+	Passed      int
+	Failed      int
+	NeedsReview int
+	CheckID     string
+}
+
+// GetLatestGLCheckPerItem returns the latest completed GL check for each ISMS-P item.
+func (r *GRCRepo) GetLatestGLCheckPerItem(ctx context.Context, companyID string) ([]GLCheckSummary, error) {
+	rows, err := r.pg.Query(ctx, `
+		SELECT DISTINCT ON (isms_p_item_id)
+			isms_p_item_id, verdict, total_rules, passed_rules, failed_rules, skipped_rules, check_id
+		FROM grc_checks
+		WHERE company_id = $1 AND status = 'completed' AND verdict IS NOT NULL
+		ORDER BY isms_p_item_id, completed_at DESC
+	`, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []GLCheckSummary
+	for rows.Next() {
+		var s GLCheckSummary
+		var verdict *string
+		var total, passed, failed, skipped *int
+		if err := rows.Scan(&s.ISMSPItemID, &verdict, &total, &passed, &failed, &skipped, &s.CheckID); err != nil {
+			return nil, err
+		}
+		if verdict != nil {
+			s.Verdict = *verdict
+		}
+		if total != nil {
+			s.TotalRules = *total
+		}
+		if passed != nil {
+			s.Passed = *passed
+		}
+		if failed != nil {
+			s.Failed = *failed
+		}
+		if skipped != nil {
+			s.NeedsReview = *total - *passed - *failed - *skipped
+		}
+		items = append(items, s)
+	}
+	return items, nil
+}
+
+// ── Compliance Findings ──
+
+// SaveFindingClusterSummary persists a cluster finding evaluation result.
+func (r *GRCRepo) SaveFindingClusterSummary(ctx context.Context, result *grc.FindingClusterResult) (int64, error) {
+	byVerdictJSON, err := json.Marshal(result.ByVerdict)
+	if err != nil {
+		return 0, fmt.Errorf("marshal by_verdict: %w", err)
+	}
+	findingsJSON, err := json.Marshal(result.Findings)
+	if err != nil {
+		return 0, fmt.Errorf("marshal findings: %w", err)
+	}
+
+	var id int64
+	err = r.pg.QueryRow(ctx, `
+		INSERT INTO finding_cluster_summaries
+			(company_id, cluster_name, namespace, snapshot_at, evaluated_at,
+			 total_findings, matched_count, unmatched_count, by_verdict, findings_detail)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (company_id, cluster_name, namespace, snapshot_at)
+		DO UPDATE SET
+			evaluated_at    = EXCLUDED.evaluated_at,
+			total_findings  = EXCLUDED.total_findings,
+			matched_count   = EXCLUDED.matched_count,
+			unmatched_count = EXCLUDED.unmatched_count,
+			by_verdict      = EXCLUDED.by_verdict,
+			findings_detail = EXCLUDED.findings_detail
+		RETURNING id
+	`, result.CompanyID, result.ClusterName, result.Namespace, result.SnapshotAt, result.EvaluatedAt,
+		result.TotalFindings, result.MatchedCount, result.UnmatchedCount,
+		byVerdictJSON, findingsJSON).Scan(&id)
+	return id, err
+}
 
 // ListFindingClusterSummaries returns paginated cluster finding summaries.
 func (r *GRCRepo) ListFindingClusterSummaries(ctx context.Context, companyID string, page, pageSize int) ([]grc.FindingClusterResult, int, error) {

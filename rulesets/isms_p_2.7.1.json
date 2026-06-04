@@ -334,9 +334,7 @@
           "진짜 HTTP 평문이라면 즉시 시정"
         ],
         "manual_check_areas": [
-          "암호화 정책 문서",
-          "저장 데이터 암호화 적용",
-          "키 관리 정책/기록"
+          "저장 데이터 암호화 적용"
         ],
         "automation_coverage": {
           "percentage": 20,
@@ -347,9 +345,88 @@
           "CloudFront/외부 LB TLS",
           "외부 인증서 관리"
         ],
+        "offcluster_satisfaction_conditions": [
+          "외부 LB(CloudFront/ALB) TLS 종료 후 내부는 mTLS 보호 구조",
+          "저장 데이터 암호화(Secret etcd·KMS)가 별도 적용됨"
+        ],
         "k8s_only_check": true,
         "deferred": false,
         "deferred_reason": "AWS API 미접근으로 EKS describe/KMS/ALB 점검 불가"
+      }
+    },
+    {
+      "rule_id": "R-2.7.1-GL01",
+      "name": "암호정책 수립",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "법적 요구사항을 반영한 암호화 대상, 암호 강도, 암호 사용 등이 포함된 암호정책을 수립한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "암호화 대상·강도·사용 정책을 포함한 암호정책을 수립하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.7.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.7.1-GL02",
+      "name": "저장·전송·전달 시 암호화",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "암호정책에 따라 개인정보 및 주요정보의 저장·전송·전달 시 암호화를 수행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "개인정보·주요정보의 저장·전송·전달 시 암호화를 수행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.7.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.7.1-GL03",
+      "name": "암호키 관리 절차",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "암호키의 생성·이용·보관·폐기·변경(로테이션) 등 키 관리 절차를 수립·이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "암호키 생성·보관·폐기·변경 등 키 관리 절차를 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.7.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
       }
     }
   ],

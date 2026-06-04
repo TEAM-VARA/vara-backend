@@ -1,0 +1,2 @@
+ALTER TABLE ebpf_network_flows
+ADD COLUMN IF NOT EXISTS size BIGINT;
