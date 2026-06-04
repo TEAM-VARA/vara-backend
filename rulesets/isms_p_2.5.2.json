@@ -1,0 +1,253 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.5.2",
+    "name": "사용자 식별",
+    "category_path": "2. 보호대책 요구사항 > 2.5 인증 및 권한관리 > 2.5.2 사용자 식별",
+    "description": "정보시스템과 개인정보 및 중요정보에 대한 접근은 사용자별로 고유하게 식별·인증할 수 있어야 하며, 동일한 사용자 계정을 공유하여 사용하지 않도록 하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제5조",
+      "summary": "접근 권한의 관리"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.5.2-01",
+      "name": "추측 가능한 SA 이름",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "guessable_name_patterns": [
+        "^admin$",
+        "^root$",
+        "^test$",
+        "^user$",
+        "^sa$",
+        "^service$",
+        "^app$",
+        "^demo$",
+        "^temp$",
+        "^tmp$"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "sa_name_is_guessable",
+          "op": "==",
+          "value": false,
+          "description": "ServiceAccount 이름이 추측 불가능한 고유 식별명 사용"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.5.2-02",
+      "name": "일반 명명 패턴",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "generic_naming_patterns": [
+        "^sa-[0-9]+$",
+        "^serviceaccount-[0-9]+$",
+        "^svc-account-[0-9]+$",
+        "^user[0-9]+$",
+        "^account[0-9]+$"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "sa_name_is_generic",
+          "op": "==",
+          "value": false,
+          "description": "ServiceAccount 이름이 워크로드·기능을 식별할 수 있는 명명규칙 준수"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "F-2.5.2-01",
+      "name": "추측 가능한 명칭의 ServiceAccount 발견",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "ServiceAccount",
+        "required_data": [
+          "cluster_service_accounts.name"
+        ],
+        "condition": {
+          "operator": "regex_match",
+          "field": "name",
+          "pattern": "^(admin|root|test|temp|guest)(-.*)?$"
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.5.2",
+            "match_strength": "direct"
+          }
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "admin, guest, test 등 추측 가능한 ID 운영",
+            "match": "direct"
+          }
+        ],
+        "additional_review_items": [
+          "해당 SA가 인증범위 내 자산인가",
+          "명명 자체보다 권한 범위 점검(F-2.5.5와 결합)",
+          "회사 명명 규칙 문서와 비교"
+        ],
+        "manual_check_areas": [
+
+        ],
+        "automation_coverage": {
+          "percentage": 80,
+          "covered": "K8s SA 명명 점검",
+          "not_covered": "사람 사용자 ID 체계"
+        },
+        "offcluster_satisfaction_conditions": [
+          "명명 규칙 문서상 허용된 명칭이거나, SA 권한이 최소화돼 위험이 통제됨"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "F-2.5.2-02",
+      "name": "일반 명명 패턴 ServiceAccount 발견",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "ServiceAccount",
+        "required_data": [
+          "cluster_service_accounts.name"
+        ],
+        "condition": {
+          "operator": "regex_match",
+          "field": "name",
+          "pattern": "^(user|account|sa)[0-9]+$"
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.5.2",
+            "match_strength": "indirect"
+          }
+        ],
+        "kisa_defect_case_refs": [],
+        "additional_review_items": [
+          "용도가 의미적으로 식별 가능한가",
+          "운영 표준 명명 규칙과 일치하는가"
+        ],
+        "manual_check_areas": [
+
+        ],
+        "automation_coverage": {
+          "percentage": 80,
+          "covered": "명명 규칙 점검만",
+          "not_covered": "실제 사용 패턴"
+        },
+        "offcluster_satisfaction_conditions": [
+          "운영 표준 명명 규칙 문서상 용도가 의미적으로 식별 가능하게 매핑·관리됨"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "R-2.5.2-GL01",
+      "name": "사용자별 유일 식별자 부여",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정보시스템 및 개인정보·중요정보에 대한 접근을 사용자별로 고유하게 식별할 수 있도록 유일한 식별자를 부여한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "사용자별로 고유하게 식별 가능한 유일 식별자를 부여하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.5.2-GL02",
+      "name": "추측 가능한 식별자 사용 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "추측하기 쉬운 식별자(root, admin, test 등)의 사용을 제한한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "추측하기 쉬운 식별자 사용을 제한하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.5.2-GL03",
+      "name": "공유 식별자 통제",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "불가피하게 동일한 식별자를 공유하는 경우 그 사유와 타당성을 검토하고 보완대책을 마련하여 책임자의 승인을 받는다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "식별자 공유 시 사유·타당성 검토와 보완대책, 책임자 승인을 받도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.5.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "ServiceAccount 이름이 추측 불가능 + 일반 명명 패턴 미사용 시 PASS"
+  }
+}

@@ -1,0 +1,930 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.5.4",
+    "name": "비밀번호 관리",
+    "category_path": "2. 보호대책 요구사항 > 2.5 인증 및 권한 관리 > 2.5.4 비밀번호 관리",
+    "description": "법적 요구사항, 외부 위협요인 등을 고려하여 정보시스템 사용자 및 고객, 회원 등 정보주체(이용자)가 사용하는 비밀번호 관리절차를 수립·이행하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제5조제5항",
+      "summary": "개인정보처리자는 개인정보취급자 또는 정보주체가 안전한 비밀번호를 설정하여 이행할 수 있도록 비밀번호 작성규칙을 수립하여 적용하여야 한다."
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제7조제1항",
+      "summary": "비밀번호는 복호화되지 아니하도록 일방향 암호화하여 저장한다."
+    },
+    {
+      "law": "개인정보의 기술적·관리적 보호조치 기준",
+      "article": "제4조제8항",
+      "summary": "비밀번호 작성규칙: 영문/숫자/특수문자 중 2종류 이상 조합 시 10자리 이상 또는 3종류 이상 조합 시 8자리 이상, 반기별 1회 이상 변경"
+    }
+  ],
+  "sub_checkpoints": [
+    {
+      "id": "CP-01",
+      "description": "정보시스템에 대한 안전한 사용자 비밀번호 관리절차 및 작성규칙을 수립·이행하고 있는가?"
+    },
+    {
+      "id": "CP-02",
+      "description": "정보주체(이용자)가 안전한 비밀번호를 이용할 수 있도록 비밀번호 작성 규칙을 수립·이행하고 있는가?"
+    },
+    {
+      "id": "CP-03",
+      "description": "개인정보취급자 또는 정보주체의 인증수단을 안전하게 적용하고 관리하고 있는가?"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.5.4-03",
+      "name": "OS 패스워드 정책 설정값 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "/etc/login.defs",
+        "/etc/pam.d/",
+        "pam_pwquality",
+        "PASS_MAX_DAYS",
+        "PASS_MIN_LEN",
+        "minlen",
+        "dcredit",
+        "ucredit",
+        "ocredit",
+        "lcredit"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "PASS_MAX_DAYS",
+          "op": "<=",
+          "value": 180,
+          "description": "최대 유효기간 180일 이하"
+        },
+        {
+          "field": "PASS_MIN_LEN",
+          "op": ">=",
+          "value": 8,
+          "description": "최소 길이 8자 이상"
+        },
+        {
+          "field": "minlen",
+          "op": ">=",
+          "value": 10,
+          "description": "pam_pwquality 최소 10자"
+        },
+        {
+          "field": "dcredit",
+          "op": "<=",
+          "value": -1,
+          "description": "숫자 강제 포함"
+        },
+        {
+          "field": "ucredit",
+          "op": "<=",
+          "value": -1,
+          "description": "대문자 강제 포함"
+        },
+        {
+          "field": "ocredit",
+          "op": "<=",
+          "value": -1,
+          "description": "특수문자 강제 포함"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-04",
+      "name": "AD 패스워드 정책 설정값 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "Group Policy",
+        "Default Domain Policy",
+        "Account Policies",
+        "Password Policy",
+        "Password must meet complexity requirements",
+        "gpedit.msc",
+        "secpol.msc"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "Minimum password length",
+          "op": ">=",
+          "value": 8
+        },
+        {
+          "field": "Maximum password age",
+          "op": "<=",
+          "value": 180,
+          "unit": "days"
+        },
+        {
+          "field": "Password must meet complexity requirements",
+          "op": "==",
+          "value": "Enabled"
+        },
+        {
+          "field": "Enforce password history",
+          "op": ">=",
+          "value": 4
+        },
+        {
+          "field": "Account lockout threshold",
+          "op": "<=",
+          "value": 5,
+          "op_exclude": [
+            0
+          ]
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-05",
+      "name": "IAM 패스워드 정책 설정값 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "IAM Password Policy",
+        "MinimumPasswordLength",
+        "RequireUppercaseCharacters",
+        "RequireLowercaseCharacters",
+        "RequireNumbers",
+        "RequireSymbols",
+        "PasswordReusePrevention",
+        "MaxPasswordAge",
+        "AllowUsersToChangePassword"
+      ],
+      "collection_command": "aws iam get-account-password-policy",
+      "compliance_indicators": [
+        {
+          "field": "MinimumPasswordLength",
+          "op": ">=",
+          "value": 10
+        },
+        {
+          "field": "RequireUppercaseCharacters",
+          "op": "==",
+          "value": true
+        },
+        {
+          "field": "RequireLowercaseCharacters",
+          "op": "==",
+          "value": true
+        },
+        {
+          "field": "RequireNumbers",
+          "op": "==",
+          "value": true
+        },
+        {
+          "field": "RequireSymbols",
+          "op": "==",
+          "value": true
+        },
+        {
+          "field": "MaxPasswordAge",
+          "op": "<=",
+          "value": 180
+        },
+        {
+          "field": "PasswordReusePrevention",
+          "op": ">=",
+          "value": 4
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-06",
+      "name": "DB 패스워드 정책 설정값 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "CREATE PROFILE",
+        "PASSWORD_LIFE_TIME",
+        "PASSWORD_REUSE_TIME",
+        "PASSWORD_REUSE_MAX",
+        "FAILED_LOGIN_ATTEMPTS",
+        "PASSWORD_LOCK_TIME",
+        "PASSWORD_VERIFY_FUNCTION",
+        "validate_password.policy",
+        "validate_password.length"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "PASSWORD_LIFE_TIME",
+          "op": "<=",
+          "value": 180,
+          "unit": "days"
+        },
+        {
+          "field": "FAILED_LOGIN_ATTEMPTS",
+          "op": "<=",
+          "value": 5
+        },
+        {
+          "field": "PASSWORD_VERIFY_FUNCTION",
+          "op": "!=",
+          "value": null,
+          "description": "검증 함수 활성화"
+        },
+        {
+          "field": "validate_password.policy",
+          "op": "==",
+          "value": "STRONG"
+        },
+        {
+          "field": "validate_password.length",
+          "op": ">=",
+          "value": 8
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-07",
+      "name": "WAS 패스워드 정책 설정값 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "Admin Console",
+        "Security Realm",
+        "Password Validation Provider",
+        "Authentication Provider",
+        "User Lockout",
+        "Lockout Threshold",
+        "Lockout Duration"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "Password Validation Provider",
+          "op": "==",
+          "value": "Enabled"
+        },
+        {
+          "field": "Lockout Threshold",
+          "op": "<=",
+          "value": 5
+        },
+        {
+          "field": "Lockout Duration",
+          "op": ">=",
+          "value": 30,
+          "unit": "minutes"
+        },
+        {
+          "field": "Minimum Length",
+          "op": ">=",
+          "value": 8
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-08",
+      "name": "회원가입·비밀번호 변경 화면 강제화 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "회원가입",
+        "Sign up",
+        "Register",
+        "비밀번호 변경",
+        "Change Password",
+        "비밀번호",
+        "Password",
+        "비밀번호 확인",
+        "Confirm Password",
+        "8자 이상",
+        "10자 이상",
+        "영문, 숫자, 특수문자",
+        "at least N characters"
+      ],
+      "compliance_indicators": [
+        {
+          "pattern": "비밀번호는 최소 10자 이상",
+          "type": "semantic_match"
+        },
+        {
+          "pattern": "특수문자를 포함해야 합니다",
+          "type": "semantic_match"
+        },
+        {
+          "pattern": "must contain at least one symbol",
+          "type": "semantic_match"
+        },
+        {
+          "pattern": "password too short",
+          "type": "semantic_match"
+        },
+        {
+          "pattern": "강도 표시 (약함/강함)",
+          "type": "ui_element"
+        },
+        {
+          "description": "짧은 비밀번호 입력 시 가입 거부 동작"
+        }
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "vlm_behavioral_analysis",
+        "min_compliance_signals": 3,
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-09",
+      "name": "비밀번호 변경주기 준수 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "User ID",
+        "사용자 ID",
+        "Account",
+        "Last password change",
+        "Password Last Set",
+        "최종 변경일자",
+        "Days since change",
+        "변경 후 경과일",
+        "Age (days)",
+        "Status",
+        "상태"
+      ],
+      "collection_commands": [
+        "Get-ADUser -Properties PasswordLastSet",
+        "chage -l <user>",
+        "aws iam get-credential-report",
+        "SELECT username, last_password_change FROM ..."
+      ],
+      "compliance_indicators": [
+        {
+          "field": "days_since_change",
+          "op": "<",
+          "value": 180,
+          "description": "반기 이내 변경"
+        },
+        {
+          "description": "모든 활성 계정에 변경일 존재"
+        },
+        {
+          "description": "변경주기 도래 시 강제 변경 로그 확인"
+        }
+      ],
+      "judgment_logic": {
+        "type": "aggregated_statistics",
+        "method": "per_account_check",
+        "violation_threshold_pct": 5,
+        "description": "전체 계정의 5% 이상이 위반 시 미준수"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-10",
+      "name": "임시 비밀번호 강제 변경 코드 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "isTemporary",
+        "temp_password",
+        "must_change_password",
+        "password_reset_required",
+        "forceChangePassword",
+        "firstLogin",
+        "pwd_change_required",
+        "redirect('/change-password')"
+      ],
+      "compliance_indicators": [
+        {
+          "pattern": "if (user.tempPassword) → redirect to change",
+          "type": "code_pattern"
+        },
+        {
+          "pattern": "임시 비번 발급 시 expires_at 단기 설정",
+          "type": "code_pattern"
+        },
+        {
+          "description": "강제 변경 후에만 정상 세션 발급"
+        }
+      ],
+      "judgment_logic": {
+        "type": "code_pattern_match",
+        "method": "regex_and_ast",
+        "required_patterns": [
+          "temp_flag_check",
+          "redirect_to_change",
+          "session_block_until_change"
+        ],
+        "min_patterns": 2
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-11",
+      "name": "임시 비밀번호 강제 변경 화면 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "임시 비밀번호로 로그인하셨습니다",
+        "비밀번호를 변경해 주세요",
+        "You must change your password before continuing",
+        "최초 로그인"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "임시 비번 로그인 후 강제로 변경 화면으로 redirect"
+        },
+        {
+          "description": "변경 전까지 다른 페이지 접근 불가"
+        }
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "vlm_behavioral_analysis",
+        "any_deficiency_fails": true
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-12",
+      "name": "임시 비밀번호 미변경자 목록 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "발급일",
+        "Issued date",
+        "발급 후 경과일",
+        "미변경 계정",
+        "Not yet changed",
+        "Temp password issued but not changed"
+      ],
+      "compliance_indicators": [
+        {
+          "description": "미변경자 0명"
+        },
+        {
+          "description": "최근 발급 24시간 이내 사례만 존재"
+        },
+        {
+          "description": "미변경 시 자동 잠금 정책 존재"
+        }
+      ],
+      "judgment_logic": {
+        "type": "aggregated_statistics",
+        "method": "count_violations",
+        "max_violations": 0,
+        "grace_period_hours": 24
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-13",
+      "name": "DB 비밀번호 저장 형태 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "password",
+        "passwd",
+        "pwd",
+        "password_hash",
+        "encrypted_password",
+        "pw_hash",
+        "salt",
+        "iteration_count",
+        "hash_algorithm"
+      ],
+      "compliance_indicators": [
+        {
+          "pattern": "^\\$2[aby]\\$",
+          "type": "regex",
+          "description": "bcrypt"
+        },
+        {
+          "pattern": "^\\$argon2(i|id)\\$",
+          "type": "regex",
+          "description": "argon2"
+        },
+        {
+          "pattern": "^\\$scrypt\\$|^\\$s0\\$",
+          "type": "regex",
+          "description": "scrypt"
+        },
+        {
+          "pattern": "^pbkdf2_sha(256|512)\\$",
+          "type": "regex",
+          "description": "PBKDF2"
+        },
+        {
+          "description": "SHA-256/512 + salt 컬럼 동반 (64/128 hex)"
+        }
+      ],
+      "judgment_logic": {
+        "type": "regex_match",
+        "method": "any_sample_violation_fails",
+        "sample_size_min": 10,
+        "description": "샘플 중 하나라도 결함 패턴 매칭 시 미준수"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-14",
+      "name": "MFA 설정 정책 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "MFA",
+        "Multi-Factor Authentication",
+        "2FA",
+        "Two-Factor",
+        "이중 인증",
+        "다중 인증",
+        "다단계 인증",
+        "Enforced",
+        "Required",
+        "필수",
+        "Optional",
+        "선택",
+        "Enabled",
+        "Disabled",
+        "OTP",
+        "TOTP",
+        "Authenticator app",
+        "Google Authenticator",
+        "Security key",
+        "YubiKey",
+        "SMS",
+        "Email",
+        "생체인증",
+        "지문",
+        "Face ID",
+        "인증서",
+        "보안토큰",
+        "일회용 비밀번호"
+      ],
+      "compliance_indicators": [
+        {
+          "pattern": "MFA Required for all users",
+          "type": "semantic_match"
+        },
+        {
+          "pattern": "Admin MFA enforced",
+          "type": "semantic_match"
+        },
+        {
+          "pattern": "관리자 계정 MFA 필수",
+          "type": "semantic_match"
+        },
+        {
+          "description": "외부 접속 시 OTP 입력 화면 존재"
+        },
+        {
+          "description": "인증수단별 적용 대상 명시 (관리자=하드웨어 토큰, 일반=TOTP 등)"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "admin_mfa_required_and_all_users_recommended",
+        "critical_fields": [
+          "Admin MFA"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-15",
+      "name": "로그인 화면 인증수단 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "rag",
+      "keywords": [
+        "Login",
+        "Sign in",
+        "로그인",
+        "Username",
+        "ID",
+        "아이디",
+        "Password",
+        "비밀번호",
+        "OTP 입력란",
+        "인증 앱 코드",
+        "SMS 코드"
+      ],
+      "compliance_indicators": [
+        {
+          "pattern": "아이디 또는 비밀번호가 일치하지 않습니다",
+          "type": "exact_match",
+          "description": "generic 실패 메시지"
+        },
+        {
+          "pattern": "Invalid credentials",
+          "type": "exact_match"
+        },
+        {
+          "pattern": "Login failed",
+          "type": "exact_match"
+        },
+        {
+          "pattern": "계정이 잠겼습니다",
+          "type": "semantic_match"
+        },
+        {
+          "pattern": "5회 실패로 잠금",
+          "type": "semantic_match"
+        },
+        {
+          "pattern": "Account locked",
+          "type": "semantic_match"
+        },
+        {
+          "description": "2단계 인증 단계 존재"
+        }
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "vlm_behavioral_analysis",
+        "any_deficiency_fails": true,
+        "min_compliance_signals": 2
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL01",
+      "name": "비밀번호 관리 정책 문서가 존재하고 비밀번호 생성 규칙·변경 주기·저장 방법을 포함하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호 관리 정책 문서가 존재하며 비밀번호 생성 규칙·변경 주기·저장 방법을 포함하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "지침서에 비밀번호 생성규칙, 변경주기, 저장방법이 모두 명시"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL02",
+      "name": "비밀번호 최소 길이를 8자 이상으로 설정하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호 최소 길이를 8자 이상으로 설정하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"field": "최소길이", "op": ">=", "value": 8, "description": "비밀번호 최소 8자 이상 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL03",
+      "name": "비밀번호 최대 사용 기간을 90일 이하로 설정하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호 최대 사용 기간을 90일 이하로 설정하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"field": "최대사용일수", "op": "<=", "value": 90, "description": "비밀번호 최대 사용기간 90일 이하 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL04",
+      "name": "초기(임시) 비밀번호 발급 시 최초 로그인 시 변경을 강제하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "초기(임시) 비밀번호 발급 시 최초 로그인 시 변경을 강제하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "초기/임시 비밀번호 발급 시 최초 로그인 시 강제 변경 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL05",
+      "name": "비밀번호를 일방향 암호화(bcrypt, argon2, PBKDF2 등)하여 저장하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호를 일방향(단방향) 암호화(bcrypt, argon2, PBKDF2 등)하여 저장하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "비밀번호 일방향 암호화 저장 및 평문 저장 금지 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL06",
+      "name": "비밀번호 입력 오류 시 계정 잠금 처리하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호 입력 오류가 일정 횟수 누적되면 계정을 잠금 처리하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"field": "잠금횟수", "op": "<=", "value": 5, "description": "5회 이내 입력 오류 시 계정 잠금 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL07",
+      "name": "관리자 및 중요 시스템 접근 시 다중인증(MFA)을 적용하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "관리자 계정 및 중요 시스템 접근 시 다중인증(MFA)을 적용하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "관리자·중요 시스템 접근 시 다중인증(MFA) 적용 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL08",
+      "name": "로그인 실패 메시지에서 아이디·비밀번호 구분 노출을 금지하도록 규정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "로그인 실패 메시지에서 아이디·비밀번호 구분 노출을 금지하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "로그인 실패 시 아이디·비밀번호 구분 정보 미노출 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL09",
+      "name": "추측하기 쉬운 비밀번호 사용 금지",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "생일·전화번호·아이디처럼 추측하기 쉬운 비밀번호를 쓰지 못하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "추측하기 쉬운 비밀번호 사용 금지 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL10",
+      "name": "반복·연속 문자 비밀번호 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "같은 문자 반복이나 연속된 숫자로 된 비밀번호를 제한하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "반복·연속 문자 비밀번호 제한 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL11",
+      "name": "비밀번호 입력 시 화면 가림(마스킹)",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호를 입력하거나 변경할 때 화면에 마스킹 처리하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "비밀번호 입력 시 화면 가림(마스킹) 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL12",
+      "name": "비밀번호 기록·보관 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호를 종이·파일·모바일 등에 기록·보관하는 것을 제한하고 부득이하면 암호화하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "비밀번호 기록·보관 제한 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL13",
+      "name": "유출 의심 시 즉시 변경",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호 노출이나 침해가 의심되면 지체 없이 변경하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "유출 의심 시 즉시 변경 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL14",
+      "name": "분실 시 본인확인 후 재발급",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "비밀번호 분실 시 본인 확인을 거쳐 안전하게 재발급하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "분실 시 본인확인 후 재발급 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    },
+    {
+      "rule_id": "R-2.5.4-GL15",
+      "name": "관리자 비밀번호 별도 강화 관리",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "관리자 비밀번호는 일반 사용자와 분리해 더 강한 기준으로 관리하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {"description": "관리자 비밀번호 별도 강화 관리 규정"}
+      ],
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment"
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "all_rules_pass_required",
+    "description": "모든 23개 rule(증적 15개 + 지침 RAG 8개)이 PASS여야 2.5.4 항목 전체 준수로 판정. 하나라도 FAIL 시 미준수.",
+    "evidence_collection_priority": [
+      "auto_collectable_first",
+      "structured_parse_next",
+      "vlm_extraction_last"
+    ]
+  },
+  "rag_metadata": {
+    "embedding_target_fields": [
+      "item.description",
+      "sub_checkpoints[].description",
+      "rules[].keywords",
+      "rules[].compliance_indicators[].pattern"
+    ],
+    "structured_match_fields": [
+      "rules[].compliance_indicators[].field",
+      "rules[].compliance_indicators[].op",
+      "rules[].compliance_indicators[].value"
+    ],
+    "chunk_strategy": "per_rule_with_metadata"
+  }
+}

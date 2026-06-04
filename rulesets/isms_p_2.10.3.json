@@ -1,0 +1,266 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.10.3",
+    "name": "공개서버 보안",
+    "category_path": "2. 보호대책 요구사항 > 2.10 시스템 및 서비스 보안관리 > 2.10.3 공개서버 보안",
+    "description": "외부 네트워크에 공개되는 서버의 경우 내부 네트워크와 분리하고, 취약점 점검, 접근통제, 이상징후 모니터링 등 강화된 보호대책을 수립·이행하여야 한다."
+  },
+  "legal_references": [],
+  "rules": [
+    {
+      "rule_id": "R-2.10.3-01",
+      "name": "LoadBalancer source range 미설정",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "service.spec.loadBalancerSourceRanges",
+          "op": "!=",
+          "value": null,
+          "description": "loadBalancerSourceRanges 설정됨 — 접근 허용 IP 대역 제한"
+        },
+        {
+          "field": "source_range_not_all_open",
+          "op": "==",
+          "value": true,
+          "description": "0.0.0.0/0 전체 허용이 아닌 특정 IP 대역으로 제한됨"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.10.3-02",
+      "name": "공개 Ingress WAF annotation 부재",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "waf_annotations": [
+        "alb.ingress.kubernetes.io/wafv2-acl-arn",
+        "alb.ingress.kubernetes.io/waf-acl-id",
+        "nginx.ingress.kubernetes.io/modsecurity-snippet"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "public_ingress_has_waf",
+          "op": "==",
+          "value": true,
+          "description": "공개 Ingress에 WAF(AWS WAFv2 ACL 또는 ModSecurity) annotation 존재"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.10.3-03",
+      "name": "NodePort Service 공개 의도 라벨 부재",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "nodeport_service.metadata.labels.exposure-intent",
+          "op": "in",
+          "value": [
+            "public",
+            "internal-only",
+            "debug"
+          ],
+          "description": "NodePort Service에 공개 의도 라벨(exposure-intent) 존재 — 의도적 노출임을 명시"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.10.3-04",
+      "name": "공개 Ingress rate limit 미설정",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "rate_limit_annotations": [
+        "nginx.ingress.kubernetes.io/limit-rps",
+        "nginx.ingress.kubernetes.io/limit-rpm",
+        "nginx.ingress.kubernetes.io/limit-connections",
+        "alb.ingress.kubernetes.io/actions.rate-limit"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "public_ingress_has_rate_limit",
+          "op": "==",
+          "value": true,
+          "description": "공개 Ingress에 rate limit annotation 설정됨 — DDoS/과다요청 방어"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.10.3-05",
+      "name": "LoadBalancer 공개 의도 라벨 부재",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "lb_service.metadata.labels.exposure-intent",
+          "op": "in",
+          "value": [
+            "public",
+            "internal-only"
+          ],
+          "description": "LoadBalancer Service에 공개 의도 라벨(exposure-intent) 존재 — 외부 노출 의도 명시"
+        },
+        {
+          "field": "lb_has_internal_annotation_or_public_label",
+          "op": "==",
+          "value": true,
+          "description": "internal LB annotation 또는 public exposure-intent 라벨 중 하나 존재"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "F-2.10.3-03",
+      "name": "NodePort 노출 현황",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "needs_review",
+      "manual_meta": {
+        "target_resource": "Service",
+        "required_data": [
+          "cluster_services"
+        ],
+        "condition": {
+          "operator": "field_equals",
+          "field": "spec.type",
+          "value": "NodePort"
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.10.3",
+            "match_strength": "indirect"
+          }
+        ],
+        "kisa_defect_case_refs": [],
+        "additional_review_items": [
+          "발견된 NodePort가 의도된 공개인가",
+          "VPC SG에서 노드의 NodePort 차단되어 있는가"
+        ],
+        "manual_check_areas": [
+          "NodePort 사용 정책",
+          "VPC Security Group 설정"
+        ],
+        "automation_coverage": {
+          "percentage": 50,
+          "covered": "NodePort Service 식별",
+          "not_covered": "VPC SG 차단 여부"
+        },
+        "alternative_controls": [
+          "VPC Security Group",
+          "Network ACL"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "VPC SG/Network ACL에서 해당 NodePort가 외부로부터 차단",
+          "의도된 공개로 NodePort 사용 정책상 승인·문서화됨"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "R-2.10.3-GL01",
+      "name": "공개서버 분리·강화 보호대책",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "외부에 공개되는 서버는 내부 네트워크와 분리하고, 취약점 점검·접근통제·이상징후 모니터링 등 강화된 보호대책을 수립·이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "공개서버를 내부망과 분리하고 강화된 보호대책을 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.3-GL02",
+      "name": "공개서버 게시 허가 절차",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "공개서버에 개인정보 및 중요정보를 게시·저장해야 하는 경우 책임자 승인 등 허가 및 게시 절차를 수립·이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "공개서버 게시·저장 시 책임자 승인 등 허가·게시 절차를 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.3-GL03",
+      "name": "중요정보 노출 점검·차단",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "조직의 중요정보가 웹사이트·웹서버를 통해 노출되는지 주기적으로 확인하고, 노출을 인지한 경우 즉시 차단 등의 조치를 취한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "웹을 통한 중요정보 노출을 주기적으로 점검하고 인지 시 즉시 차단하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "LoadBalancer sourceRange 제한 + 공개 Ingress WAF 적용 + NodePort 공개의도 라벨 + rate limit 설정 + LoadBalancer 공개의도 라벨 모두 충족 시 PASS"
+  }
+}

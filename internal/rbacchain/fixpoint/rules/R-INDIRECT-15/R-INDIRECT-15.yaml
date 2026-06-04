@@ -1,0 +1,50 @@
+# Rule schema v0
+# 매칭 단위: atomic permission triple (api_group, resource, verb)
+# 의미: PolicyRule이 triple (g, r, v)를 grant한다 ==
+#       (g in apiGroups OR "*" in apiGroups)
+#   AND (r in resources  OR "*" in resources)
+#   AND (v in verbs       OR "*" in verbs)
+# resourceNames: 매칭에서는 무시. evidence에만 기록.
+# nonResourceURLs: 무시.
+# match_any_of: triple 중 하나라도 grant되면 매치 (OR).
+#
+# R-INDIRECT-15 단독 매칭 결정 (2026-05-10):
+# 1 triple. PV create 단독으로 hostPath PV → host 파일시스템 마운트 → 노드 탈출
+# 가능. 단독 매치로 충분.
+#
+# 도달 모델:
+#   1) attacker가 PV create 권한으로 hostPath: { path: "/" } 같은 PV 생성
+#   2) 같은 attacker(또는 그 NS의 권한 가진 누구나)가 PVC 생성, 그 PV에 bind
+#   3) Pod에 PVC 마운트, 그 Pod 컨테이너에서 host /를 읽기/쓰기
+#   4) host에서 kubelet config(/var/lib/kubelet/), 같은 노드 다른 Pod 토큰
+#      (/var/lib/kubelet/pods/.../volumes/...), kubeconfig 등 접근 → cluster-admin
+#
+# PSA / SecurityContextConstraints 영향 (외부 정보):
+#   PSA(Pod Security Admission)이 baseline 이상이면 hostPath 차단됨. 매처는 PSA
+#   설정 모름. 따라서 PSA 적용된 NS에서도 매처는 매치 — false positive 가능.
+#   graph builder에서 NS의 PSA label 체크해 가중치 조정 필요.
+#
+# 다른 PV 권한:
+#   update/patch — 기존 PV의 hostPath 변경: 일반적으로 PV spec immutable. 일부 필드만
+#                  수정 가능. attack vector로는 약함. 본 룰 제외.
+#   PV는 클러스터 스코프 — RoleBinding으로는 부여 불가, ClusterRoleBinding 필요.
+#     매처는 binding 종류 무관하게 grant 자체를 봄.
+
+schema_version: "0.1"
+id: R-INDIRECT-15
+description: "create on persistentvolumes -> hostPath PV로 host 파일시스템 마운트, 같은 노드 토큰 탈취"
+category: indirect
+severity: critical
+
+match_any_of:
+  - { api_group: "", resource: "persistentvolumes", verb: "create" }
+
+# 5개 출처 매트릭스 매핑 (룰셋 검증 인덱스 2026-05-09 기준): K8s + RT
+# (KS, KR, RP는 별도 룰로 다루지 않음)
+sources:
+  - type: official
+    name: "K8s - RBAC Good Practices: Persistent volume creation"
+    url:  "https://kubernetes.io/docs/concepts/security/rbac-good-practices/#persistent-volume-creation"
+  - type: tool
+    name: "rbac-tool (RT) - PV create 권한"
+    url:  "https://github.com/alcideio/rbac-tool"

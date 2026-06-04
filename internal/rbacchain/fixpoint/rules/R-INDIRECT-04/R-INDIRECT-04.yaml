@@ -1,0 +1,94 @@
+# Rule schema v0
+# 매칭 단위: atomic permission triple (api_group, resource, verb)
+# 의미: PolicyRule이 triple (g, r, v)를 grant한다 ==
+#       (g in apiGroups OR "*" in apiGroups)
+#   AND (r in resources  OR "*" in resources)
+#   AND (v in verbs       OR "*" in verbs)
+# resourceNames: 매칭에서는 무시. evidence에만 기록.
+# nonResourceURLs: 무시.
+# match_any_of: triple 중 하나라도 grant되면 매치 (OR).
+#
+# R-INDIRECT-04 단독 매칭 결정 (2026-05-10):
+# 7 controllers × 3 verbs = 21 triple OR. 어느 한 controller에 대한
+# create/update/patch만 있어도 PodTemplateSpec 변조로 임의 SA 마운트 가능.
+# 단독 매치로 충분 — R-INDIRECT-01 (pods create)와 동등한 우회 경로.
+#
+# 7 controllers (5개 출처 매트릭스 재검증으로 확정 — 2026-05-10):
+#   apps  apiGroup (4): deployments, replicasets, statefulsets, daemonsets
+#   batch apiGroup (2): jobs, cronjobs
+#   core  apiGroup (1): replicationcontrollers
+#     ↑ KS/krane(rules.yaml 직접 확인)/공식 docs에 명시. 레거시지만 K8s에 여전히
+#       존재하고 PodTemplateSpec 동일. 완전성(원칙 5) 위해 포함.
+#       Notion 페이지의 기존 6종 spec은 누락된 케이스 — 2026-05-10 7종으로 수정.
+#
+# verb 결정 (create/update/patch):
+#   create — 새 controller 만들면서 podspec 안에 강한 SA 지정.
+#   update/patch — 기존 controller의 podspec.serviceAccountName을 강한 것으로 바꾸거나
+#                  template image 등 컨테이너 동작을 바꿈. 둘 다 진짜 attack vector.
+#   delete는 PodSpec 변조와 무관 — 제외.
+#
+# 미고려 정밀화 (그래프 빌더 / Phase 후반):
+#   - 같은 NS에 강한 SA 존재해야 실제 권한 상승 (R-INDIRECT-01과 동일 chain 분석).
+#   - automountServiceAccountToken: false인 victim SA → 토큰 마운트 안 됨.
+#   - PSA / Pod admission webhook이 SA 강제 변경하는 경우 → 무력.
+#
+# 다른 룰과의 책임 분리:
+#   - pods/create는 R-INDIRECT-01에서 별도 처리.
+#   - PodTemplateSpec을 갖는 다른 잠재 객체(예: PodTemplate 자체)는 K8s가 자동 생성에
+#     사용 안 하므로 권한 상승 벡터 아님 — 제외.
+
+schema_version: "0.1"
+id: R-INDIRECT-04
+description: "create/update/patch on workload controllers (7종) -> PodTemplateSpec으로 임의 SA 마운트 Pod 간접 생성"
+category: indirect
+severity: critical
+
+match_any_of:
+  # apps apiGroup (4 resources × 3 verbs = 12 triples)
+  - { api_group: "apps", resource: "deployments",   verb: "create" }
+  - { api_group: "apps", resource: "deployments",   verb: "update" }
+  - { api_group: "apps", resource: "deployments",   verb: "patch" }
+  - { api_group: "apps", resource: "replicasets",   verb: "create" }
+  - { api_group: "apps", resource: "replicasets",   verb: "update" }
+  - { api_group: "apps", resource: "replicasets",   verb: "patch" }
+  - { api_group: "apps", resource: "statefulsets",  verb: "create" }
+  - { api_group: "apps", resource: "statefulsets",  verb: "update" }
+  - { api_group: "apps", resource: "statefulsets",  verb: "patch" }
+  - { api_group: "apps", resource: "daemonsets",    verb: "create" }
+  - { api_group: "apps", resource: "daemonsets",    verb: "update" }
+  - { api_group: "apps", resource: "daemonsets",    verb: "patch" }
+  # batch apiGroup (2 resources × 3 verbs = 6 triples)
+  - { api_group: "batch", resource: "jobs",         verb: "create" }
+  - { api_group: "batch", resource: "jobs",         verb: "update" }
+  - { api_group: "batch", resource: "jobs",         verb: "patch" }
+  - { api_group: "batch", resource: "cronjobs",     verb: "create" }
+  - { api_group: "batch", resource: "cronjobs",     verb: "update" }
+  - { api_group: "batch", resource: "cronjobs",     verb: "patch" }
+  # core apiGroup (1 resource × 3 verbs = 3 triples)
+  - { api_group: "",     resource: "replicationcontrollers", verb: "create" }
+  - { api_group: "",     resource: "replicationcontrollers", verb: "update" }
+  - { api_group: "",     resource: "replicationcontrollers", verb: "patch" }
+
+# 5개 출처 매트릭스 매핑 (2026-05-10 재검증): K8s + KS(6종) + RT + KR(7종, 본인 직접 확인) + RP
+sources:
+  - type: official
+    name: "K8s - RBAC Good Practices: Workload creation"
+    url:  "https://kubernetes.io/docs/concepts/security/rbac-good-practices/#workload-creation"
+  - type: official
+    name: "K8s - Workloads (controllers 카테고리, ReplicationController 포함)"
+    url:  "https://kubernetes.io/docs/concepts/workloads/controllers/"
+  - type: tool
+    name: "KubiScan (KS) - workload controller create 룰 (6종)"
+    url:  "https://github.com/cyberark/KubiScan"
+  - type: tool
+    name: "rbac-tool (RT) - Create Workload"
+    url:  "https://github.com/alcideio/rbac-tool"
+  - type: tool
+    name: "krane (KR) - risky-{create,update,any-verb}-{deployments,daemonsets,statefulsets,replicationcontrollers,replicasets,jobs,cronjobs} (7종, rules.yaml 직접 확인)"
+    url:  "https://github.com/appvia/krane/blob/master/config/rules.yaml"
+  - type: tool
+    name: "rbac-police (RP) - assign_sa (archived 2025-04, 카탈로그 유효)"
+    url:  "https://github.com/PaloAltoNetworks/rbac-police"
+  - type: writeup
+    name: "BishopFox - Bad Pods (시나리오 참조)"
+    url:  "https://bishopfox.com/blog/kubernetes-pod-privilege-escalation"

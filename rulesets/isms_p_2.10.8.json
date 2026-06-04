@@ -1,0 +1,376 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.10.8",
+    "name": "패치관리",
+    "category_path": "2. 보호대책 요구사항 > 2.10 시스템 및 서비스 보안관리 > 2.10.8 패치관리",
+    "description": "소프트웨어, 운영체제, 보안장비 등의 보안 패치 적용을 위한 절차를 수립하고, 정기적으로 패치를 적용하여야 한다."
+  },
+  "legal_references": [],
+  "rules": [
+    {
+      "rule_id": "R-2.10.8-01",
+      "name": "Node kubeletVersion EOL",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "eol_policy": {
+        "description": "EKS는 Kubernetes minor version을 약 14개월간 지원. EOL 이후 보안 패치 미제공",
+        "check_method": "kubeletVersion의 minor version과 현재 지원되는 EKS 버전 목록 대조"
+      },
+      "compliance_indicators": [
+        {
+          "field": "node_kubelet_version_supported",
+          "op": "==",
+          "value": true,
+          "description": "Node kubeletVersion이 AWS EKS 지원 버전 범위 내 — 보안 패치 제공 대상"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-02",
+      "name": "이미지 태그 mutable",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "mutable_tag_patterns": [
+        "latest",
+        "stable",
+        "dev",
+        "staging",
+        "main",
+        "master"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "all_images_use_immutable_tag",
+          "op": "==",
+          "value": true,
+          "description": "모든 컨테이너 이미지가 버전 고정 태그 또는 digest 사용 — 패치 추적 가능"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-03",
+      "name": "이미지 digest 미고정",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "all_images_pinned_by_digest",
+          "op": "==",
+          "value": true,
+          "description": "모든 컨테이너 이미지가 @sha256: digest로 고정됨 — 동일 빌드 보장, 패치 무결성 확인 가능"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "F-2.10.8-01",
+      "name": "Node Kubernetes 버전 현황",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "Node",
+        "required_data": [
+          "cluster_nodes"
+        ],
+        "condition": {
+          "operator": "kubelet_version_check",
+          "min_supported": "current_stable - 2"
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.10.8",
+            "match_strength": "direct"
+          }
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "EOL 시스템 운영",
+            "match": "direct"
+          }
+        ],
+        "additional_review_items": [
+          "EKS 지원 버전 정책과 비교",
+          "패치 일정 계획 확인"
+        ],
+        "manual_check_areas": [
+
+        ],
+        "automation_coverage": {
+          "percentage": 100,
+          "covered": "K8s 자체 버전",
+          "not_covered": "제어 플레인(EKS 관리형), 노드 OS 버전"
+        },
+        "offcluster_satisfaction_conditions": [
+          "kubeletVersion이 EKS 지원 버전 범위 내이거나, 패치 일정 계획상 지원 버전 업그레이드가 결재·관리됨(EOL 운영이면 결함)"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "F-2.10.8-02",
+      "name": "이미지 태그 안정성 현황",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "Pod",
+        "required_data": [
+          "cluster_pods.containers[].image"
+        ],
+        "condition": {
+          "operator": "tag_mutable_check",
+          "mutable_patterns": [
+            "latest",
+            "stable",
+            "prod",
+            "main",
+            "master"
+          ]
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.10.8",
+            "match_strength": "indirect"
+          }
+        ],
+        "kisa_defect_case_refs": [],
+        "additional_review_items": [
+          "mutable 태그 정책이 회사 표준에 부합하는가",
+          "패치 적용 시점 추적이 다른 방식으로 가능한가"
+        ],
+        "manual_check_areas": [
+          "이미지 태그 정책",
+          "CI/CD 빌드 추적 시스템"
+        ],
+        "automation_coverage": {
+          "percentage": 100,
+          "covered": "이미지 태그 안정성",
+          "not_covered": "실제 패치 적용 추적"
+        },
+        "offcluster_satisfaction_conditions": [
+          "mutable 태그여도 CI/CD 빌드 추적 시스템으로 실제 배포 이미지·패치 시점 추적 가능"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "F-2.10.8-03",
+      "name": "이미지 디지스트 고정 현황",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "Pod",
+        "required_data": [
+          "cluster_pods.containers[].image_digest"
+        ],
+        "condition": {
+          "operator": "digest_present"
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.10.8",
+            "match_strength": "indirect"
+          }
+        ],
+        "kisa_defect_case_refs": [],
+        "additional_review_items": [
+          "digest 미고정이 회사 표준에 부합하는가",
+          "이미지 무결성을 다른 방식으로 보장하는가"
+        ],
+        "manual_check_areas": [
+          "이미지 무결성 정책",
+          "이미지 서명/검증 운영"
+        ],
+        "automation_coverage": {
+          "percentage": 100,
+          "covered": "디지스트 고정 여부",
+          "not_covered": "외부 스캐너 기반 취약점 점검"
+        },
+        "offcluster_satisfaction_conditions": [
+          "digest 미고정이어도 이미지 서명/검증(Cosign/Notation 등)으로 무결성 보장됨"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "F-2.10.8-04",
+      "name": "실행 중 이미지 알려진 취약점(CVE) 현황",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "Pod",
+        "required_data": [
+          "cluster_pods.containers[].image_digest",
+          "image_vulnerabilities"
+        ],
+        "condition": {
+          "operator": "cve_vulnerability_check",
+          "min_severity": "HIGH"
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.10.8",
+            "match_strength": "direct"
+          }
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "알려진 취약점 패치 미적용",
+            "match": "direct"
+          }
+        ],
+        "additional_review_items": [
+          "Trivy/Clair 등 이미지 스캔 도구 운영 여부",
+          "Critical CVE 긴급 패치 프로세스",
+          "취약점 관리 정책/기록"
+        ],
+        "manual_check_areas": [
+          "취약점 관리 정책",
+          "이미지 스캔 운영 현황"
+        ],
+        "automation_coverage": {
+          "percentage": 80,
+          "covered": "Trivy 기반 CVE 스캔",
+          "not_covered": "OS 패치, 커스텀 취약점"
+        },
+        "offcluster_satisfaction_conditions": [
+          "발견된 CVE가 취약점 관리 정책상 예외 승인/완화조치로 처리됐거나 긴급 패치 프로세스로 조치(예정)됨"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-GL01",
+      "name": "패치 적용 절차 및 정기 적용",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "소프트웨어, 운영체제, 보안장비 등의 보안 패치 적용 절차를 수립하고 정기적으로 패치를 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "보안 패치 적용 절차를 수립하고 정기적으로 패치를 적용하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-GL02",
+      "name": "패치 적용 곤란 시 보완대책",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "서비스 영향도 등으로 최신 패치 적용이 어려운 경우 보완대책을 마련한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "최신 패치 적용이 어려운 경우 보완대책을 마련하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-GL03",
+      "name": "주요 시스템 패치 경로 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "주요 서버·네트워크시스템·보안시스템 등은 공개 인터넷 접속을 통한 패치를 제한한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "주요 시스템의 공개 인터넷을 통한 패치를 제한하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.10.8-GL04",
+      "name": "패치관리시스템 보호",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "패치관리시스템(PMS)을 활용하는 경우 접근통제 등 충분한 보호대책을 마련한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "패치관리시스템 활용 시 접근통제 등 보호대책을 마련하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.8",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "Node kubeletVersion이 지원 범위 내 + 모든 이미지가 immutable 태그 사용 + digest 고정 시 PASS"
+  }
+}

@@ -1,0 +1,255 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "1.2.1",
+    "name": "정보자산 식별",
+    "category_path": "1. 관리체계 수립 및 운영 > 1.2 위험 관리 > 1.2.1 정보자산 식별",
+    "description": "조직의 업무특성에 따라 정보자산 분류기준을 수립하여 관리체계 범위 내 모든 정보자산을 식별·분류하고, 중요도를 산정한 후 그 목록을 최신으로 관리하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "정보통신망법",
+      "article": "제47조",
+      "summary": "정보보호 관리체계 인증 기준"
+    },
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-1.2.1-01",
+      "name": "namespace 자산 분류 라벨",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "namespace.metadata.labels.data-classification",
+          "op": "in",
+          "value": [
+            "public",
+            "internal",
+            "confidential",
+            "pii",
+            "sensitive-pii"
+          ],
+          "description": "데이터 분류 등급 라벨 존재"
+        },
+        {
+          "field": "namespace.metadata.labels.isms-p/owner",
+          "op": "!=",
+          "value": null,
+          "description": "자산 책임자 라벨 존재"
+        },
+        {
+          "field": "namespace.metadata.labels.isms-p/criticality",
+          "op": "in",
+          "value": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
+          "description": "자산 중요도 라벨 존재"
+        }
+      ],
+      "activates_on_pass": [
+        {
+          "condition": "data-classification == pii",
+          "require": [
+            "R-2.7.1-POD-01",
+            "R-2.9.4-POD"
+          ],
+          "note": "PII 등급 시 etcd 암호화 + 1년 이상 접속기록 필수"
+        },
+        {
+          "condition": "data-classification == sensitive-pii",
+          "require": [
+            "R-2.9.4-POD"
+          ],
+          "note": "민감 PII 시 2년 이상 접속기록 필수"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "verdict_type": "needs_review"
+    },
+    {
+      "rule_id": "F-1.2.1-01",
+      "name": "K8s 클러스터 자산 인벤토리",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "compliant_indicator",
+      "manual_meta": {
+        "target_resource": "Cluster",
+        "required_data": [
+          "cluster_namespaces",
+          "cluster_pods",
+          "cluster_services",
+          "cluster_configmaps"
+        ],
+        "condition": {
+          "operator": "inventory_report"
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "1.2.1",
+            "match_strength": "supportive"
+          }
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": 4,
+            "description": "외부 위탁 IT 서비스 자산 식별 누락",
+            "match": "partial"
+          }
+        ],
+        "additional_review_items": [
+          "이 K8s 자산 목록이 회사 자산관리대장에 포함되어 있는가",
+          "K8s 외 자산(온프레미스, 외부 위탁 등)은 별도 식별되어 있는가"
+        ],
+        "manual_check_areas": [
+          "외부 위탁 자산 식별 절차",
+          "자산관리시스템(CMDB)"
+        ],
+        "automation_coverage": {
+          "percentage": 30,
+          "covered": "K8s 클러스터 내 자산 식별",
+          "not_covered": "외부 자산, 분류 기준 합리성, 중요도 평가"
+        },
+        "offcluster_satisfaction_conditions": [
+          "외부 자산관리대장/CMDB에 K8s 자산 + 온프레미스·외부위탁 자산이 통합 등재되고 분류·중요도가 산정돼 최신 관리됨"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "R-1.2.1-GL01",
+      "name": "정보자산 분류기준 수립",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "관리체계 범위 내 모든 정보자산을 식별·분류하기 위한 분류기준을 수립한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "조직의 업무특성에 따라 정보자산 분류기준을 수립하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-1.2.1-GL02",
+      "name": "중요도 산정 및 보안등급 부여",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "식별된 정보자산에 대하여 법적 요구사항 및 업무 영향도를 고려하여 중요도를 산정하고 보안등급을 부여한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "정보자산의 중요도를 결정하고 보안등급을 부여하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-1.2.1-GL03",
+      "name": "정보자산 목록 최신 유지",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정기적으로 정보자산 현황을 조사하여 정보자산 목록을 최신 상태로 유지한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "정기적으로 정보자산 현황을 조사하여 목록을 최신으로 유지하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-1.2.1-GL04",
+      "name": "분류기준 정책의 버전·승인·갱신 관리",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정보자산 분류기준 정책에는 버전·승인자·승인일자를 명시하고 최소 1년에 한 번 이상 갱신하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "분류기준 정책에 버전·승인자·승인일자가 명시되고 정기적으로(연 1회 이상) 갱신하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "namespace에 3개 필수 라벨(분류등급·책임자·중요도)이 붙어 있는지는 R-1.2.1-01이 실측하되, 라벨이 없다는 사실만으로 미준수로 단정하지 않도록 '검토필요(needs_review)'로 둔다. 분류기준 정책 문서가 실제로 있는지와 그 내용·갱신 상태는 지침서를 보는 GL 룰(R-1.2.1-GL01~04)이 판단한다."
+  }
+}

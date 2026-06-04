@@ -1,0 +1,421 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.6.1",
+    "name": "네트워크 접근",
+    "category_path": "2. 보호대책 요구사항 > 2.6 접근통제 > 2.6.1 네트워크 접근",
+    "description": "네트워크에 대한 비인가 접근을 통제하기 위하여 IP 관리, 단말 인증 등 관리절차를 수립·이행하고, 업무 목적 및 중요도에 따라 네트워크 분리(DMZ, 서버팜, DB존, 개발존 등)와 접근통제를 적용하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제6조",
+      "summary": "접근통제"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.6.1-01",
+      "name": "hostNetwork 사용 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "pod.spec.hostNetwork",
+          "op": "!=",
+          "value": true,
+          "description": "hostNetwork 비활성"
+        },
+        {
+          "field": "pod.spec.hostPID",
+          "op": "!=",
+          "value": true,
+          "description": "hostPID 비활성"
+        },
+        {
+          "field": "pod.spec.hostIPC",
+          "op": "!=",
+          "value": true,
+          "description": "hostIPC 비활성"
+        }
+      ],
+      "exception_check": {
+        "annotation": "security-exception/justification",
+        "system_namespaces": [
+          "kube-system",
+          "kube-node-lease",
+          "amazon-cloudwatch"
+        ]
+      },
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.6.1-02",
+      "name": "NetworkPolicy 적용 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "has_default_deny",
+          "op": "==",
+          "value": true,
+          "description": "default-deny(Ingress+Egress) NetworkPolicy 존재"
+        },
+        {
+          "field": "has_matching_policy",
+          "op": "==",
+          "value": true,
+          "description": "Pod에 매칭되는 허용 NetworkPolicy 존재"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.6.1-03",
+      "name": "CNI NetworkPolicy 강제 지원 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "supported_cni_indicators": [
+        {
+          "name": "calico",
+          "daemonset_name": "calico-node",
+          "policy_enforcement": "native"
+        },
+        {
+          "name": "cilium",
+          "daemonset_name": "cilium",
+          "policy_enforcement": "native"
+        },
+        {
+          "name": "weave",
+          "daemonset_name": "weave-net",
+          "policy_enforcement": "native"
+        },
+        {
+          "name": "aws-vpc-cni",
+          "daemonset_name": "aws-node",
+          "policy_enforcement": "conditional",
+          "required_env": {
+            "ENABLE_NETWORK_POLICY": "true"
+          }
+        }
+      ],
+      "compliance_indicators": [
+        {
+          "field": "has_policy_capable_cni",
+          "op": "==",
+          "value": true,
+          "description": "NetworkPolicy 강제 가능한 CNI DaemonSet 존재"
+        },
+        {
+          "field": "policy_enforcement_enabled",
+          "op": "==",
+          "value": true,
+          "description": "aws-vpc-cni 경우 aws-node DaemonSet env에 ENABLE_NETWORK_POLICY=true 설정"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.6.1-04",
+      "name": "cross-namespace 통신 통제 부재",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "cross_ns_egress_controlled",
+          "op": "==",
+          "value": true,
+          "description": "Pod에 매칭되는 egress NetworkPolicy로 cross-namespace 통신 통제"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "F-2.6.1-01",
+      "name": "NetworkPolicy 적용 현황",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "needs_review",
+      "manual_meta": {
+        "target_resource": "Namespace + NetworkPolicy",
+        "required_data": [
+          "cluster_namespaces",
+          "cluster_network_policies"
+        ],
+        "condition": {
+          "operator": "default_deny_coverage_report"
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.1",
+            "match_strength": "indirect"
+          }
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "서버팜과 사무망 미분리",
+            "match": "partial"
+          }
+        ],
+        "additional_review_items": [
+          "K8s NetworkPolicy 외 네트워크 분리 통제가 적용되어 있는가",
+          "미적용 namespace가 인증범위 내인가",
+          "운영망/개발망/DMZ 등 영역별 분리 설계"
+        ],
+        "manual_check_areas": [
+          "네트워크 분리 설계 문서",
+          "VPC/Subnet/Security Group 정책",
+          "사내망 IP 관리 대장"
+        ],
+        "automation_coverage": {
+          "percentage": 40,
+          "covered": "K8s NetworkPolicy 적용 현황",
+          "not_covered": "K8s 외 네트워크 통제, 사내망 단말 인증"
+        },
+        "alternative_controls": [
+          "VPC subnet 분리 + Security Group",
+          "Istio AuthorizationPolicy",
+          "Calico GlobalNetworkPolicy",
+          "별도 클러스터 운영"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "영역 분리가 VPC 서브넷+SG / 별도 클러스터 / Istio AuthorizationPolicy / Calico GlobalNetworkPolicy 등으로 적용됨"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "F-2.6.1-02",
+      "name": "CNI NetworkPolicy 강제 상태",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "needs_review",
+      "manual_meta": {
+        "target_resource": "Cluster Workload",
+        "required_data": [
+          "cluster_workloads"
+        ],
+        "condition": {
+          "operator": "daemonset_exists",
+          "namespace": "kube-system",
+          "name_patterns": [
+            "calico-node",
+            "cilium",
+            "calico-kube-controllers"
+          ]
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.1",
+            "match_strength": "indirect"
+          }
+        ],
+        "kisa_defect_case_refs": [],
+        "additional_review_items": [
+          "미발견 시 K8s NetworkPolicy 무효화 가능성 - 외부 통제로 분리 확인",
+          "발견 시 정책 강제 옵션 활성화 여부(도구는 옵션 미확인)"
+        ],
+        "manual_check_areas": [
+          "CNI 설정 문서",
+          "Network 강제 정책 운영 상태"
+        ],
+        "automation_coverage": {
+          "percentage": 50,
+          "covered": "CNI 배포 여부",
+          "not_covered": "정책 강제 옵션 활성화 상태"
+        },
+        "alternative_controls": [
+          "AWS VPC CNI + Security Group",
+          "Service Mesh",
+          "외부 NetFW"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "AWS VPC CNI+SG, Service Mesh, 외부 방화벽 등으로 통신 통제가 강제됨(정책 강제 CNI 미발견이어도)"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "F-2.6.1-03",
+      "name": "Cross-namespace 통신 통제 현황",
+      "judgment_source": "k8s_api",
+      "extraction_method": "manual",
+      "verdict_type": "needs_review",
+      "manual_meta": {
+        "target_resource": "NetworkPolicy + Namespace",
+        "required_data": [
+          "cluster_network_policies",
+          "cluster_namespaces",
+          "cluster_pods"
+        ],
+        "condition": {
+          "operator": "cross_ns_traffic_control_report"
+        },
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.1",
+            "match_strength": "indirect"
+          }
+        ],
+        "kisa_defect_case_refs": [],
+        "additional_review_items": [
+          "영역별 분리가 cluster 또는 VPC 분리로 이뤄지면 K8s 통제 불필요",
+          "단일 클러스터 내 영역 분리라면 K8s 통제 적용 권장"
+        ],
+        "manual_check_areas": [
+          "네트워크 분리 설계 문서",
+          "VPC 분리 정책"
+        ],
+        "automation_coverage": {
+          "percentage": 50,
+          "covered": "K8s NetworkPolicy 차원의 cross-ns 통제",
+          "not_covered": "VPC/Service Mesh 차원의 통제"
+        },
+        "alternative_controls": [
+          "VPC 라우팅",
+          "Service Mesh",
+          "별도 클러스터"
+        ],
+        "offcluster_satisfaction_conditions": [
+          "운영/개발 영역이 별도 VPC(서브넷+SG)/별도 클러스터로 분리",
+          "Service Mesh AuthorizationPolicy/mTLS로 ns 간 통신 차단"
+        ],
+        "k8s_only_check": true,
+        "deferred": false
+      }
+    },
+    {
+      "rule_id": "R-2.6.1-GL01",
+      "name": "비인가 네트워크 접근 통제 절차",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "네트워크에 대한 비인가 접근을 통제하기 위해 IP 관리, 단말 인증 등 관리절차를 수립·이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "IP 관리·단말 인증 등 비인가 네트워크 접근 통제 절차를 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.1-GL02",
+      "name": "IP 부여 기준 및 사설 IP 할당",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "네트워크 대역별 IP 주소 부여 기준을 마련하고, 외부 연결이 필요하지 않은 시스템(DB 서버 등)에는 사설 IP를 할당한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "대역별 IP 부여 기준 마련 및 외부 연결 불필요 시스템의 사설 IP 할당을 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.1-GL03",
+      "name": "업무 중요도 기반 네트워크 분리",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "업무 목적 및 중요도에 따라 네트워크를 영역별(DMZ, 서버팜, DB존, 개발존 등)로 분리하고 접근통제를 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "업무 목적·중요도에 따라 네트워크를 영역별로 분리하고 접근통제를 적용하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.1-GL04",
+      "name": "원거리 연결 전송구간 보호",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "물리적으로 떨어진 IDC·지사·대리점 등과의 네트워크 연결 시 전송구간 보호대책을 마련한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "원거리 네트워크 연결 시 전송구간 보호대책을 마련하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "hostNetwork/PID/IPC 미사용 + default-deny NetworkPolicy 존재 + Pod 매칭 정책 존재 + 정책 강제 가능 CNI 적용 시 PASS"
+  }
+}

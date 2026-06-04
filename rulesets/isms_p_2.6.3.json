@@ -1,0 +1,184 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.6.3",
+    "name": "응용프로그램 접근",
+    "category_path": "2. 보호대책 요구사항 > 2.6 접근통제 > 2.6.3 응용프로그램 접근",
+    "description": "사용자별 업무 및 접근 정보의 중요도 등에 따라 응용프로그램 접근권한을 제한하고, 불필요한 정보 또는 중요정보 노출을 최소화할 수 있도록 기준을 수립하여 적용하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제5조",
+      "summary": "접근권한의 관리"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제6조",
+      "summary": "접근통제"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.6.3-01",
+      "name": "Ingress 인증 적용 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "auth_annotations": [
+        "nginx.ingress.kubernetes.io/auth-type",
+        "nginx.ingress.kubernetes.io/auth-url",
+        "alb.ingress.kubernetes.io/auth-type",
+        "traefik.ingress.kubernetes.io/auth-type"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "all_ingresses_have_auth",
+          "op": "==",
+          "value": true,
+          "description": "Pod에 연결된 모든 Ingress에 인증 설정 적용됨"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.6.3-02",
+      "name": "내부 Service mTLS 강제 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "acceptable_mtls_modes": ["STRICT"],
+      "compliance_indicators": [
+        {
+          "field": "istio_injection_enabled",
+          "op": "==",
+          "value": true,
+          "description": "namespace에 istio sidecar 자동 주입 활성"
+        },
+        {
+          "field": "effective_mtls_mode",
+          "op": "==",
+          "value": "STRICT",
+          "description": "namespace 또는 mesh-wide PeerAuthentication mtls.mode=STRICT 적용"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      }
+    },
+    {
+      "rule_id": "R-2.6.3-GL01",
+      "name": "응용프로그램 접근권한 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "사용자별 업무 및 정보의 중요도에 따라 응용프로그램 접근권한을 제한한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "사용자별 업무·정보 중요도에 따라 응용프로그램 접근권한을 제한하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.3-GL02",
+      "name": "표시제한 보호조치 기준 수립",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "개인정보 및 중요정보의 표시제한 보호조치의 일관성을 확보할 수 있도록 관련 기준을 수립하여 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "개인정보·중요정보 표시제한 보호조치 기준을 수립·적용하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.3-GL03",
+      "name": "정보 노출 최소화",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "개인정보 및 중요정보의 불필요한 노출(조회, 화면표시, 인쇄, 다운로드 등)을 최소화하도록 응용프로그램을 구현·운영한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "불필요한 정보 노출을 최소화하도록 응용프로그램을 구현·운영하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    },
+    {
+      "rule_id": "R-2.6.3-GL04",
+      "name": "세션 통제",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "동일 사용자의 동시 접속 세션 수를 제한하고 일정시간 미사용 시 세션을 자동 차단한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "동시 세션 제한 및 미사용 세션 자동 차단을 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.3",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": ["충족", "미충족", "확인불가"]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "외부 진입점(Ingress)에 인증 적용 + 내부 통신(Service)에 mTLS STRICT 적용 시 PASS"
+  }
+}
