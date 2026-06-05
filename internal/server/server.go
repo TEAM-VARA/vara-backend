@@ -173,6 +173,23 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		vulnScheduler.Start(context.Background())
 		log.Printf("server: vuln scheduler started (cluster=%s, interval=%v)", clusterName, scanInterval)
 	}
+	// ── GRC Scheduler 시작 (클러스터 컴플라이언스 자동 평가) ──
+	if os.Getenv("DISABLE_GRC_SCHEDULER") != "true" {
+		grcClusterName := os.Getenv("DEFAULT_CLUSTER_NAME")
+		if grcClusterName == "" {
+			grcClusterName = "vara-eks-test"
+		}
+		grcInterval := 1 * time.Hour
+		if envInterval := os.Getenv("GRC_INTERVAL_MINUTES"); envInterval != "" {
+			if mins, err := strconv.Atoi(envInterval); err == nil && mins > 0 {
+				grcInterval = time.Duration(mins) * time.Minute
+			}
+		}
+
+		grcScheduler := scheduler.NewGRCScheduler(grcSvc, grcClusterName, grcInterval)
+		grcScheduler.Start(context.Background())
+		log.Printf("server: grc scheduler started (cluster=%s, interval=%v)", grcClusterName, grcInterval)
+	}
 	// ── Analysis Scheduler 시작 (그래프 분석 사전 계산) ──
 	if os.Getenv("DISABLE_ANALYSIS_SCHEDULER") != "true" {
 		clusterName := os.Getenv("DEFAULT_CLUSTER_NAME")

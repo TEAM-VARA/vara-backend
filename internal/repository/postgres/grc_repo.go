@@ -1155,13 +1155,13 @@ func (r *GRCRepo) SaveClusterComplianceResult(ctx context.Context, result *grc.C
 			(company_id, cluster_name, snapshot_at, evaluated_at,
 			 total_items, compliant_items, non_compliant_items, needs_review_items,
 			 no_data_items, indeterminate_items,
-			 total_rules, total_pods, items)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			 total_rules, total_pods, duration_ms, items)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id
 	`, result.CompanyID, result.ClusterName, snapshotAt, evaluatedAt,
 		result.TotalItems, result.CompliantItems, result.NonCompliantItems, result.NeedsReviewItems,
 		result.NoDataItems, result.IndeterminateItems,
-		result.TotalRules, result.TotalPods, itemsJSON).Scan(&id)
+		result.TotalRules, result.TotalPods, result.DurationMs, itemsJSON).Scan(&id)
 	return id, err
 }
 

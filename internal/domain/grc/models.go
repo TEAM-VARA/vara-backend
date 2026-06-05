@@ -411,6 +411,7 @@ type ClusterComplianceResult struct {
 	ClusterName        string                 `json:"cluster_name"`
 	SnapshotAt         string                 `json:"snapshot_at"`
 	EvaluatedAt        string                 `json:"evaluated_at"`
+	DurationMs         int64                  `json:"duration_ms"`
 	TotalItems         int                    `json:"total_items"`
 	CompliantItems     int                    `json:"compliant_items"`
 	NonCompliantItems  int                    `json:"non_compliant_items"`

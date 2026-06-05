@@ -274,7 +274,7 @@ type ClusterComplianceRequest struct {
 // in a single pass, then groups results by ISMS-P item with violated assets.
 func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterComplianceRequest) (*grc.ClusterComplianceResult, error) {
 	if req.CompanyID == "" {
-		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
+		req.CompanyID = req.ClusterName
 	}
 	if req.ClusterName == "" {
 		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "cluster_name 필수", HTTPStatus: 400}
@@ -282,6 +282,8 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 	if s.clusterRepo == nil {
 		return nil, &GRCError{Code: "NOT_CONFIGURED", Message: "cluster reader repo not configured", HTTPStatus: 500}
 	}
+
+	evalStart := time.Now()
 
 	// 1. Get latest snapshot (한 번만 로드)
 	snapshotAt, err := s.clusterRepo.GetLatestSnapshotAt(ctx, req.ClusterName)
@@ -485,6 +487,7 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		ClusterName: req.ClusterName,
 		SnapshotAt:  snapshotAt.Format(time.RFC3339),
 		EvaluatedAt: now.Format(time.RFC3339),
+		DurationMs:  time.Since(evalStart).Milliseconds(),
 		TotalPods:   totalPods,
 	}
 
