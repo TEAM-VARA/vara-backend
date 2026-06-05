@@ -27,16 +27,16 @@
       "extraction_method": "api",
       "compliance_indicators": [
         {
-          "field": "workload.metadata.annotations.isms-p/owner",
+          "field": "pod.metadata.annotations.isms-p/owner",
           "op": "!=",
           "value": null,
-          "description": "워크로드에 자산 책임자(owner) annotation 존재"
+          "description": "Pod에 자산 책임자(owner) annotation 존재"
         },
         {
-          "field": "workload.metadata.annotations.isms-p/owner-team",
+          "field": "pod.metadata.annotations.isms-p/owner-team",
           "op": "!=",
           "value": null,
-          "description": "워크로드에 소유 팀(owner-team) annotation 존재"
+          "description": "Pod에 소유 팀(owner-team) annotation 존재"
         }
       ],
       "judgment_logic": {

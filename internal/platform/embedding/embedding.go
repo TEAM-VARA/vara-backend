@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultTimeout    = 300 * time.Second // BGE-M3 on CPU can be slow
+	defaultTimeout    = 30 * time.Minute // BGE-M3 on CPU with large texts can take 10+ minutes
 	maxRetries        = 3
 	initialRetryDelay = 2 * time.Second
 )
