@@ -1210,25 +1210,57 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 }
 
 // ComputeHostEdges — Host layer edges 적재
-// runs_on (Pod→Node 배치). escape_path는 agent 수집 확장 후 활성화.
+// runs_on: 비활성화 (2026-06, 모든 pod이 가져 엣지 과다 — 팀 결정)
+// escape_path: Pod→Node 탈출 위험. 조건: privileged/hostNetwork/hostPID/hostPath 중 하나 이상.
 // 시스템 pod(tetragon/ebs-csi-node)은 제외.
 func (r *EdgesRepo) ComputeHostEdges(ctx context.Context, clusterName string) (*edge.HostComputeResult, error) {
 	start := time.Now()
 	snapAt := time.Now()
 
 	// ─────────────────────────────────────────────
-	// Step 1: runs_on (Pod → Node)
-	// pod.node(이름) → cluster_nodes 조인 → node_uid
+	// Step 1: runs_on — 비활성화 (2026-06)
+	// 사유: 모든 pod이 노드에 1개씩 가져 엣지만 많고(171) 위험 신호가 아님.
+	//       탈출 위험은 escape_path가 표현.
 	// ─────────────────────────────────────────────
-	qRunsOn := `
+	runsOnInserted := int64(0)
+
+	// ─────────────────────────────────────────────
+	// Step 2: escape_path (Pod → Node, 탈출 위험)
+	// 조건: privileged(containers) OR host_network OR host_pid OR hostPath(volumes)
+	// 사유 라벨을 target_service_name에 기록 (예: "escape:privileged,hostPath")
+	// ─────────────────────────────────────────────
+	qEscapePath := `
 		WITH latest_pods AS (
-			SELECT pod_uid, name AS pod_name, namespace, node
+			SELECT pod_uid, name AS pod_name, namespace, node,
+			       host_network, host_pid, containers, volumes
 			FROM cluster_pods
 			WHERE cluster_name = $1
 			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
 			  AND node IS NOT NULL AND node != ''
 			  AND name NOT LIKE 'tetragon%'
 			  AND name NOT LIKE 'ebs-csi-node%'
+		),
+		escape_pods AS (
+			SELECT
+				p.pod_uid, p.pod_name, p.namespace, p.node,
+				(EXISTS (SELECT 1 FROM jsonb_array_elements(p.containers) c
+				         WHERE (c->>'privileged')::boolean = true)) AS is_privileged,
+				p.host_network,
+				p.host_pid,
+				(EXISTS (SELECT 1 FROM jsonb_array_elements(p.volumes) v
+				         WHERE v->>'type' = 'hostPath')) AS has_hostpath
+			FROM latest_pods p
+		),
+		risky AS (
+			SELECT *,
+				'escape:' || CONCAT_WS(',',
+					CASE WHEN is_privileged THEN 'privileged' END,
+					CASE WHEN host_network  THEN 'hostNetwork' END,
+					CASE WHEN host_pid      THEN 'hostPID' END,
+					CASE WHEN has_hostpath  THEN 'hostPath' END
+				) AS reason
+			FROM escape_pods
+			WHERE is_privileged OR host_network OR host_pid OR has_hostpath
 		),
 		latest_nodes AS (
 			SELECT node_uid, name AS node_name
@@ -1242,45 +1274,36 @@ func (r *EdgesRepo) ComputeHostEdges(ctx context.Context, clusterName string) (*
 			source_name, source_namespace,
 			target_name, target_namespace,
 			source_kind, target_kind,
-			target_type,
+			target_type, target_service_name,
 			layer, edge_type, mode,
 			weight, traffic_weight,
 			snapshot_at, computed_at
 		)
 		SELECT
 			$1,
-			p.pod_uid, n.node_uid,
-			p.pod_name, p.namespace,
+			rp.pod_uid, n.node_uid,
+			rp.pod_name, rp.namespace,
 			n.node_name, '',
 			'pod', 'node',
-			'node',
-			'host', 'runs_on', 'declared',
-			1, 0.5,
+			'node', rp.reason,
+			'host', 'escape_path', 'declared',
+			1, 0.8,
 			$2::timestamptz, NOW()
-		FROM latest_pods p
-		JOIN latest_nodes n ON n.node_name = p.node
+		FROM risky rp
+		JOIN latest_nodes n ON n.node_name = rp.node
 		ON CONFLICT DO NOTHING
 	`
-	tag1, err := r.pool.Exec(ctx, qRunsOn, clusterName, snapAt)
+	tag2, err := r.pool.Exec(ctx, qEscapePath, clusterName, snapAt)
 	if err != nil {
-		return nil, fmt.Errorf("insert runs_on: %w", err)
+		return nil, fmt.Errorf("insert escape_path: %w", err)
 	}
-
-	// ─────────────────────────────────────────────
-	// Step 2: escape_path (Pod → Node, 탈출 위험)
-	// TODO: cluster-reader 에이전트가 securityContext.privileged,
-	//       volumes[].hostPath, hostPID 수집 후 활성화.
-	//       파서(attack_path_repo)는 이미 준비됨.
-	//       조건: privileged OR hostPath OR host_network OR hostPID
-	//       현재는 host_network만 데이터 존재 → 의미 약해 보류.
-	// ─────────────────────────────────────────────
-	escapePathInserted := int64(0)
+	escapePathInserted := tag2.RowsAffected()
 
 	return &edge.HostComputeResult{
 		ClusterName: clusterName,
-		RunsOn:      int(tag1.RowsAffected()),
+		RunsOn:      int(runsOnInserted),
 		EscapePath:  int(escapePathInserted),
-		Total:       int(tag1.RowsAffected() + escapePathInserted),
+		Total:       int(runsOnInserted + escapePathInserted),
 		SnapshotAt:  snapAt,
 		ComputedAt:  time.Now(),
 		DurationMs:  time.Since(start).Milliseconds(),

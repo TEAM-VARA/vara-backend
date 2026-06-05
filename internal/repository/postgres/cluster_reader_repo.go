@@ -149,7 +149,6 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 		saved++
 	}
 
-
 	// pod_master reconcile (soft delete)
 	const pmUpsert = `
 		INSERT INTO pod_master (
@@ -807,20 +806,20 @@ func (r *ClusterReaderRepo) GetPodMasterByName(ctx context.Context, clusterName,
 
 // ClusterRelatedRows holds related K8s resources from DB for assembling PodGraphRequest.
 type ClusterRelatedRows struct {
-	Services            []map[string]any
-	Ingresses           []map[string]any
-	NetworkPolicies     []map[string]any
-	Workloads           []map[string]any
-	Nodes               []map[string]any
-	ClusterRoles        []map[string]any
-	ClusterRoleBindings []map[string]any
-	Roles               []map[string]any
-	RoleBindings        []map[string]any
-	ServiceAccounts     []map[string]any
-	Secrets             []map[string]any
-	ConfigMaps          []map[string]any
-	Namespaces          []string
-	NamespacesInCluster []map[string]any // Full namespace objects with metadata (for finding evaluator)
+	Services             []map[string]any
+	Ingresses            []map[string]any
+	NetworkPolicies      []map[string]any
+	Workloads            []map[string]any
+	Nodes                []map[string]any
+	ClusterRoles         []map[string]any
+	ClusterRoleBindings  []map[string]any
+	Roles                []map[string]any
+	RoleBindings         []map[string]any
+	ServiceAccounts      []map[string]any
+	Secrets              []map[string]any
+	ConfigMaps           []map[string]any
+	Namespaces           []string
+	NamespacesInCluster  []map[string]any // Full namespace objects with metadata (for finding evaluator)
 	EBPFProcessEvents    []map[string]any
 	ImageVulnerabilities []map[string]any
 }

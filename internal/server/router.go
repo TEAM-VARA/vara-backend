@@ -32,7 +32,8 @@ func newRouter(
 	rbacChain *handler.RBACChainHandler,
 	grc *handler.GRCHandler,
 	breakdownH *handler.BreakdownHandler,
-	awsReader  *handler.AwsReaderHandler,
+	podDetail *handler.PodDetailHandler,
+	awsReader *handler.AwsReaderHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -42,7 +43,7 @@ func newRouter(
 		AllowMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:  []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders: []string{"Content-Length"},
-		MaxAge:        12 * time.Hour,	
+		MaxAge:        12 * time.Hour,
 	}))
 
 	r.GET("/healthz", health.Healthz)
@@ -214,12 +215,12 @@ func newRouter(
 		api.GET("/compliance/pod-graph/rulesets/:item_id", grc.GetPodRuleset)
 
 		// ── 전체 항목 한눈에 (Overview) ──
-		api.GET("/compliance/overview", grc.GetComplianceOverview)                       // 최신 평가 결과 조회
-		api.POST("/compliance/cluster/evaluate", grc.EvaluateClusterCompliance)          // 평가 실행 트리거
+		api.GET("/compliance/overview", grc.GetComplianceOverview)              // 최신 평가 결과 조회
+		api.POST("/compliance/cluster/evaluate", grc.EvaluateClusterCompliance) // 평가 실행 트리거
 
 		// ── 특정 항목 상세 ──
-		api.GET("/compliance/items/:item_id", grc.GetISMSPItemViolations)                // 항목별 위반 자산
-		api.GET("/compliance/items/:item_id/violations", grc.GetISMSPItemViolations)     // backward-compat
+		api.GET("/compliance/items/:item_id", grc.GetISMSPItemViolations)            // 항목별 위반 자산
+		api.GET("/compliance/items/:item_id/violations", grc.GetISMSPItemViolations) // backward-compat
 
 		// ── Pod 상세 ──
 		api.GET("/compliance/pods/:pod_name/compliance", grc.GetPodCompliance)
@@ -230,7 +231,7 @@ func newRouter(
 		api.GET("/compliance/findings", grc.ListFindings)
 		api.GET("/compliance/findings/summary", grc.GetFindingsSummary)
 		api.GET("/compliance/findings/summaries", grc.ListFindingClusterSummaries)
-		api.POST("/compliance/findings/evaluate-cluster", grc.EvaluateClusterFindings)   // deprecated
+		api.POST("/compliance/findings/evaluate-cluster", grc.EvaluateClusterFindings) // deprecated
 
 		// ── Rule Catalog ──
 		api.GET("/compliance/rulesets/catalog", grc.GetRuleCatalog)

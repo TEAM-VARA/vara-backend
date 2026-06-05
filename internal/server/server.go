@@ -17,11 +17,11 @@ import (
 	"github.com/vara/backend/internal/handler"
 	"github.com/vara/backend/internal/platform/embedding"
 	"github.com/vara/backend/internal/platform/epss"
-	"github.com/vara/backend/internal/platform/vlm"
 	"github.com/vara/backend/internal/platform/exploitdb"
 	"github.com/vara/backend/internal/platform/kev"
 	"github.com/vara/backend/internal/platform/nvd"
 	"github.com/vara/backend/internal/platform/osv"
+	"github.com/vara/backend/internal/platform/vlm"
 	"github.com/vara/backend/internal/rbacchain/loader"
 	"github.com/vara/backend/internal/repository/postgres"
 	"github.com/vara/backend/internal/scheduler"
@@ -137,6 +137,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	analysisH := handler.NewAnalysisHandler(analysisCacheRepo, analysisSvc)
 	rbacChainH := handler.NewRBACChainHandler(rbacChainSvc)
 	grcH := handler.NewGRC(grcSvc, rulesetStore)
+	podDetailH := handler.NewPodDetailHandler(clusterReaderRepo, grcSvc)
 
 	// ── AWS Reader ──
 	awsReaderRepo := postgres.NewAwsReaderRepo(pg)
@@ -145,7 +146,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH, podRefreshH,
-		notifH, analysisH, rbacChainH, grcH, breakdownH,awsReaderH)
+		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH)
 	// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
 	// ENV로 ON/OFF, 기본 활성
 	if os.Getenv("DISABLE_VULN_SCANNER") != "true" {
