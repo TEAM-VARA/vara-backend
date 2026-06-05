@@ -98,6 +98,16 @@ services:
       - "8081:8080"
     volumes:
       - trivy-cache:/var/cache/trivy
+  aws-reader:
+    build: ./aws-reader
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      - BACKEND_URL=http://backend:8080
+      - AWS_REGION=ap-northeast-2
+      - INTERVAL_MINUTES=5
+    restart: unless-stopped
 volumes:
   vara-pg-data:
   hf-cache:

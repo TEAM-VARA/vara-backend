@@ -1,0 +1,31 @@
+package handler
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/vara/backend/internal/domain/agent"
+	"github.com/vara/backend/internal/repository/postgres"
+)
+
+type AwsReaderHandler struct {
+	repo *postgres.AwsReaderRepo
+}
+
+func NewAwsReaderHandler(repo *postgres.AwsReaderRepo) *AwsReaderHandler {
+	return &AwsReaderHandler{repo: repo}
+}
+
+func (h *AwsReaderHandler) SecurityGroups(c *gin.Context) {
+	var req agent.AwsSecurityGroupsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	saved, err := h.repo.UpsertSecurityGroups(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"saved": saved})
+}

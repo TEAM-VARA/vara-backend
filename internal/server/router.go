@@ -32,7 +32,11 @@ func newRouter(
 	rbacChain *handler.RBACChainHandler,
 	grc *handler.GRCHandler,
 	breakdownH *handler.BreakdownHandler,
+<<<<<<< Updated upstream
 	podDetail *handler.PodDetailHandler,
+=======
+	awsReader  *handler.AwsReaderHandler,
+>>>>>>> Stashed changes
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -42,7 +46,7 @@ func newRouter(
 		AllowMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:  []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders: []string{"Content-Length"},
-		MaxAge:        12 * time.Hour,
+		MaxAge:        12 * time.Hour,	
 	}))
 
 	r.GET("/healthz", health.Healthz)
@@ -58,6 +62,9 @@ func newRouter(
 		api.POST("/agents/cluster-reader/workloads", clusterReader.Workloads)
 		api.POST("/agents/cluster-reader/network-policies", clusterReader.NetworkPolicies)
 		api.POST("/agents/cluster-reader/rbac", clusterReader.RBAC)
+
+		// ── AWS Reader Agent ──
+		api.POST("/agents/aws-reader/security-groups", awsReader.SecurityGroups)
 
 		api.POST("/agents/cluster-reader/pod-events", agent.PodEvents)
 		api.POST("/agents/ebpf/traffic", agent.Traffic)
