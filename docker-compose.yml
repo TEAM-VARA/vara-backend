@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: changeme
       POSTGRES_DB: vara
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
       - vara-pg-data:/var/lib/postgresql/data
     healthcheck:
@@ -31,7 +31,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6380:6379"
+      - "6379:6379"
   embedding:
     # BGE-M3 FastAPI embedding server
     build:
@@ -95,7 +95,7 @@ services:
       VLM_SERVER_URL: ${VLM_SERVER_URL:-http://ollama:11434}
       VLM_MODEL: ${VLM_MODEL:-qwen2.5:7b}
     ports:
-      - "8081:8080"
+      - "8080:8080"
     volumes:
       - trivy-cache:/var/cache/trivy
   aws-reader:
