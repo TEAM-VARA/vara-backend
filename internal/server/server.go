@@ -180,14 +180,24 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 			clusterName = "vara-eks-test"
 		}
 
-		analysisInterval := 1 * time.Hour
+		analysisInterval := 5 * time.Minute
 		if envInterval := os.Getenv("ANALYSIS_INTERVAL_MINUTES"); envInterval != "" {
 			if mins, err := strconv.Atoi(envInterval); err == nil && mins > 0 {
 				analysisInterval = time.Duration(mins) * time.Minute
 			}
 		}
 
-		analysisScheduler := scheduler.NewAnalysisScheduler(analysisSvc, clusterName, analysisInterval)
+		analysisScheduler := scheduler.NewAnalysisScheduler(
+			analysisSvc,
+			edgesRepo,
+			exposureSvc,
+			attackPathSvc,
+			localScoringSvc,
+			toxicSvc,
+			finalScoringSvc,
+			clusterName,
+			analysisInterval,
+		)
 		analysisScheduler.Start(context.Background())
 		log.Printf("server: analysis scheduler started (cluster=%s, interval=%v)", clusterName, analysisInterval)
 	}
