@@ -32,11 +32,7 @@ func newRouter(
 	rbacChain *handler.RBACChainHandler,
 	grc *handler.GRCHandler,
 	breakdownH *handler.BreakdownHandler,
-<<<<<<< Updated upstream
-	podDetail *handler.PodDetailHandler,
-=======
 	awsReader  *handler.AwsReaderHandler,
->>>>>>> Stashed changes
 ) *gin.Engine {
 	r := gin.Default()
 

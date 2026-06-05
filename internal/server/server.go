@@ -137,13 +137,6 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	analysisH := handler.NewAnalysisHandler(analysisCacheRepo, analysisSvc)
 	rbacChainH := handler.NewRBACChainHandler(rbacChainSvc)
 	grcH := handler.NewGRC(grcSvc, rulesetStore)
-<<<<<<< Updated upstream
-	podDetailH := handler.NewPodDetailHandler(clusterReaderRepo, grcSvc)
-	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
-		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
-		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH, podRefreshH,
-		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH)
-=======
 
 	// ── AWS Reader ──
 	awsReaderRepo := postgres.NewAwsReaderRepo(pg)
@@ -153,7 +146,6 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH, podRefreshH,
 		notifH, analysisH, rbacChainH, grcH, breakdownH,awsReaderH)
->>>>>>> Stashed changes
 	// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
 	// ENV로 ON/OFF, 기본 활성
 	if os.Getenv("DISABLE_VULN_SCANNER") != "true" {
