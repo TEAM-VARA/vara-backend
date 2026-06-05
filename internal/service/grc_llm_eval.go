@@ -77,17 +77,35 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	// ── Step 2: Build query from rule ──
 	query := buildRuleQuery(rule)
 	if query == "" {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "룰 요건 텍스트 비어 있음"
+		base.Reason = "룰셋 데이터 오류 — 평가 기준 텍스트 없음"
 		return base
 	}
 
-	// ── Step 3: Embed query + all guideline sentences ──
+	// ── Step 2.5: Cap sentence count to prevent BGE-M3 CPU timeout ──
+	// A 192K-char PDF splits into 3000+ sentences; embedding all at once can take 30+ min on CPU.
+	// We use distributed sampling (every N-th sentence) to cover the whole document.
+	const maxSentencesForRAG = 300
+	if len(sentences) > maxSentencesForRAG {
+		origLen := len(sentences)
+		sampled := make([]string, 0, maxSentencesForRAG)
+		step := len(sentences) / maxSentencesForRAG
+		for i := 0; i < len(sentences) && len(sampled) < maxSentencesForRAG; i += step {
+			sampled = append(sampled, sentences[i])
+		}
+		sentences = sampled
+		log.Printf("[grc-rag] rule=%s: capped %d→%d sentences (every %d-th, distributed sample)",
+			rule.RuleID, origLen, len(sentences), step)
+	}
+
+	// ── Step 3: Embed query + sampled guideline sentences ──
 	textsToEmbed := append([]string{query}, sentences...)
 	embeddings, err := s.embeddingClient.EmbedBatch(ctx, textsToEmbed)
 	if err != nil || len(embeddings) < 2 || embeddings[0] == nil {
-		base.Verdict = "skipped"
-		base.SkipReason = "임베딩 생성 실패"
+		base.Verdict = grc.VerdictINDETERMINATE
+		base.SkipReason = "임베딩 생성 실패 (서버 응답 없음 또는 타임아웃)"
+		base.Reason = "임베딩 생성 실패"
 		return base
 	}
 

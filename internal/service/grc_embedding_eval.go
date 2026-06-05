@@ -125,7 +125,10 @@ func (s *GRCService) applyGuidelineEmbedding(
 			strings.EqualFold(rule.JudgmentLogic.Method, "llm_rag_entailment")) {
 		return primary
 	}
-	if primary.Verdict == "skipped" {
+	// If primary evaluation already determined a clear result (or couldn't be determined),
+	// skip the supplemental embedding similarity check.
+	if grc.NormalizeVerdict(primary.Verdict) == grc.VerdictINDETERMINATE ||
+		grc.NormalizeVerdict(primary.Verdict) == grc.VerdictNOT_MET {
 		return primary
 	}
 	if len(embByFile) == 0 {

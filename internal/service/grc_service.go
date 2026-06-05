@@ -276,6 +276,12 @@ func (s *GRCService) TriggerGLCheck(ctx context.Context, companyID, ismspItemID 
 	return s.CreateCheck(ctx, companyID, ismspItemID, false, nil, nil)
 }
 
+// ResetStaleChecks marks any checks left in 'running'/'queued' as 'failed'.
+// Should be called once at server startup to clean up orphaned checks.
+func (s *GRCService) ResetStaleChecks(ctx context.Context) (int64, error) {
+	return s.repo.ResetStaleRunningChecks(ctx)
+}
+
 // ── 통합 클러스터 컴플라이언스 (경로 B+C 병합) ──
 
 // ClusterComplianceRequest is the input for unified cluster compliance evaluation.
@@ -1803,9 +1809,13 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 
 		if len(matched) == 0 && !isGuidelineRAG {
 			result = grc.RuleResult{
-				RuleID:        rule.RuleID,
-				Verdict:       "skipped",
-				SkipReason:    "증적 미제출",
+				RuleID:  rule.RuleID,
+				Verdict: grc.VerdictNOT_MET,
+				Reason:  "증적 미제출 — 해당 룰에 대한 증적 파일이 제출되지 않음",
+				Violations: []grc.Violation{{
+					Description: fmt.Sprintf("룰 %s: 증적 파일 미제출", rule.RuleID),
+					Severity:    "medium",
+				}},
 				EvidenceFiles: []string{},
 			}
 		} else if len(matched) == 0 && isGuidelineRAG {
@@ -2278,8 +2288,9 @@ func (s *GRCService) evaluateRule(ctx context.Context, rule Rule, evidenceData [
 	case "code_pattern_match":
 		return evaluateCodePattern(rule, evidenceData, base)
 	default:
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = fmt.Sprintf("지원하지 않는 judgment_logic type: %s", rule.JudgmentLogic.Type)
+		base.Reason = fmt.Sprintf("미지원 평가 방식: %s", rule.JudgmentLogic.Type)
 		return base
 	}
 }
@@ -2553,15 +2564,18 @@ func evaluateOCRKeywordMatch(rule Rule, evidenceData []any, base grc.RuleResult)
 	}
 
 	if !hasImageEvidence {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictNOT_MET
 		base.SkipReason = "이미지 증적 없음"
+		base.Reason = "이미지 증적 미제출"
+		base.Violations = []grc.Violation{{Description: "이미지 증적 미제출", Severity: "medium"}}
 		return base
 	}
 
 	text := allText.String()
 	if strings.TrimSpace(text) == "" {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "OCR 텍스트 추출 실패 (Tesseract 미설치 또는 텍스트 인식 불가)"
+		base.Reason = "OCR 텍스트 추출 실패"
 		return base
 	}
 
@@ -2722,8 +2736,10 @@ func evaluateAggregated(rule Rule, evidenceData []any, base grc.RuleResult) grc.
 	}
 
 	if len(records) == 0 {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictNOT_MET
 		base.SkipReason = "구조화된 레코드 없음"
+		base.Reason = "계정/사용자 레코드 데이터 미제출"
+		base.Violations = []grc.Violation{{Description: "계정 목록 증적 미제출", Severity: "medium"}}
 		return base
 	}
 
@@ -2759,8 +2775,10 @@ func evaluateCodePattern(rule Rule, evidenceData []any, base grc.RuleResult) grc
 	}
 
 	if codeText == "" {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictNOT_MET
 		base.SkipReason = "코드 증적 없음"
+		base.Reason = "코드 파일 증적 미제출"
+		base.Violations = []grc.Violation{{Description: "코드 파일 증적 미제출", Severity: "medium"}}
 		return base
 	}
 

@@ -114,6 +114,16 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	embClient := embedding.NewClient(os.Getenv("EMBEDDING_SERVER_URL"))
 	vlmClient := vlm.NewClient(os.Getenv("VLM_SERVER_URL"), os.Getenv("VLM_MODEL"))
 	grcSvc := service.NewGRCService(grcRepo, clusterReaderRepo, rulesetStore, embClient, vlmClient)
+	// 이전 컨테이너 재시작으로 중단된 running/queued 체크를 failed로 초기화
+	{
+		resetCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if n, err := grcSvc.ResetStaleChecks(resetCtx); err != nil {
+			fmt.Printf("warn: failed to reset stale checks: %v\n", err)
+		} else if n > 0 {
+			log.Printf("server: reset %d stale running/queued checks to failed", n)
+		}
+		cancel()
+	}
 
 	// ── Handler ──
 	healthH := handler.NewHealth(pg, rdb)

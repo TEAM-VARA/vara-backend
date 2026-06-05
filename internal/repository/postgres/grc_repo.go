@@ -71,6 +71,23 @@ func (r *GRCRepo) UpdateCheckFailed(ctx context.Context, checkID string, errDeta
 	return err
 }
 
+// ResetStaleRunningChecks marks any checks left in 'running' or 'queued' state as 'failed'.
+// Called once at server startup to clean up checks orphaned by a previous container restart.
+func (r *GRCRepo) ResetStaleRunningChecks(ctx context.Context) (int64, error) {
+	tag, err := r.pg.Exec(ctx, `
+		UPDATE grc_checks
+		SET status = 'failed',
+		    completed_at = NOW(),
+		    error = '{"message":"server restart — check orphaned"}',
+		    updated_at = NOW()
+		WHERE status IN ('running', 'queued')
+	`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // SaveCheckResult persists the completed check results in a single transaction.
 // Updates grc_checks summary + inserts grc_rule_results, grc_violations, grc_recommendations.
 func (r *GRCRepo) SaveCheckResult(ctx context.Context, result *grc.ComplianceCheckResult) error {
