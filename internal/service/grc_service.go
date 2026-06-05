@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +40,7 @@ type GRCService struct {
 	ocrClient       *ocr.Client
 	embeddingClient *embedding.Client
 	vlmClient       *vlm.Client
+	precomputeSem   chan struct{} // semaphore: limits concurrent GL precomputes (cap=2)
 }
 
 func NewGRCService(repo *postgres.GRCRepo, clusterRepo *postgres.ClusterReaderRepo, rulesetStore *RulesetStore, embClient *embedding.Client, vlmClient *vlm.Client) *GRCService {
@@ -81,6 +83,7 @@ func NewGRCService(repo *postgres.GRCRepo, clusterRepo *postgres.ClusterReaderRe
 		ocrClient:       ocrClient,
 		embeddingClient: embClient,
 		vlmClient:       vlmClient,
+		precomputeSem:   make(chan struct{}, 2), // allow up to 2 concurrent precomputes
 	}
 }
 
@@ -261,6 +264,27 @@ func (s *GRCService) ListFindingClusterSummaries(ctx context.Context, companyID 
 	return s.repo.ListFindingClusterSummaries(ctx, companyID, page, pageSize)
 }
 
+// ── GL 지침서 자동 점검 ──
+
+// ListGLCheckTargets returns all (company_id, isms_p_item_id) pairs that have at least
+// one guideline with extracted text, ready for automated GL-layer evaluation.
+func (s *GRCService) ListGLCheckTargets(ctx context.Context) ([]grc.GLCheckTarget, error) {
+	return s.repo.ListCompanyItemsWithGuidelines(ctx)
+}
+
+// TriggerGLCheck creates a guideline-only compliance check (no evidence files) for the
+// given company and ISMS-P item. The check runs asynchronously using DB guidelines for
+// GL-rule evaluation (llm_rag_entailment, embedding_similarity, etc.).
+func (s *GRCService) TriggerGLCheck(ctx context.Context, companyID, ismspItemID string) (*grc.Check, error) {
+	return s.CreateCheck(ctx, companyID, ismspItemID, false, nil, nil)
+}
+
+// ResetStaleChecks marks any checks left in 'running'/'queued' as 'failed'.
+// Should be called once at server startup to clean up orphaned checks.
+func (s *GRCService) ResetStaleChecks(ctx context.Context) (int64, error) {
+	return s.repo.ResetStaleRunningChecks(ctx)
+}
+
 // ── 통합 클러스터 컴플라이언스 (경로 B+C 병합) ──
 
 // ClusterComplianceRequest is the input for unified cluster compliance evaluation.
@@ -274,7 +298,7 @@ type ClusterComplianceRequest struct {
 // in a single pass, then groups results by ISMS-P item with violated assets.
 func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterComplianceRequest) (*grc.ClusterComplianceResult, error) {
 	if req.CompanyID == "" {
-		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
+		req.CompanyID = req.ClusterName
 	}
 	if req.ClusterName == "" {
 		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "cluster_name 필수", HTTPStatus: 400}
@@ -282,6 +306,8 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 	if s.clusterRepo == nil {
 		return nil, &GRCError{Code: "NOT_CONFIGURED", Message: "cluster reader repo not configured", HTTPStatus: 500}
 	}
+
+	evalStart := time.Now()
 
 	// 1. Get latest snapshot (한 번만 로드)
 	snapshotAt, err := s.clusterRepo.GetLatestSnapshotAt(ctx, req.ClusterName)
@@ -485,6 +511,7 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		ClusterName: req.ClusterName,
 		SnapshotAt:  snapshotAt.Format(time.RFC3339),
 		EvaluatedAt: now.Format(time.RFC3339),
+		DurationMs:  time.Since(evalStart).Milliseconds(),
 		TotalPods:   totalPods,
 	}
 
@@ -1541,6 +1568,8 @@ func (s *GRCService) UploadGuideline(
 		g.UploadedAt = latestUploadedAt
 		g.UpdatedAt = latestUploadedAt
 		log.Printf("[grc-guideline] identical content, reuse v%d (id=%d) %s", latestVer, latestID, fh.Filename)
+		// Ensure sentence embeddings exist (may be missing if uploaded before this feature)
+		s.embedAndSaveGuidelineSentences(ctx, g.ID, g.ExtractedText)
 		return g, nil
 	}
 	// 신규(found=false) 또는 내용 변경 → 새 버전으로 누적 보관.
@@ -1565,7 +1594,67 @@ func (s *GRCService) UploadGuideline(
 	log.Printf("[grc-guideline] uploaded %s for %s/%s (id=%d, text=%d chars, emb=%d dims)",
 		fh.Filename, companyID, itemLabel, g.ID, len(g.ExtractedText), len(g.Embedding))
 
+	// Embed sentences at upload time so GL checks only need to embed rule queries (~0.5s each).
+	s.embedAndSaveGuidelineSentences(ctx, g.ID, g.ExtractedText)
+
 	return g, nil
+}
+
+// embedAndSaveGuidelineSentences embeds guideline sentences at upload time and stores in DB.
+// Synchronous — upload blocks until done so the triggered GL check can use stored embeddings.
+// Idempotent: skips if sentence embeddings already exist for this guidelineID.
+func (s *GRCService) embedAndSaveGuidelineSentences(ctx context.Context, guidelineID int64, extractedText string) {
+	if s.embeddingClient == nil || !s.embeddingClient.Available() || extractedText == "" {
+		return
+	}
+	if exists, _ := s.repo.HasGuidelineSentenceEmbeddings(ctx, guidelineID); exists {
+		log.Printf("[grc-embed] guideline_id=%d: sentence embeddings already in DB, skipping", guidelineID)
+		return
+	}
+	sentences := splitTextSentences(extractedText)
+	if len(sentences) == 0 {
+		return
+	}
+	const maxSentencesForRAG = 300
+	if len(sentences) > maxSentencesForRAG {
+		origLen := len(sentences)
+		sampled := make([]string, 0, maxSentencesForRAG)
+		step := len(sentences) / maxSentencesForRAG
+		for i := 0; i < len(sentences) && len(sampled) < maxSentencesForRAG; i += step {
+			sampled = append(sampled, sentences[i])
+		}
+		sentences = sampled
+		log.Printf("[grc-embed] guideline_id=%d: capped %d→%d sentences", guidelineID, origLen, len(sentences))
+	}
+	log.Printf("[grc-embed] guideline_id=%d: embedding %d sentences at upload time...", guidelineID, len(sentences))
+	embeddings, err := s.embeddingClient.EmbedBatch(ctx, sentences)
+	if err != nil || len(embeddings) == 0 {
+		log.Printf("[grc-embed] guideline_id=%d: sentence embedding failed: %v", guidelineID, err)
+		return
+	}
+	if err := s.repo.SaveGuidelineSentenceEmbeddings(ctx, guidelineID, sentences, embeddings); err != nil {
+		log.Printf("[grc-embed] guideline_id=%d: save failed: %v", guidelineID, err)
+		return
+	}
+	log.Printf("[grc-embed] guideline_id=%d: saved %d sentence embeddings", guidelineID, len(sentences))
+}
+
+// splitTextSentences splits extracted text into individual sentences for embedding.
+func splitTextSentences(text string) []string {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	var sentences []string
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || line == "---" {
+			continue
+		}
+		if len([]rune(line)) > 5 {
+			sentences = append(sentences, line)
+		}
+	}
+	return sentences
 }
 
 // extractGuidelineText extracts text from a guideline file.
@@ -1758,6 +1847,11 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 	s.generateEvidenceEmbeddings(ctx, checkID, evidenceFiles, evidenceStore, ruleset, dbGuidelines)
 	_ = s.repo.UpdateCheckProgress(ctx, checkID, 40)
 
+	// Step 1.7: Pre-compute GL rule top sentences (serialized via mutex).
+	// Only 1 check runs embedding at a time so the embedding server isn't overwhelmed.
+	// Cache hits skip embedding entirely; each item only needs 2 HTTP calls on first run.
+	glTopSentences := s.precomputeGLRuleTopSentences(ctx, chk.CompanyID, chk.ISMSPItemID, dbGuidelines, ruleset)
+
 	embByFile, errEmb := s.repo.ListEvidenceEmbeddingsForCheck(ctx, checkID)
 	if errEmb != nil {
 		log.Printf("[grc-embed] reload evidence vectors: %v", errEmb)
@@ -1783,16 +1877,23 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 		isGuidelineRAG := rule.JudgmentLogic.Type == "semantic_match" &&
 			rule.JudgmentLogic.Method == "llm_rag_entailment"
 
+		// Look up pre-computed top sentences for this rule (may be nil for non-GL rules)
+		cachedSentences := glTopSentences[rule.RuleID]
+
 		if len(matched) == 0 && !isGuidelineRAG {
 			result = grc.RuleResult{
-				RuleID:        rule.RuleID,
-				Verdict:       "skipped",
-				SkipReason:    "증적 미제출",
+				RuleID:  rule.RuleID,
+				Verdict: grc.VerdictNOT_MET,
+				Reason:  "증적 미제출 — 해당 룰에 대한 증적 파일이 제출되지 않음",
+				Violations: []grc.Violation{{
+					Description: fmt.Sprintf("룰 %s: 증적 파일 미제출", rule.RuleID),
+					Severity:    "medium",
+				}},
 				EvidenceFiles: []string{},
 			}
 		} else if len(matched) == 0 && isGuidelineRAG {
 			// Guideline RAG: no evidence files needed, evaluate directly.
-			result = s.evaluateRule(ctx, rule, nil, []string{}, dbGuidelines)
+			result = s.evaluateRule(ctx, rule, nil, []string{}, dbGuidelines, cachedSentences)
 		} else {
 			filenames := make([]string, len(matched))
 			var extractedData []any
@@ -1803,7 +1904,7 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 				}
 			}
 
-			result = s.evaluateRule(ctx, rule, extractedData, filenames, dbGuidelines)
+			result = s.evaluateRule(ctx, rule, extractedData, filenames, dbGuidelines, cachedSentences)
 			result.EvidenceSources = evidenceAttributionsFromFiles(matched)
 			result = s.applyGuidelineEmbedding(rule, matched, embByFile, dbGuidelines, result)
 		}
@@ -1973,6 +2074,187 @@ func (s *GRCService) generateEvidenceEmbeddings(
 				entry.filename, len(evidenceEmb), len(guidelineEmb))
 		}
 	}
+}
+
+// InvalidateGLCache removes cached GL rule top sentences for a (company, item) pair.
+// Called when a guideline is uploaded so next check recomputes fresh top sentences.
+func (s *GRCService) InvalidateGLCache(ctx context.Context, companyID, ismspItemID string) {
+	if err := s.repo.InvalidateGLRuleCache(ctx, companyID, ismspItemID); err != nil {
+		log.Printf("[grc-gl-cache] invalidate failed for %s/%s: %v", companyID, ismspItemID, err)
+	} else {
+		log.Printf("[grc-gl-cache] invalidated cache for %s/%s", companyID, ismspItemID)
+	}
+}
+
+// precomputeGLRuleTopSentences pre-computes top-K guideline sentences for each GL rule.
+//
+// FAST PATH (sentence embeddings in DB from upload time):
+//   Load stored embeddings → only embed rule queries (~0.5s each) → cosine sim in Go.
+//   No semaphore needed; 18 checks can run fully in parallel.
+//
+// SLOW PATH (no stored sentence embeddings — legacy or pre-deployment guidelines):
+//   Acquire semaphore → embed 300 sentences (~15 min on CPU BGE-M3) → embed queries.
+//   Saves top-K to grc_gl_rule_top_sentences; subsequent checks use top-K DB cache.
+func (s *GRCService) precomputeGLRuleTopSentences(
+	ctx context.Context,
+	companyID, ismspItemID string,
+	dbGuidelines []grc.Guideline,
+	ruleset *Ruleset,
+) map[string][]string {
+	result := make(map[string][]string)
+
+	if s.embeddingClient == nil || !s.embeddingClient.Available() {
+		return result
+	}
+
+	// Collect GL rules (text_extraction + llm_rag_entailment only)
+	var glRules []Rule
+	for _, rule := range ruleset.Rules {
+		if rule.JudgmentSource == "text_extraction" &&
+			rule.JudgmentLogic.Type == "semantic_match" &&
+			rule.JudgmentLogic.Method == "llm_rag_entailment" {
+			glRules = append(glRules, rule)
+		}
+	}
+	if len(glRules) == 0 {
+		return result
+	}
+
+	// Check top-K DB cache first: serve already-computed rules without any HTTP call
+	var uncachedRules []Rule
+	for _, rule := range glRules {
+		if sentences, hit, _ := s.repo.GetGLRuleTopSentences(ctx, companyID, ismspItemID, rule.RuleID); hit {
+			result[rule.RuleID] = sentences
+			log.Printf("[grc-gl-cache] rule=%s: top-K cache HIT (%d sentences)", rule.RuleID, len(sentences))
+		} else {
+			uncachedRules = append(uncachedRules, rule)
+		}
+	}
+	if len(uncachedRules) == 0 {
+		log.Printf("[grc-gl-cache] all %d GL rules served from top-K cache", len(glRules))
+		return result
+	}
+
+	log.Printf("[grc-gl-cache] %d/%d GL rules need precompute for %s/%s",
+		len(uncachedRules), len(glRules), companyID, ismspItemID)
+
+	// ── FAST PATH: sentence embeddings stored in DB from upload time ──
+	storedSentEmbs, _ := s.repo.GetGuidelineSentenceEmbeddingsForItem(ctx, companyID, ismspItemID)
+	if len(storedSentEmbs) > 0 {
+		log.Printf("[grc-gl-cache] FAST PATH: %d stored sentence embeddings for %s/%s — embedding queries only",
+			len(storedSentEmbs), companyID, ismspItemID)
+		return s.precomputeWithSentenceEmbeddings(ctx, companyID, ismspItemID, uncachedRules, storedSentEmbs, result)
+	}
+
+	// ── SLOW PATH: sentence embeddings not in DB (uploaded before this feature) ──
+	// Acquire semaphore to avoid overloading single-worker BGE-M3.
+	s.precomputeSem <- struct{}{}
+	defer func() { <-s.precomputeSem }()
+
+	// Re-check after acquiring semaphore: another goroutine may have computed them.
+	storedSentEmbs, _ = s.repo.GetGuidelineSentenceEmbeddingsForItem(ctx, companyID, ismspItemID)
+	if len(storedSentEmbs) > 0 {
+		log.Printf("[grc-gl-cache] FAST PATH (after sem): %d stored sentences for %s/%s",
+			len(storedSentEmbs), companyID, ismspItemID)
+		return s.precomputeWithSentenceEmbeddings(ctx, companyID, ismspItemID, uncachedRules, storedSentEmbs, result)
+	}
+
+	// Build guideline sentences from DB guideline text
+	var dummyRule Rule
+	if len(uncachedRules) > 0 {
+		dummyRule = uncachedRules[0]
+	}
+	sentences := splitGuidelineSentences(dbGuidelines, dummyRule)
+	if len(sentences) == 0 {
+		log.Printf("[grc-gl-cache] no guideline sentences for %s/%s", companyID, ismspItemID)
+		return result
+	}
+
+	// Cap at 300 sentences (same limit as at upload time)
+	const maxSentencesForRAG = 300
+	if len(sentences) > maxSentencesForRAG {
+		origLen := len(sentences)
+		sampled := make([]string, 0, maxSentencesForRAG)
+		step := len(sentences) / maxSentencesForRAG
+		for i := 0; i < len(sentences) && len(sampled) < maxSentencesForRAG; i += step {
+			sampled = append(sampled, sentences[i])
+		}
+		sentences = sampled
+		log.Printf("[grc-gl-cache] capped %d→%d sentences for %s/%s", origLen, len(sentences), companyID, ismspItemID)
+	}
+
+	// HTTP call: embed ALL guideline sentences (slow on CPU)
+	log.Printf("[grc-gl-cache] SLOW PATH: embedding %d sentences for %s/%s", len(sentences), companyID, ismspItemID)
+	sentenceEmbeddings, err := s.embeddingClient.EmbedBatch(ctx, sentences)
+	if err != nil || len(sentenceEmbeddings) == 0 {
+		log.Printf("[grc-gl-cache] sentence embedding failed: %v", err)
+		return result
+	}
+
+	// Convert raw embeddings to SentenceEmbedding slice for the shared helper
+	sentEmbs := make([]postgres.SentenceEmbedding, 0, len(sentences))
+	for i, emb := range sentenceEmbeddings {
+		if emb != nil && i < len(sentences) {
+			sentEmbs = append(sentEmbs, postgres.SentenceEmbedding{Text: sentences[i], Embedding: emb})
+		}
+	}
+
+	return s.precomputeWithSentenceEmbeddings(ctx, companyID, ismspItemID, uncachedRules, sentEmbs, result)
+}
+
+// precomputeWithSentenceEmbeddings embeds rule queries and computes cosine similarity
+// against pre-loaded sentence embeddings. Shared by fast and slow paths.
+func (s *GRCService) precomputeWithSentenceEmbeddings(
+	ctx context.Context,
+	companyID, ismspItemID string,
+	uncachedRules []Rule,
+	sentEmbs []postgres.SentenceEmbedding,
+	result map[string][]string,
+) map[string][]string {
+	var queries []string
+	for _, rule := range uncachedRules {
+		queries = append(queries, buildRuleQuery(rule))
+	}
+	log.Printf("[grc-gl-cache] embedding %d rule queries for %s/%s", len(queries), companyID, ismspItemID)
+	queryEmbeddings, err := s.embeddingClient.EmbedBatch(ctx, queries)
+	if err != nil || len(queryEmbeddings) == 0 {
+		log.Printf("[grc-gl-cache] query embedding failed: %v", err)
+		return result
+	}
+
+	for i, rule := range uncachedRules {
+		if i >= len(queryEmbeddings) || queryEmbeddings[i] == nil {
+			continue
+		}
+		queryEmb := queryEmbeddings[i]
+
+		var scored []scoredSentence
+		for _, se := range sentEmbs {
+			if se.Embedding == nil {
+				continue
+			}
+			sim := cosineSimilarity(queryEmb, se.Embedding)
+			scored = append(scored, scoredSentence{text: se.Text, score: sim})
+		}
+		sort.Slice(scored, func(a, b int) bool { return scored[a].score > scored[b].score })
+
+		k := defaultRAGTopK
+		if k > len(scored) {
+			k = len(scored)
+		}
+		topTexts := make([]string, k)
+		for j, hit := range scored[:k] {
+			topTexts[j] = hit.text
+		}
+
+		if err := s.repo.SaveGLRuleTopSentences(ctx, companyID, ismspItemID, rule.RuleID, topTexts); err != nil {
+			log.Printf("[grc-gl-cache] save failed for rule=%s: %v", rule.RuleID, err)
+		} else {
+			log.Printf("[grc-gl-cache] cached top-%d sentences for rule=%s", k, rule.RuleID)
+		}
+		result[rule.RuleID] = topTexts
+	}
+	return result
 }
 
 // buildGuidelineText combines a rule's criteria into a single text for embedding.
@@ -2242,7 +2524,9 @@ func extractTextString(data any) string {
 // Evaluation Handlers
 // ─────────────────────────────────────────────
 
-func (s *GRCService) evaluateRule(ctx context.Context, rule Rule, evidenceData []any, filenames []string, dbGuidelines []grc.Guideline) grc.RuleResult {
+// cachedGLSentences: pre-computed top-K guideline sentences for GL rules (may be nil).
+// When provided, evaluateLLMRAGEntailment skips the embedding step entirely.
+func (s *GRCService) evaluateRule(ctx context.Context, rule Rule, evidenceData []any, filenames []string, dbGuidelines []grc.Guideline, cachedGLSentences []string) grc.RuleResult {
 	base := grc.RuleResult{
 		RuleID:        rule.RuleID,
 		EvidenceFiles: filenames,
@@ -2252,7 +2536,7 @@ func (s *GRCService) evaluateRule(ctx context.Context, rule Rule, evidenceData [
 	case "structured_match", "manual_evidence_match", "hybrid_match":
 		return evaluateStructured(rule, evidenceData, base)
 	case "semantic_match":
-		return s.evaluateSemantic(ctx, rule, evidenceData, base, dbGuidelines)
+		return s.evaluateSemantic(ctx, rule, evidenceData, base, dbGuidelines, cachedGLSentences)
 	case "regex_match":
 		return evaluateRegex(rule, evidenceData, base)
 	case "aggregated_statistics":
@@ -2260,8 +2544,9 @@ func (s *GRCService) evaluateRule(ctx context.Context, rule Rule, evidenceData [
 	case "code_pattern_match":
 		return evaluateCodePattern(rule, evidenceData, base)
 	default:
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = fmt.Sprintf("지원하지 않는 judgment_logic type: %s", rule.JudgmentLogic.Type)
+		base.Reason = fmt.Sprintf("미지원 평가 방식: %s", rule.JudgmentLogic.Type)
 		return base
 	}
 }
@@ -2399,7 +2684,7 @@ func fieldFamilyExistsInText(field string, rawTextsLower []string) bool {
 	return false
 }
 
-func (s *GRCService) evaluateSemantic(ctx context.Context, rule Rule, evidenceData []any, base grc.RuleResult, dbGuidelines []grc.Guideline) grc.RuleResult {
+func (s *GRCService) evaluateSemantic(ctx context.Context, rule Rule, evidenceData []any, base grc.RuleResult, dbGuidelines []grc.Guideline, cachedGLSentences []string) grc.RuleResult {
 	// For semantic_match with vlm_behavioral_analysis, we need image analysis.
 	// For element_coverage_check, we need embedding search.
 	// Simplified implementation: keyword-based matching on text content.
@@ -2424,7 +2709,7 @@ func (s *GRCService) evaluateSemantic(ctx context.Context, rule Rule, evidenceDa
 	case "element_coverage_check":
 		return evaluateElementCoverage(rule, textContent, base)
 	case "llm_rag_entailment":
-		return s.evaluateLLMRAGEntailment(ctx, rule, dbGuidelines, evidenceData, base)
+		return s.evaluateLLMRAGEntailment(ctx, rule, dbGuidelines, evidenceData, base, cachedGLSentences)
 	case "vlm_behavioral_analysis":
 		return evaluateOCRKeywordMatch(rule, evidenceData, base)
 	default:
@@ -2535,15 +2820,18 @@ func evaluateOCRKeywordMatch(rule Rule, evidenceData []any, base grc.RuleResult)
 	}
 
 	if !hasImageEvidence {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictNOT_MET
 		base.SkipReason = "이미지 증적 없음"
+		base.Reason = "이미지 증적 미제출"
+		base.Violations = []grc.Violation{{Description: "이미지 증적 미제출", Severity: "medium"}}
 		return base
 	}
 
 	text := allText.String()
 	if strings.TrimSpace(text) == "" {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.SkipReason = "OCR 텍스트 추출 실패 (Tesseract 미설치 또는 텍스트 인식 불가)"
+		base.Reason = "OCR 텍스트 추출 실패"
 		return base
 	}
 
@@ -2704,8 +2992,10 @@ func evaluateAggregated(rule Rule, evidenceData []any, base grc.RuleResult) grc.
 	}
 
 	if len(records) == 0 {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictNOT_MET
 		base.SkipReason = "구조화된 레코드 없음"
+		base.Reason = "계정/사용자 레코드 데이터 미제출"
+		base.Violations = []grc.Violation{{Description: "계정 목록 증적 미제출", Severity: "medium"}}
 		return base
 	}
 
@@ -2741,8 +3031,10 @@ func evaluateCodePattern(rule Rule, evidenceData []any, base grc.RuleResult) grc
 	}
 
 	if codeText == "" {
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictNOT_MET
 		base.SkipReason = "코드 증적 없음"
+		base.Reason = "코드 파일 증적 미제출"
+		base.Violations = []grc.Violation{{Description: "코드 파일 증적 미제출", Severity: "medium"}}
 		return base
 	}
 

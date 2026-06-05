@@ -71,6 +71,23 @@ func (r *GRCRepo) UpdateCheckFailed(ctx context.Context, checkID string, errDeta
 	return err
 }
 
+// ResetStaleRunningChecks marks any checks left in 'running' or 'queued' state as 'failed'.
+// Called once at server startup to clean up checks orphaned by a previous container restart.
+func (r *GRCRepo) ResetStaleRunningChecks(ctx context.Context) (int64, error) {
+	tag, err := r.pg.Exec(ctx, `
+		UPDATE grc_checks
+		SET status = 'failed',
+		    completed_at = NOW(),
+		    error = '{"message":"server restart — check orphaned"}',
+		    updated_at = NOW()
+		WHERE status IN ('running', 'queued')
+	`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // SaveCheckResult persists the completed check results in a single transaction.
 // Updates grc_checks summary + inserts grc_rule_results, grc_violations, grc_recommendations.
 func (r *GRCRepo) SaveCheckResult(ctx context.Context, result *grc.ComplianceCheckResult) error {
@@ -810,6 +827,129 @@ func (r *GRCRepo) FindSimilarEvidence(ctx context.Context, queryEmb []float32, l
 	return files, nil
 }
 
+// ── GL Rule Top-Sentence Cache ──
+
+// SaveGLRuleTopSentences upserts the top-K guideline sentences for a GL rule.
+func (r *GRCRepo) SaveGLRuleTopSentences(ctx context.Context, companyID, ismspItemID, ruleID string, topSentences []string) error {
+	_, err := r.pg.Exec(ctx, `
+		INSERT INTO grc_gl_rule_top_sentences (company_id, isms_p_item_id, rule_id, top_sentences, computed_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (company_id, isms_p_item_id, rule_id)
+		DO UPDATE SET top_sentences = EXCLUDED.top_sentences, computed_at = NOW()
+	`, companyID, ismspItemID, ruleID, topSentences)
+	return err
+}
+
+// GetGLRuleTopSentences retrieves cached top sentences for a GL rule.
+// Returns (sentences, true, nil) on cache hit; (nil, false, nil) on miss.
+func (r *GRCRepo) GetGLRuleTopSentences(ctx context.Context, companyID, ismspItemID, ruleID string) ([]string, bool, error) {
+	var sentences []string
+	err := r.pg.QueryRow(ctx, `
+		SELECT top_sentences FROM grc_gl_rule_top_sentences
+		WHERE company_id = $1 AND isms_p_item_id = $2 AND rule_id = $3
+	`, companyID, ismspItemID, ruleID).Scan(&sentences)
+	if err != nil {
+		return nil, false, nil // treat all errors as cache miss
+	}
+	return sentences, true, nil
+}
+
+// InvalidateGLRuleCache removes all top-sentence caches for a (company, item) pair.
+// Call this when a new guideline is uploaded to force fresh precomputation.
+func (r *GRCRepo) InvalidateGLRuleCache(ctx context.Context, companyID, ismspItemID string) error {
+	_, err := r.pg.Exec(ctx, `
+		DELETE FROM grc_gl_rule_top_sentences WHERE company_id = $1 AND isms_p_item_id = $2
+	`, companyID, ismspItemID)
+	return err
+}
+
+// ── Guideline Sentence Embeddings ──
+
+// SentenceEmbedding holds a guideline sentence with its embedding vector.
+type SentenceEmbedding struct {
+	Text      string
+	Embedding []float32
+}
+
+// HasGuidelineSentenceEmbeddings returns true if any sentence embeddings exist for the guideline.
+func (r *GRCRepo) HasGuidelineSentenceEmbeddings(ctx context.Context, guidelineID int64) (bool, error) {
+	var count int
+	err := r.pg.QueryRow(ctx, `
+		SELECT COUNT(*) FROM grc_guideline_sentence_embeddings WHERE guideline_id = $1 LIMIT 1
+	`, guidelineID).Scan(&count)
+	return count > 0, err
+}
+
+// SaveGuidelineSentenceEmbeddings stores per-sentence embeddings for a guideline.
+// Idempotent: uses ON CONFLICT DO NOTHING.
+func (r *GRCRepo) SaveGuidelineSentenceEmbeddings(ctx context.Context, guidelineID int64, sentences []string, embeddings [][]float32) error {
+	if len(sentences) == 0 {
+		return nil
+	}
+	batch := &pgx.Batch{}
+	count := 0
+	for i, sentence := range sentences {
+		if i >= len(embeddings) || embeddings[i] == nil {
+			continue
+		}
+		vecStr := vectorToString(embeddings[i])
+		if vecStr == nil {
+			continue
+		}
+		batch.Queue(
+			`INSERT INTO grc_guideline_sentence_embeddings (guideline_id, sentence_index, sentence_text, embedding)
+			 VALUES ($1, $2, $3, $4::vector)
+			 ON CONFLICT (guideline_id, sentence_index) DO NOTHING`,
+			guidelineID, i, sentence, *vecStr,
+		)
+		count++
+	}
+	if count == 0 {
+		return nil
+	}
+	results := r.pg.SendBatch(ctx, batch)
+	defer results.Close()
+	for i := 0; i < count; i++ {
+		if _, err := results.Exec(); err != nil {
+			// log but continue — partial save is better than none
+			fmt.Printf("[grc-repo] sentence embedding row %d save error: %v\n", i, err)
+		}
+	}
+	return results.Close()
+}
+
+// GetGuidelineSentenceEmbeddingsForItem loads all stored sentence embeddings for all guidelines
+// belonging to a (company, isms_p_item_id) pair. Returns empty slice if none exist.
+func (r *GRCRepo) GetGuidelineSentenceEmbeddingsForItem(ctx context.Context, companyID, ismspItemID string) ([]SentenceEmbedding, error) {
+	rows, err := r.pg.Query(ctx, `
+		SELECT e.sentence_text, e.embedding::text
+		FROM grc_guideline_sentence_embeddings e
+		JOIN grc_guidelines g ON g.id = e.guideline_id
+		WHERE g.company_id = $1
+		  AND g.isms_p_item_id = $2
+		ORDER BY g.id, e.sentence_index
+	`, companyID, ismspItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []SentenceEmbedding
+	for rows.Next() {
+		var text string
+		var vecText string
+		if err := rows.Scan(&text, &vecText); err != nil {
+			continue
+		}
+		emb, err := parseVectorText(vecText)
+		if err != nil || len(emb) == 0 {
+			continue
+		}
+		result = append(result, SentenceEmbedding{Text: text, Embedding: emb})
+	}
+	return result, rows.Err()
+}
+
 // ── Cloud Environments ──
 
 // InsertCloudEnvironment inserts a new cloud environment resource.
@@ -1155,13 +1295,13 @@ func (r *GRCRepo) SaveClusterComplianceResult(ctx context.Context, result *grc.C
 			(company_id, cluster_name, snapshot_at, evaluated_at,
 			 total_items, compliant_items, non_compliant_items, needs_review_items,
 			 no_data_items, indeterminate_items,
-			 total_rules, total_pods, items)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			 total_rules, total_pods, duration_ms, items)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id
 	`, result.CompanyID, result.ClusterName, snapshotAt, evaluatedAt,
 		result.TotalItems, result.CompliantItems, result.NonCompliantItems, result.NeedsReviewItems,
 		result.NoDataItems, result.IndeterminateItems,
-		result.TotalRules, result.TotalPods, itemsJSON).Scan(&id)
+		result.TotalRules, result.TotalPods, result.DurationMs, itemsJSON).Scan(&id)
 	return id, err
 }
 
@@ -1422,6 +1562,33 @@ func (r *GRCRepo) FindGuidelineEmbeddingByHash(ctx context.Context, hash string)
 		return nil, false, nil
 	}
 	return emb, true, nil
+}
+
+// ListCompanyItemsWithGuidelines returns distinct (company_id, isms_p_item_id) pairs
+// that have at least one guideline with extracted text, used by the GL scheduler.
+func (r *GRCRepo) ListCompanyItemsWithGuidelines(ctx context.Context) ([]grc.GLCheckTarget, error) {
+	rows, err := r.pg.Query(ctx, `
+		SELECT DISTINCT company_id, isms_p_item_id
+		FROM grc_guidelines
+		WHERE isms_p_item_id IS NOT NULL
+		  AND extracted_text IS NOT NULL
+		  AND extracted_text != ''
+		ORDER BY company_id, isms_p_item_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var targets []grc.GLCheckTarget
+	for rows.Next() {
+		var t grc.GLCheckTarget
+		if err := rows.Scan(&t.CompanyID, &t.ISMSPItemID); err != nil {
+			return nil, err
+		}
+		targets = append(targets, t)
+	}
+	return targets, rows.Err()
 }
 
 // UpdateCheckGuidelineIDs saves the guideline IDs used in a check.

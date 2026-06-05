@@ -291,6 +291,13 @@ type GuidelineListItem struct {
 	UploadedAt       time.Time `json:"uploaded_at"`
 }
 
+// GLCheckTarget represents a (company_id, isms_p_item_id) pair that has at least one
+// guideline with extracted text, making it eligible for automated GL-layer evaluation.
+type GLCheckTarget struct {
+	CompanyID   string
+	ISMSPItemID string
+}
+
 // ── 클라우드 환경 정보 ──
 
 // CloudEnvironment represents a Kubernetes resource stored for GRC compliance matching.
@@ -411,6 +418,7 @@ type ClusterComplianceResult struct {
 	ClusterName        string                 `json:"cluster_name"`
 	SnapshotAt         string                 `json:"snapshot_at"`
 	EvaluatedAt        string                 `json:"evaluated_at"`
+	DurationMs         int64                  `json:"duration_ms"`
 	TotalItems         int                    `json:"total_items"`
 	CompliantItems     int                    `json:"compliant_items"`
 	NonCompliantItems  int                    `json:"non_compliant_items"`

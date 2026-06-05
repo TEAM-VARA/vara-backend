@@ -89,7 +89,7 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 
 	if meta.Deferred {
 		base.Matched = false
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		base.Observation = fmt.Sprintf("[보류] %s", meta.DeferredReason)
 		return base
 	}
@@ -97,13 +97,13 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 	// Parse condition
 	if len(meta.Condition) == 0 {
 		base.Observation = "조건 미정의 (manual_meta.condition 없음)"
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		return base
 	}
 	var cond map[string]any
 	if err := json.Unmarshal(meta.Condition, &cond); err != nil {
 		base.Observation = fmt.Sprintf("조건 파싱 오류: %v", err)
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		return base
 	}
 
@@ -176,7 +176,7 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 		result = findingProdShellExec(base, snap, cond)
 	default:
 		base.Observation = fmt.Sprintf("미지원 operator: %s", op)
-		base.Verdict = "skipped"
+		base.Verdict = grc.VerdictINDETERMINATE
 		return base
 	}
 

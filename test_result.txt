@@ -1,0 +1,1333 @@
+============================================
+  VARA GRC API 전체 테스트
+============================================
+
+▶ [0] Health Check
+{
+  "status": "ok"
+}
+
+▶ [1] 룰셋 목록 (GET /rulesets)
+{
+  "data": [
+    {
+      "isms_p_item_id": "1.2.1",
+      "name": "정보자산 식별",
+      "category_path": "1. 관리체계 수립 및 운영 > 1.2 위험 관리 > 1.2.1 정보자산 식별",
+      "rule_count": 6,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "1.2.2",
+      "name": "현황 및 흐름분석",
+      "category_path": "1. 관리체계 수립 및 운영 > 1.2 위험 관리 > 1.2.2 현황 및 흐름분석",
+      "rule_count": 6,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.1.3",
+      "name": "정보자산 관리",
+      "category_path": "2. 보호대책 요구사항 > 2.1 정책, 조직, 자산 관리 > 2.1.3 정보자산 관리",
+      "rule_count": 5,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.10.2",
+      "name": "클라우드 보안",
+      "category_path": "2. 보호대책 요구사항 > 2.10 시스템 및 서비스 보안관리 > 2.10.2 클라우드 보안",
+      "rule_count": 4,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.10.3",
+      "name": "공개서버 보안",
+      "category_path": "2. 보호대책 요구사항 > 2.10 시스템 및 서비스 보안관리 > 2.10.3 공개서버 보안",
+      "rule_count": 8,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.10.5",
+      "name": "정보전송 보안",
+      "category_path": "2. 보호대책 요구사항 > 2.10 시스템 및 서비스 보안관리 > 2.10.5 정보전송 보안",
+      "rule_count": 4,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.10.8",
+      "name": "패치관리",
+      "category_path": "2. 보호대책 요구사항 > 2.10 시스템 및 서비스 보안관리 > 2.10.8 패치관리",
+      "rule_count": 8,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.11.3",
+      "name": "이상행위 분석 및 모니터링",
+      "category_path": "2. 보호대책 요구사항 > 2.11 사고 예방 및 대응 > 2.11.3 이상행위 분석 및 모니터링",
+      "rule_count": 4,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.5.1",
+      "name": "사용자 계정 관리",
+      "category_path": "2. 보호대책 요구사항 > 2.5 인증 및 권한관리 > 2.5.1 사용자 계정 관리",
+      "rule_count": 7,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.5.2",
+      "name": "사용자 식별",
+      "category_path": "2. 보호대책 요구사항 > 2.5 인증 및 권한관리 > 2.5.2 사용자 식별",
+      "rule_count": 5,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.5.4",
+      "name": "비밀번호 관리",
+      "category_path": "2. 보호대책 요구사항 > 2.5 인증 및 권한 관리 > 2.5.4 비밀번호 관리",
+      "rule_count": 28,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.5.5",
+      "name": "특수 계정 및 권한 관리",
+      "category_path": "2. 보호대책 요구사항 > 2.5 인증 및 권한관리 > 2.5.5 특수 계정 및 권한 관리",
+      "rule_count": 8,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.6.1",
+      "name": "네트워크 접근",
+      "category_path": "2. 보호대책 요구사항 > 2.6 접근통제 > 2.6.1 네트워크 접근",
+      "rule_count": 8,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.6.3",
+      "name": "응용프로그램 접근",
+      "category_path": "2. 보호대책 요구사항 > 2.6 접근통제 > 2.6.3 응용프로그램 접근",
+      "rule_count": 6,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.6.7",
+      "name": "인터넷 접속 통제",
+      "category_path": "2. 보호대책 요구사항 > 2.6 접근통제 > 2.6.7 인터넷 접속 통제",
+      "rule_count": 5,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.7.1",
+      "name": "암호정책 적용",
+      "category_path": "2. 보호대책 요구사항 > 2.7 암호화 적용 > 2.7.1 암호정책 적용",
+      "rule_count": 7,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.8.3",
+      "name": "시험과 운영 환경 분리",
+      "category_path": "2. 보호대책 요구사항 > 2.8 정보시스템 도입 및 개발 보안 > 2.8.3 시험과 운영 환경 분리",
+      "rule_count": 5,
+      "isms_p_revision": "2023.11"
+    },
+    {
+      "isms_p_item_id": "2.9.1",
+      "name": "변경관리",
+      "category_path": "2. 보호대책 요구사항 > 2.9 시스템 및 서비스 운영관리 > 2.9.1 변경관리",
+      "rule_count": 4,
+      "isms_p_revision": "2023.11"
+    }
+  ]
+}
+
+▶ [2] 룰셋 상세 (GET /rulesets/2.5.2)
+{
+  "item_id": null,
+  "item_name": null,
+  "rules": [
+    {
+      "rule_id": "R-2.5.2-01",
+      "name": "추측 가능한 SA 이름",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "judgment_logic": null
+    },
+    {
+      "rule_id": "R-2.5.2-02",
+      "name": "일반 명명 패턴",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "judgment_logic": null
+    },
+    {
+      "rule_id": "R-2.5.2-GL01",
+      "name": "사용자별 유일 식별자 부여",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "judgment_logic": "llm_rag_entailment"
+    },
+    {
+      "rule_id": "R-2.5.2-GL02",
+      "name": "추측 가능한 식별자 사용 제한",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "judgment_logic": "llm_rag_entailment"
+    },
+    {
+      "rule_id": "R-2.5.2-GL03",
+      "name": "공유 식별자 통제",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "judgment_logic": "llm_rag_entailment"
+    }
+  ]
+}
+
+▶ [3] 지침서 업로드 (POST /compliance/guidelines)
+{
+  "company_id": "test-company",
+  "file_size_bytes": 329747,
+  "filename": "정보보호_및_개인정보보호_지침서.pdf",
+  "has_embedding": true,
+  "has_text": true,
+  "id": 14,
+  "isms_p_item_id": null,
+  "triggered_check_id": "",
+  "uploaded_at": "2026-06-03T17:16:02.190857Z",
+  "version": 1
+}
+
+▶ [4] 지침서 목록 (GET /compliance/guidelines)
+{
+  "data": [
+    {
+      "id": 15,
+      "company_id": "test-company",
+      "isms_p_item_id": null,
+      "filename": "SBS정보보안정책서.pdf",
+      "file_size_bytes": 3831761,
+      "has_extracted_text": true,
+      "has_embedding": true,
+      "version": 0,
+      "uploaded_at": "2026-06-03T17:19:39.45603Z"
+    },
+    {
+      "id": 14,
+      "company_id": "test-company",
+      "isms_p_item_id": null,
+      "filename": "정보보호_및_개인정보보호_지침서.pdf",
+      "file_size_bytes": 329747,
+      "has_extracted_text": true,
+      "has_embedding": true,
+      "version": 0,
+      "uploaded_at": "2026-06-03T17:16:02.190857Z"
+    },
+    {
+      "id": 11,
+      "company_id": "test-company",
+      "isms_p_item_id": "2.5.4",
+      "filename": "정보보호_및_개인정보보호_지침서.pdf",
+      "file_size_bytes": 329747,
+      "has_extracted_text": true,
+      "has_embedding": true,
+      "version": 0,
+      "uploaded_at": "2026-06-03T15:54:36.800685Z"
+    },
+    {
+      "id": 4,
+      "company_id": "test-company",
+      "isms_p_item_id": "2.6.1",
+      "filename": "03_VARA_ISMS-P_증적_미준수.pdf",
+      "file_size_bytes": 186306,
+      "has_extracted_text": true,
+      "has_embedding": true,
+      "version": 0,
+      "uploaded_at": "2026-05-24T09:01:13.008976Z"
+    },
+    {
+      "id": 3,
+      "company_id": "test-company",
+      "isms_p_item_id": "2.6.1",
+      "filename": "02_VARA_ISMS-P_증적_준수.pdf",
+      "file_size_bytes": 157106,
+      "has_extracted_text": true,
+      "has_embedding": true,
+      "version": 0,
+      "uploaded_at": "2026-05-24T08:59:14.007595Z"
+    },
+    {
+      "id": 2,
+      "company_id": "test-company",
+      "isms_p_item_id": "2.6.1",
+      "filename": "01_VARA_ISMS-P_지침서.pdf",
+      "file_size_bytes": 165264,
+      "has_extracted_text": true,
+      "has_embedding": true,
+      "version": 0,
+      "uploaded_at": "2026-05-24T08:56:41.04148Z"
+    }
+  ]
+}
+
+▶ [5] 지침 점검 생성 — 2.5.2 (POST /compliance/checks, evidence 없이)
+{
+  "check_id": "ck_xrbcFISc9G",
+  "company_id": "test-company",
+  "estimated_seconds": 30,
+  "isms_p_item_id": "2.5.2",
+  "status": "queued",
+  "submitted_at": "2026-06-05T14:36:57.144380507Z"
+}
+
+  → check_id: ck_xrbcFISc9G
+  → 결과 대기 중 (최대 10분)...
+  [10s] status=running
+  [20s] status=running
+  [30s] status=running
+  [40s] status=running
+  [50s] status=running
+  [60s] status=running
+  [70s] status=running
+  [80s] status=running
+  [90s] status=running
+  [100s] status=running
+  [110s] status=running
+  [120s] status=running
+  [130s] status=running
+  [140s] status=running
+  [150s] status=running
+  [160s] status=running
+  [170s] status=running
+  [180s] status=running
+  [190s] status=running
+  [200s] status=running
+  [210s] status=running
+  [220s] status=running
+  [230s] status=running
+  [240s] status=running
+  [250s] status=running
+  [260s] status=running
+  [270s] status=running
+  [280s] status=running
+  [290s] status=running
+  [300s] status=running
+  [310s] status=running
+  [320s] status=running
+  [330s] status=running
+  [340s] status=running
+  [350s] status=running
+  [360s] status=running
+  [370s] status=running
+  [380s] status=running
+  [390s] status=running
+  [400s] status=running
+  [410s] status=running
+  [420s] status=running
+  [430s] status=running
+  [440s] status=running
+  [450s] status=running
+  [460s] status=running
+  [470s] status=running
+  [480s] status=running
+  [490s] status=running
+  [500s] status=running
+  [510s] status=running
+  [520s] status=running
+  [530s] status=running
+  [540s] status=running
+  [550s] status=running
+  [560s] status=running
+  [570s] status=running
+  [580s] status=running
+  [590s] status=running
+  [600s] status=running
+
+▶ [6] 지침 점검 결과 (GET /compliance/checks/ck_xrbcFISc9G)
+{
+  "check_id": "ck_xrbcFISc9G",
+  "company_id": "test-company",
+  "isms_p_item_id": "2.5.2",
+  "status": "running",
+  "progress_pct": 40,
+  "submitted_at": "2026-06-05T14:36:57.14438Z",
+  "started_at": "2026-06-05T14:36:57.14744Z"
+}
+
+▶ [6-1] 룰별 verdict 요약
+{
+  "check_id": "ck_xrbcFISc9G",
+  "status": "running",
+  "verdict": null,
+  "summary": null,
+  "rule_verdicts": []
+}
+
+▶ [7] 점검 목록 (GET /compliance/checks)
+{
+  "data": [
+    {
+      "check_id": "ck_xrbcFISc9G",
+      "company_id": "test-company",
+      "isms_p_item_id": "2.5.2",
+      "status": "running",
+      "submitted_at": "2026-06-05T14:36:57.14438Z"
+    },
+    {
+      "check_id": "ck_Z24Md8Ud2K",
+      "company_id": "test-company",
+      "isms_p_item_id": "2.5.2",
+      "status": "failed",
+      "submitted_at": "2026-06-05T14:22:51.524186Z",
+      "completed_at": "2026-06-05T14:36:51.813335Z"
+    },
+    {
+      "check_id": "ck_DzorTHIoEX",
+      "company_id": "test-company",
+      "isms_p_item_id": "2.5.2",
+      "status": "completed",
+      "verdict": "준수",
+      "severity": "low",
+      "total_rules": 3,
+      "skipped_rules": 3,
+      "submitted_at": "2026-06-05T14:00:51.838311Z",
+      "completed_at": "2026-06-05T14:46:09.88915Z"
+    },
+    {
+      "check_id": "ck_WgCy5NEcPn",
+      "company_id": "test-company",
+      "isms_p_item_id": "2.6.1",
+      "status": "completed",
+      "verdict": "준수",
+      "severity": "low",
+      "total_rules": 4,
+      "skipped_rules": 4,
+      "submitted_at": "2026-06-05T13:32:17.435174Z",
+      "completed_at": "2026-06-05T14:32:41.680322Z"
+    },
+    {
+      "check_id": "ck_d6XlcaCedT",
+      "company_id": "test-company",
+      "isms_p_item_id": "2.5.4",
+      "status": "failed",
+      "submitted_at": "2026-06-05T13:32:17.415234Z",
+      "completed_at": "2026-06-05T14:36:51.813335Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "page_size": 5,
+    "total_count": 25,
+    "total_pages": 5
+  }
+}
+
+▶ [8] 클러스터 평가 실행 (POST /compliance/cluster/evaluate)
+{
+  "total_items": 18,
+  "compliant_items": 6,
+  "non_compliant_items": 3,
+  "needs_review_items": 7,
+  "total_rules": 862,
+  "total_pods": 14,
+  "items": [
+    {
+      "isms_p_item_id": "2.10.3",
+      "item_name": "공개서버 보안",
+      "verdict": "NEEDS_REVIEW",
+      "passed": 56,
+      "failed": 0,
+      "needs_review": 14,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.6.1",
+      "item_name": "네트워크 접근",
+      "verdict": "NEEDS_REVIEW",
+      "passed": 14,
+      "failed": 0,
+      "needs_review": 42,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.10.8",
+      "item_name": "패치관리",
+      "verdict": "MET",
+      "passed": 29,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.5.1",
+      "item_name": "사용자 계정 관리",
+      "verdict": "NOT_MET",
+      "passed": 29,
+      "failed": 2,
+      "needs_review": 0,
+      "violated_asset_count": 2
+    },
+    {
+      "isms_p_item_id": "2.5.2",
+      "item_name": "사용자 식별",
+      "verdict": "MET",
+      "passed": 28,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.7.1",
+      "item_name": "암호정책 적용",
+      "verdict": "MET",
+      "passed": 56,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.9.1",
+      "item_name": "변경관리",
+      "verdict": "MET",
+      "passed": 28,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.6.3",
+      "item_name": "응용프로그램 접근",
+      "verdict": "NOT_MET",
+      "passed": 14,
+      "failed": 14,
+      "needs_review": 0,
+      "violated_asset_count": 14
+    },
+    {
+      "isms_p_item_id": "1.2.1",
+      "item_name": "정보자산 식별",
+      "verdict": "NOT_MET",
+      "passed": 0,
+      "failed": 14,
+      "needs_review": 0,
+      "violated_asset_count": 14
+    },
+    {
+      "isms_p_item_id": "1.2.2",
+      "item_name": "현황 및 흐름분석",
+      "verdict": "NEEDS_REVIEW",
+      "passed": 0,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.1.3",
+      "item_name": "정보자산 관리",
+      "verdict": "NEEDS_REVIEW",
+      "passed": 0,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.10.5",
+      "item_name": "정보전송 보안",
+      "verdict": "MET",
+      "passed": 28,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.5.4",
+      "item_name": "비밀번호 관리",
+      "verdict": "SKIPPED",
+      "passed": 0,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.5.5",
+      "item_name": "특수 계정 및 권한 관리",
+      "verdict": "MET",
+      "passed": 28,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.10.2",
+      "item_name": "클라우드 보안",
+      "verdict": "NEEDS_REVIEW",
+      "passed": 0,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.11.3",
+      "item_name": "이상행위 분석 및 모니터링",
+      "verdict": "SKIPPED",
+      "passed": 0,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.6.7",
+      "item_name": "인터넷 접속 통제",
+      "verdict": "NEEDS_REVIEW",
+      "passed": 0,
+      "failed": 0,
+      "needs_review": 14,
+      "violated_asset_count": 0
+    },
+    {
+      "isms_p_item_id": "2.8.3",
+      "item_name": "시험과 운영 환경 분리",
+      "verdict": "NEEDS_REVIEW",
+      "passed": 14,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_asset_count": 0
+    }
+  ]
+}
+
+▶ [9] 전체 항목 한눈에 (GET /compliance/overview)
+{
+  "total_items": 19,
+  "compliant_items": 5,
+  "non_compliant_items": 5,
+  "needs_review_items": 7,
+  "no_data_items": 2,
+  "total_rules": 889,
+  "total_pods": 14,
+  "items": [
+    {
+      "isms_p_item_id": "2.10.8",
+      "item_name": "패치관리",
+      "verdict": "준수",
+      "note": "29개 룰 전부 통과 — 컨테이너 'agent': v0.1; 컨테이너 'agent': image_digest 존재; 컨테이너 'ebpf-agent': v0.3",
+      "passed": 29,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.5.2",
+      "item_name": "사용자 식별",
+      "verdict": "준수",
+      "note": "28개 룰 전부 통과 — SA 'vara-cluster-agent' — 추측 불가 이름; SA 'vara-cluster-agent' — 고유 명명; SA 'default' — 추측 불가 이름",
+      "passed": 28,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.5.4",
+      "item_name": "비밀번호 관리",
+      "verdict": "데이터없음",
+      "note": "아직 평가되지 않은 항목 — 클러스터 평가 또는 GL 점검 실행 필요",
+      "passed": 0,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.10.2",
+      "item_name": "클라우드 보안",
+      "verdict": "검토필요",
+      "note": "데이터 부족 (NO_DATA 14건, 확인불가 0건) — 수동 확인 권장",
+      "passed": 0,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.10.5",
+      "item_name": "정보전송 보안",
+      "verdict": "준수",
+      "note": "28개 룰 전부 통과 — Ingress 미사용 — 해당 없음; ExternalName Service 없음 — 해당 없음; Ingress 미사용 — 해당 없음",
+      "passed": 28,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.6.1",
+      "item_name": "네트워크 접근",
+      "verdict": "검토필요",
+      "note": "42개 룰 검토 필요 (자동 판단 불가, 수동 확인 권장)",
+      "passed": 14,
+      "failed": 0,
+      "needs_review": 42,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.8.3",
+      "item_name": "시험과 운영 환경 분리",
+      "verdict": "검토필요",
+      "note": "데이터 부족 (NO_DATA 14건, 확인불가 0건) — 수동 확인 권장",
+      "passed": 14,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.9.1",
+      "item_name": "변경관리",
+      "verdict": "준수",
+      "note": "28개 룰 전부 통과 — Deployment 워크로드 없음 — 해당 없음; 워크로드 없음 — 해당 없음; Deployment 워크로드 없음 — 해당 없음",
+      "passed": 28,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "1.2.1",
+      "item_name": "정보자산 식별",
+      "verdict": "미준수",
+      "note": "14개 룰 미준수, 14개 Pod 위반 — 원인: 자산 분류 정책 ConfigMap이 없거나 1년 이내 갱신되지 않음 — 조치: 자산 분류 기준서 ConfigMap을 생성하고 policy-version, approved-by, approved-at annotation과 함께 1년 이내 갱신 상태를 유지하세요",
+      "passed": 0,
+      "failed": 14,
+      "needs_review": 0,
+      "violated_pod_count": 14,
+      "violated_pods": [
+        {
+          "name": "metrics-server-7b64c7b56f-k9qsk",
+          "namespace": "kube-system",
+          "rules": [
+            {
+              "rule_id": "R-1.2.1-02",
+              "fail_message": "자산 분류 정책 ConfigMap이 없거나 1년 이내 갱신되지 않음",
+              "remediation": "자산 분류 기준서 ConfigMap을 생성하고 policy-version, approved-by, approved-at annotation과 함께 1년 이내 갱신 상태를 유지하세요"
+            }
+          ]
+        },
+        {
+          "name": "tetragon-b4pcn",
+          "namespace": "kube-system",
+          "rules": [
+            {
+              "rule_id": "R-1.2.1-02",
+              "fail_message": "자산 분류 정책 ConfigMap이 없거나 1년 이내 갱신되지 않음",
+              "remediation": "자산 분류 기준서 ConfigMap을 생성하고 policy-version, approved-by, approved-at annotation과 함께 1년 이내 갱신 상태를 유지하세요"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "isms_p_item_id": "1.2.2",
+      "item_name": "현황 및 흐름분석",
+      "verdict": "검토필요",
+      "note": "데이터 부족 (NO_DATA 28건, 확인불가 0건) — 수동 확인 권장",
+      "passed": 0,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.1.3",
+      "item_name": "정보자산 관리",
+      "verdict": "검토필요",
+      "note": "데이터 부족 (NO_DATA 28건, 확인불가 0건) — 수동 확인 권장",
+      "passed": 2,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.11.3",
+      "item_name": "이상행위 분석 및 모니터링",
+      "verdict": "데이터없음",
+      "note": "아직 평가되지 않은 항목 — 클러스터 평가 또는 GL 점검 실행 필요",
+      "passed": 0,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.5.5",
+      "item_name": "특수 계정 및 권한 관리",
+      "verdict": "미준수",
+      "note": "1개 룰 미준수, 0개 Pod 위반",
+      "passed": 31,
+      "failed": 1,
+      "needs_review": 2,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.10.3",
+      "item_name": "공개서버 보안",
+      "verdict": "검토필요",
+      "note": "14개 룰 검토 필요 (자동 판단 불가, 수동 확인 권장)",
+      "passed": 56,
+      "failed": 0,
+      "needs_review": 14,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.5.1",
+      "item_name": "사용자 계정 관리",
+      "verdict": "미준수",
+      "note": "2개 룰 미준수, 2개 Pod 위반 — 원인: Pod이 default ServiceAccount를 사용 중 — 조치: Pod에 전용 ServiceAccount를 생성하여 할당하고 automountServiceAccountToken을 필요한 경우에만 활성화하세요",
+      "passed": 29,
+      "failed": 2,
+      "needs_review": 0,
+      "violated_pod_count": 2,
+      "violated_pods": [
+        {
+          "name": "vara-ebpf-agent-72zcq",
+          "namespace": "default",
+          "rules": [
+            {
+              "rule_id": "R-2.5.1-01",
+              "fail_message": "Pod이 default ServiceAccount를 사용 중",
+              "remediation": "Pod에 전용 ServiceAccount를 생성하여 할당하고 automountServiceAccountToken을 필요한 경우에만 활성화하세요"
+            }
+          ]
+        },
+        {
+          "name": "vara-ebpf-agent-nb4z9",
+          "namespace": "default",
+          "rules": [
+            {
+              "rule_id": "R-2.5.1-01",
+              "fail_message": "Pod이 default ServiceAccount를 사용 중",
+              "remediation": "Pod에 전용 ServiceAccount를 생성하여 할당하고 automountServiceAccountToken을 필요한 경우에만 활성화하세요"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "isms_p_item_id": "2.6.3",
+      "item_name": "응용프로그램 접근",
+      "verdict": "미준수",
+      "note": "14개 룰 미준수, 14개 Pod 위반 — 원인: 서비스 간 mTLS 미적용 — 조치: 서비스 메시(Istio, Linkerd 등)를 통해 mTLS를 활성화하거나 sidecar injection을 설정하세요",
+      "passed": 14,
+      "failed": 14,
+      "needs_review": 0,
+      "violated_pod_count": 14,
+      "violated_pods": [
+        {
+          "name": "vara-ebpf-agent-72zcq",
+          "namespace": "default",
+          "rules": [
+            {
+              "rule_id": "R-2.6.3-02",
+              "fail_message": "서비스 간 mTLS 미적용",
+              "remediation": "서비스 메시(Istio, Linkerd 등)를 통해 mTLS를 활성화하거나 sidecar injection을 설정하세요"
+            }
+          ]
+        },
+        {
+          "name": "aws-node-xlgcs",
+          "namespace": "kube-system",
+          "rules": [
+            {
+              "rule_id": "R-2.6.3-02",
+              "fail_message": "서비스 간 mTLS 미적용",
+              "remediation": "서비스 메시(Istio, Linkerd 등)를 통해 mTLS를 활성화하거나 sidecar injection을 설정하세요"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "isms_p_item_id": "2.6.7",
+      "item_name": "인터넷 접속 통제",
+      "verdict": "검토필요",
+      "note": "14개 룰 검토 필요 (자동 판단 불가, 수동 확인 권장)",
+      "passed": 0,
+      "failed": 0,
+      "needs_review": 14,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "2.7.1",
+      "item_name": "암호정책 적용",
+      "verdict": "준수",
+      "note": "56개 룰 전부 통과 — Pod에서 Secret 참조 없음 — 해당 없음; Pod에서 ConfigMap 참조 없음 — 해당 없음; Ingress 미사용 — 해당 없음",
+      "passed": 56,
+      "failed": 0,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    },
+    {
+      "isms_p_item_id": "1.1.4",
+      "item_name": "1.1.4",
+      "verdict": "미준수",
+      "note": "5개 룰 미준수, 0개 Pod 위반",
+      "passed": 1,
+      "failed": 5,
+      "needs_review": 0,
+      "violated_pod_count": 0,
+      "violated_pods": []
+    }
+  ]
+}
+
+▶ [10] 특정 항목 상세 (GET /compliance/items/2.6.1)
+{
+  "isms_p_item_id": "2.6.1",
+  "isms_p_item_name": "네트워크 접근",
+  "total_violated_assets": 14,
+  "assets": [
+    {
+      "kind": "Pod",
+      "name": "aws-node-ssr8d",
+      "namespace": "kube-system",
+      "violated_rules": [
+        "R-2.6.1-02",
+        "R-2.6.1-04",
+        "R-2.6.1-03"
+      ]
+    },
+    {
+      "kind": "Pod",
+      "name": "aws-node-xlgcs",
+      "namespace": "kube-system",
+      "violated_rules": [
+        "R-2.6.1-04",
+        "R-2.6.1-03",
+        "R-2.6.1-02"
+      ]
+    },
+    {
+      "kind": "Pod",
+      "name": "coredns-5d5995f646-pzds2",
+      "namespace": "kube-system",
+      "violated_rules": [
+        "R-2.6.1-04",
+        "R-2.6.1-02",
+        "R-2.6.1-03"
+      ]
+    }
+  ]
+}
+
+▶ [11] Pod별 점검 결과 (GET /compliance/pods/vara-cluster-agent-648d96f79b-rs5ds/compliance)
+{
+  "pod_name": "vara-cluster-agent-648d96f79b-rs5ds",
+  "namespace": "default",
+  "cluster_name": "vara-eks-test",
+  "cluster_findings": null,
+  "summary": {
+    "rule_compliance": {
+      "evaluated": 30,
+      "compliant": 24,
+      "non_compliant": 6,
+      "skipped": 31
+    },
+    "related_findings": {
+      "potential_finding": 0,
+      "needs_review": 0,
+      "compliant_indicator": 0
+    }
+  }
+}
+
+▶ [12] Pod별 위반 상세 (GET /compliance/pods/vara-cluster-agent-648d96f79b-rs5ds/violations)
+{
+  "pod_name": "vara-cluster-agent-648d96f79b-rs5ds",
+  "namespace": "default",
+  "cluster_name": "vara-eks-test",
+  "overall_verdict": "미준수",
+  "evaluated_at": "2026-06-05T14:46:59Z",
+  "total_violated_items": 4,
+  "violated_items": [
+    {
+      "isms_p_item_id": "2.6.3",
+      "isms_p_item_name": "응용프로그램 접근",
+      "total_rules": 2,
+      "passed": 1,
+      "failed": 1,
+      "skipped": 0,
+      "failed_rules": [
+        {
+          "rule_id": "R-2.6.3-02",
+          "name": "내부 Service mTLS 강제 점검",
+          "isms_p_item": "2.6.3",
+          "isms_p_item_name": "응용프로그램 접근",
+          "verdict": "미준수",
+          "violations": [
+            {
+              "field": "istio_injection_enabled",
+              "expected": "== true",
+              "actual": false,
+              "description": "namespace에 istio-injection=enabled 라벨 없음 — mTLS 강제 불가",
+              "severity": "high",
+              "k8s_source": {
+                "namespace": "default",
+                "resource_kind": "Namespace",
+                "resource_name": "default"
+              }
+            }
+          ],
+          "fail_message": "서비스 간 mTLS 미적용",
+          "remediation": "서비스 메시(Istio, Linkerd 등)를 통해 mTLS를 활성화하거나 sidecar injection을 설정하세요",
+          "layer": "R"
+        }
+      ]
+    },
+    {
+      "isms_p_item_id": "2.6.7",
+      "isms_p_item_name": "인터넷 접속 통제",
+      "total_rules": 2,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 1,
+      "failed_rules": [
+        {
+          "rule_id": "R-2.6.7-01",
+          "name": "egress NetworkPolicy 미적용",
+          "isms_p_item": "2.6.7",
+          "isms_p_item_name": "인터넷 접속 통제",
+          "severity": "medium",
+          "verdict": "미준수",
+          "violations": [
+            {
+              "field": "egress_policy_applied",
+              "expected": "== true",
+              "actual": false,
+              "description": "Pod 'vara-cluster-agent-648d96f79b-rs5ds'에 egress NetworkPolicy 미적용 (인터넷 자유 접속)",
+              "severity": "medium",
+              "k8s_source": {
+                "namespace": "default",
+                "resource_kind": "Pod",
+                "resource_name": "vara-cluster-agent-648d96f79b-rs5ds"
+              }
+            }
+          ],
+          "fail_message": "Pod에 Egress NetworkPolicy 미적용",
+          "remediation": "Pod에 Egress NetworkPolicy를 적용하여 외부 인터넷 접속을 통제하세요",
+          "layer": "R"
+        }
+      ]
+    },
+    {
+      "isms_p_item_id": "2.6.1",
+      "isms_p_item_name": "네트워크 접근",
+      "total_rules": 4,
+      "passed": 1,
+      "failed": 3,
+      "skipped": 0,
+      "failed_rules": [
+        {
+          "rule_id": "R-2.6.1-02",
+          "name": "NetworkPolicy 적용 점검",
+          "isms_p_item": "2.6.1",
+          "isms_p_item_name": "네트워크 접근",
+          "verdict": "미준수",
+          "violations": [
+            {
+              "field": "has_default_deny",
+              "expected": "== true",
+              "actual": false,
+              "description": "default-deny NetworkPolicy 미존재 — 모든 Pod 간 무제한 통신 가능",
+              "severity": "high",
+              "k8s_source": {
+                "namespace": "default",
+                "resource_kind": "Namespace",
+                "resource_name": "default"
+              }
+            },
+            {
+              "field": "has_matching_policy",
+              "expected": "== true",
+              "actual": false,
+              "description": "Pod에 매칭되는 NetworkPolicy 없음 — 트래픽 통제 불가",
+              "severity": "high",
+              "k8s_source": {
+                "namespace": "default",
+                "resource_kind": "Pod",
+                "resource_name": "vara-cluster-agent-648d96f79b-rs5ds"
+              }
+            }
+          ],
+          "fail_message": "Pod에 적용되는 NetworkPolicy 없음",
+          "remediation": "Pod에 적용되는 Ingress/Egress NetworkPolicy를 생성하여 네트워크 접근을 통제하세요",
+          "layer": "R"
+        },
+        {
+          "rule_id": "R-2.6.1-03",
+          "name": "CNI NetworkPolicy 강제 지원 점검",
+          "isms_p_item": "2.6.1",
+          "isms_p_item_name": "네트워크 접근",
+          "severity": "high",
+          "verdict": "미준수",
+          "violations": [
+            {
+              "field": "has_policy_capable_cni",
+              "expected": "== true",
+              "actual": false,
+              "description": "NetworkPolicy 강제 CNI(Calico/Cilium) DaemonSet 미배포",
+              "severity": "high",
+              "k8s_source": {
+                "namespace": "kube-system",
+                "resource_kind": "DaemonSet"
+              }
+            }
+          ],
+          "fail_message": "클러스터에 CNI 플러그인 DaemonSet 미감지",
+          "remediation": "클러스터에 CNI 플러그인(Calico, Cilium 등)이 설치되어 NetworkPolicy가 적용 가능한지 확인하세요",
+          "layer": "R"
+        },
+        {
+          "rule_id": "R-2.6.1-04",
+          "name": "cross-namespace 통신 통제 부재",
+          "isms_p_item": "2.6.1",
+          "isms_p_item_name": "네트워크 접근",
+          "severity": "high",
+          "verdict": "미준수",
+          "violations": [
+            {
+              "field": "cross_ns_egress_controlled",
+              "expected": "== true",
+              "actual": false,
+              "description": "Pod 'vara-cluster-agent-648d96f79b-rs5ds'이 NetworkPolicy 없이 cross-namespace 통신 가능",
+              "severity": "high",
+              "k8s_source": {
+                "namespace": "default",
+                "resource_kind": "Pod",
+                "resource_name": "vara-cluster-agent-648d96f79b-rs5ds"
+              }
+            }
+          ],
+          "fail_message": "다른 네임스페이스로의 네트워크 트래픽 감지",
+          "remediation": "NetworkPolicy로 교차 네임스페이스 트래픽을 제한하여 네트워크 분리를 강화하세요",
+          "layer": "R"
+        }
+      ]
+    },
+    {
+      "isms_p_item_id": "1.2.1",
+      "isms_p_item_name": "정보자산 식별",
+      "total_rules": 2,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 1,
+      "failed_rules": [
+        {
+          "rule_id": "R-1.2.1-02",
+          "name": "K8s 클러스터 자산 인벤토리",
+          "isms_p_item": "1.2.1",
+          "isms_p_item_name": "정보자산 식별",
+          "verdict": "미준수",
+          "violations": [
+            {
+              "field": "policy_configmap_exists",
+              "expected": "== true",
+              "actual": false,
+              "description": "자산 분류 정책 ConfigMap 'asset-classification-policy' 부재",
+              "severity": "high",
+              "k8s_source": {
+                "namespace": "default",
+                "resource_kind": "Namespace",
+                "resource_name": "default"
+              }
+            }
+          ],
+          "fail_message": "자산 분류 정책 ConfigMap이 없거나 1년 이내 갱신되지 않음",
+          "remediation": "자산 분류 기준서 ConfigMap을 생성하고 policy-version, approved-by, approved-at annotation과 함께 1년 이내 갱신 상태를 유지하세요",
+          "layer": "R"
+        }
+      ]
+    }
+  ]
+}
+
+▶ [12-1] Pod 전체 정보 (GET /compliance/pods/vara-cluster-agent-648d96f79b-rs5ds/detail)
+{
+  "pod_name": "vara-cluster-agent-648d96f79b-rs5ds",
+  "pod_uid": "857f30b4-d19f-4418-b0c2-15ef213a7ff3",
+  "namespace": "default",
+  "cluster_name": "vara-eks-test",
+  "node": "ip-10-1-120-156.ap-northeast-2.compute.internal",
+  "pod_ip": "10.1.103.234",
+  "phase": "Running",
+  "service_account": "vara-cluster-agent",
+  "labels": {
+    "app": "vara-cluster-agent",
+    "pod-template-hash": "648d96f79b"
+  },
+  "host_network": false,
+  "started_at": null,
+  "first_seen_at": null,
+  "last_seen_at": null,
+  "compliance": {
+    "summary": {
+      "rule_compliance": {
+        "evaluated": 30,
+        "compliant": 24,
+        "non_compliant": 6,
+        "skipped": 31
+      },
+      "related_findings": {
+        "potential_finding": 0,
+        "needs_review": 0,
+        "compliant_indicator": 0
+      }
+    },
+    "cluster_findings_count": 0
+  },
+  "violations": {
+    "overall_verdict": "미준수",
+    "total_violated_items": 4,
+    "items": [
+      {
+        "isms_p_item_id": "2.6.7",
+        "isms_p_item_name": "인터넷 접속 통제",
+        "failed": 1,
+        "failed_rules": [
+          {
+            "rule_id": "R-2.6.7-01",
+            "name": "egress NetworkPolicy 미적용",
+            "verdict": "미준수"
+          }
+        ]
+      },
+      {
+        "isms_p_item_id": "2.6.3",
+        "isms_p_item_name": "응용프로그램 접근",
+        "failed": 1,
+        "failed_rules": [
+          {
+            "rule_id": "R-2.6.3-02",
+            "name": "내부 Service mTLS 강제 점검",
+            "verdict": "미준수"
+          }
+        ]
+      },
+      {
+        "isms_p_item_id": "1.2.1",
+        "isms_p_item_name": "정보자산 식별",
+        "failed": 1,
+        "failed_rules": [
+          {
+            "rule_id": "R-1.2.1-02",
+            "name": "K8s 클러스터 자산 인벤토리",
+            "verdict": "미준수"
+          }
+        ]
+      },
+      {
+        "isms_p_item_id": "2.6.1",
+        "isms_p_item_name": "네트워크 접근",
+        "failed": 3,
+        "failed_rules": [
+          {
+            "rule_id": "R-2.6.1-02",
+            "name": "NetworkPolicy 적용 점검",
+            "verdict": "미준수"
+          },
+          {
+            "rule_id": "R-2.6.1-03",
+            "name": "CNI NetworkPolicy 강제 지원 점검",
+            "verdict": "미준수"
+          },
+          {
+            "rule_id": "R-2.6.1-04",
+            "name": "cross-namespace 통신 통제 부재",
+            "verdict": "미준수"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+▶ [13] Findings 요약 (GET /compliance/findings/summary)
+{
+  "total_findings": 8,
+  "matched_count": 3,
+  "unmatched_count": 5,
+  "by_verdict": {
+    "compliant_indicator": 5,
+    "potential_finding": 3
+  },
+  "finding_sample": [
+    {
+      "rule_id": "R-1.2.1-02",
+      "isms_p_item_id": null,
+      "verdict": "MET",
+      "verdict_type": "compliant_indicator",
+      "matched": true,
+      "observation": "클러스터 'vara-eks-test'에서 namespace 4개, Pod 14개, Service 0개, ConfigMap 0개 발견"
+    },
+    {
+      "rule_id": "R-1.2.2-03",
+      "isms_p_item_id": null,
+      "verdict": "MET",
+      "verdict_type": "compliant_indicator",
+      "matched": true,
+      "observation": "Service 0개, Ingress 0개, NetworkPolicy 0개 발견. 통신 그래프 엣지 0개"
+    },
+    {
+      "rule_id": "R-1.2.2-04",
+      "isms_p_item_id": null,
+      "verdict": "MET",
+      "verdict_type": "compliant_indicator",
+      "matched": false,
+      "observation": "ExternalName Service 0개 발견. 외부 도메인: N/A. eBPF에서 외부 도메인 호출 0회 관찰"
+    },
+    {
+      "rule_id": "R-2.1.3-03",
+      "isms_p_item_id": null,
+      "verdict": "MET",
+      "verdict_type": "compliant_indicator",
+      "matched": true,
+      "observation": "현재 스냅샷 기준 워크로드 0개 존재. 변경 이력은 스냅샷 비교 필요"
+    },
+    {
+      "rule_id": "R-2.10.8-04",
+      "isms_p_item_id": null,
+      "verdict": "MET",
+      "verdict_type": "potential_finding",
+      "matched": false,
+      "observation": "CVE 스캔 데이터 미제공. image_digest 보유 컨테이너 18개 (스캔 연동 시 점검 가능)"
+    }
+  ]
+}
+
+▶ [14] 룰 카탈로그 (GET /compliance/rulesets/catalog)
+{
+  "total_rules": 120,
+  "total_findings": 8,
+  "rule_ids": [
+    "R-1.2.1-01",
+    "R-1.2.1-GL01",
+    "R-1.2.1-GL02",
+    "R-1.2.1-GL03",
+    "R-1.2.1-GL04"
+  ],
+  "finding_ids": [
+    "R-1.2.1-02",
+    "R-1.2.2-03",
+    "R-1.2.2-04",
+    "R-2.1.3-03",
+    "R-2.10.8-04"
+  ]
+}
+
+============================================
+  테스트 완료
+============================================

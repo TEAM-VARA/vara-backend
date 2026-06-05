@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -196,8 +197,11 @@ func (h *GRCHandler) ListEvidence(c *gin.Context) {
 // POST /compliance/guidelines
 func (h *GRCHandler) UploadGuideline(c *gin.Context) {
 	companyID := c.PostForm("company_id")
-	if companyID == "" || len(companyID) > 64 {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수 (1~64자)")
+	if companyID == "" {
+		companyID = "test-company"
+	}
+	if len(companyID) > 64 {
+		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id는 64자 이하여야 합니다")
 		return
 	}
 
@@ -222,16 +226,32 @@ func (h *GRCHandler) UploadGuideline(c *gin.Context) {
 		return
 	}
 
+	// 지침서가 특정 ISMS-P 항목에 속하면:
+	// 1) GL 룰 캐시 무효화 (새 지침서로 재계산 필요)
+	// 2) 즉시 GL 점검 트리거
+	var triggeredCheckID string
+	if ismspItemIDPtr != nil && *ismspItemIDPtr != "" {
+		h.svc.InvalidateGLCache(c.Request.Context(), companyID, *ismspItemIDPtr)
+		chk, trigErr := h.svc.TriggerGLCheck(c.Request.Context(), companyID, *ismspItemIDPtr)
+		if trigErr != nil {
+			// 업로드는 성공했으므로 점검 트리거 실패를 치명적 오류로 처리하지 않음
+			log.Printf("[grc-handler] auto GL check trigger failed for %s/%s: %v", companyID, *ismspItemIDPtr, trigErr)
+		} else {
+			triggeredCheckID = chk.CheckID
+		}
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
-		"id":              g.ID,
-		"company_id":      g.CompanyID,
-		"isms_p_item_id":  g.ISMSPItemID,
-		"filename":        g.Filename,
-		"file_size_bytes": g.FileSizeBytes,
-		"has_text":        g.ExtractedText != "",
-		"has_embedding":   len(g.Embedding) > 0,
-		"version":         g.Version,
-		"uploaded_at":     g.UploadedAt,
+		"id":                  g.ID,
+		"company_id":          g.CompanyID,
+		"isms_p_item_id":      g.ISMSPItemID,
+		"filename":            g.Filename,
+		"file_size_bytes":     g.FileSizeBytes,
+		"has_text":            g.ExtractedText != "",
+		"has_embedding":       len(g.Embedding) > 0,
+		"version":             g.Version,
+		"uploaded_at":         g.UploadedAt,
+		"triggered_check_id":  triggeredCheckID,
 	})
 }
 

@@ -105,27 +105,40 @@ func evalWorkloadOwnerAnnotation(_ Rule, req PodGraphRequest, base PodRuleResult
 	podNS := jsonStr(req.Pod, "metadata", "namespace")
 	annotations := jsonMap(req.Pod, "metadata", "annotations")
 
-	hasOwner := false
-	for _, key := range []string{"owner", "contact"} {
-		if v, ok := annotations[key]; ok && strVal(v) != "" {
-			hasOwner = true
-			break
+	// 룰 인디케이터(R-2.1.3-01): pod.metadata.annotations.isms-p/owner, .../isms-p/owner-team.
+	// 기존 데이터 호환을 위해 owner/contact, owner-team을 fallback 키로 허용.
+	hasAnno := func(keys ...string) bool {
+		for _, key := range keys {
+			if v, ok := annotations[key]; ok && strVal(v) != "" {
+				return true
+			}
 		}
+		return false
+	}
+	hasOwner := hasAnno("isms-p/owner", "owner", "contact")
+	hasTeam := hasAnno("isms-p/owner-team", "owner-team")
+
+	var missing []string
+	if !hasOwner {
+		missing = append(missing, "isms-p/owner")
+	}
+	if !hasTeam {
+		missing = append(missing, "isms-p/owner-team")
 	}
 
-	if !hasOwner {
+	if len(missing) > 0 {
 		base.Verdict = "미준수"
 		base.Violations = []grc.Violation{{
-			Field:       "metadata.annotations.owner|contact",
+			Field:       "metadata.annotations." + strings.Join(missing, "|"),
 			Expected:    "exists",
 			Actual:      nil,
-			Description: fmt.Sprintf("워크로드 '%s'에 책임자(owner/contact) annotation 부재", podName),
+			Description: fmt.Sprintf("Pod '%s'에 자산 책임자 annotation 부재(%s)", podName, strings.Join(missing, ", ")),
 			Severity:    "high",
 			K8sSource:   grc.K8sSource{Namespace: podNS, ResourceKind: "Pod", ResourceName: podName},
 		}}
 	} else {
 		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"owner/contact annotation 존재"}
+		base.MatchedIndicators = []string{"isms-p/owner + isms-p/owner-team annotation 존재"}
 	}
 	return base
 }
