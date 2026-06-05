@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: changeme
       POSTGRES_DB: vara
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
       - vara-pg-data:/var/lib/postgresql/data
     healthcheck:
@@ -31,7 +31,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6380:6379"
+      - "6379:6379"
   embedding:
     # BGE-M3 FastAPI embedding server
     build:

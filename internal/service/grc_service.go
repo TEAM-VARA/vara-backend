@@ -1614,7 +1614,7 @@ func (s *GRCService) UploadGuideline(
 		g.UpdatedAt = latestUploadedAt
 		log.Printf("[grc-guideline] identical content, reuse v%d (id=%d) %s", latestVer, latestID, fh.Filename)
 		// Ensure sentence embeddings exist (may be missing if uploaded before this feature)
-		s.embedAndSaveGuidelineSentences(ctx, g.ID, g.ExtractedText)
+		go s.embedAndSaveGuidelineSentences(context.Background(), g.ID, g.ExtractedText)
 		return g, nil
 	}
 	// 신규(found=false) 또는 내용 변경 → 새 버전으로 누적 보관.
@@ -1639,14 +1639,15 @@ func (s *GRCService) UploadGuideline(
 	log.Printf("[grc-guideline] uploaded %s for %s/%s (id=%d, text=%d chars, emb=%d dims)",
 		fh.Filename, companyID, itemLabel, g.ID, len(g.ExtractedText), len(g.Embedding))
 
-	// Embed sentences at upload time so GL checks only need to embed rule queries (~0.5s each).
-	s.embedAndSaveGuidelineSentences(ctx, g.ID, g.ExtractedText)
+	// Embed sentences in background — upload returns immediately, GL check uses fast path
+	// once embeddings are stored, or falls back to slow path if not yet ready.
+	go s.embedAndSaveGuidelineSentences(context.Background(), g.ID, g.ExtractedText)
 
 	return g, nil
 }
 
-// embedAndSaveGuidelineSentences embeds guideline sentences at upload time and stores in DB.
-// Synchronous — upload blocks until done so the triggered GL check can use stored embeddings.
+// embedAndSaveGuidelineSentences embeds guideline sentences and stores in DB.
+// Runs asynchronously (goroutine) so upload returns immediately.
 // Idempotent: skips if sentence embeddings already exist for this guidelineID.
 func (s *GRCService) embedAndSaveGuidelineSentences(ctx context.Context, guidelineID int64, extractedText string) {
 	if s.embeddingClient == nil || !s.embeddingClient.Available() || extractedText == "" {
