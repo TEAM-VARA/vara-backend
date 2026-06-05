@@ -190,6 +190,18 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		grcScheduler.Start(context.Background())
 		log.Printf("server: grc scheduler started (cluster=%s, interval=%v)", grcClusterName, grcInterval)
 	}
+	// ── GL Scheduler 시작 (지침서 기반 LLM 점검 자동 실행) ──
+	if os.Getenv("DISABLE_GL_SCHEDULER") != "true" {
+		glInterval := 24 * time.Hour
+		if h := os.Getenv("GL_INTERVAL_HOURS"); h != "" {
+			if hrs, err := strconv.Atoi(h); err == nil && hrs > 0 {
+				glInterval = time.Duration(hrs) * time.Hour
+			}
+		}
+		glScheduler := scheduler.NewGLScheduler(grcSvc, glInterval)
+		glScheduler.Start(context.Background())
+		log.Printf("server: gl scheduler started (interval=%v)", glInterval)
+	}
 	// ── Analysis Scheduler 시작 (그래프 분석 사전 계산) ──
 	if os.Getenv("DISABLE_ANALYSIS_SCHEDULER") != "true" {
 		clusterName := os.Getenv("DEFAULT_CLUSTER_NAME")

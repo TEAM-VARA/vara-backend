@@ -1424,6 +1424,33 @@ func (r *GRCRepo) FindGuidelineEmbeddingByHash(ctx context.Context, hash string)
 	return emb, true, nil
 }
 
+// ListCompanyItemsWithGuidelines returns distinct (company_id, isms_p_item_id) pairs
+// that have at least one guideline with extracted text, used by the GL scheduler.
+func (r *GRCRepo) ListCompanyItemsWithGuidelines(ctx context.Context) ([]grc.GLCheckTarget, error) {
+	rows, err := r.pg.Query(ctx, `
+		SELECT DISTINCT company_id, isms_p_item_id
+		FROM grc_guidelines
+		WHERE isms_p_item_id IS NOT NULL
+		  AND extracted_text IS NOT NULL
+		  AND extracted_text != ''
+		ORDER BY company_id, isms_p_item_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var targets []grc.GLCheckTarget
+	for rows.Next() {
+		var t grc.GLCheckTarget
+		if err := rows.Scan(&t.CompanyID, &t.ISMSPItemID); err != nil {
+			return nil, err
+		}
+		targets = append(targets, t)
+	}
+	return targets, rows.Err()
+}
+
 // UpdateCheckGuidelineIDs saves the guideline IDs used in a check.
 func (r *GRCRepo) UpdateCheckGuidelineIDs(ctx context.Context, checkID string, guidelineIDs []int64) error {
 	_, err := r.pg.Exec(ctx, `

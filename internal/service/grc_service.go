@@ -261,6 +261,21 @@ func (s *GRCService) ListFindingClusterSummaries(ctx context.Context, companyID 
 	return s.repo.ListFindingClusterSummaries(ctx, companyID, page, pageSize)
 }
 
+// ── GL 지침서 자동 점검 ──
+
+// ListGLCheckTargets returns all (company_id, isms_p_item_id) pairs that have at least
+// one guideline with extracted text, ready for automated GL-layer evaluation.
+func (s *GRCService) ListGLCheckTargets(ctx context.Context) ([]grc.GLCheckTarget, error) {
+	return s.repo.ListCompanyItemsWithGuidelines(ctx)
+}
+
+// TriggerGLCheck creates a guideline-only compliance check (no evidence files) for the
+// given company and ISMS-P item. The check runs asynchronously using DB guidelines for
+// GL-rule evaluation (llm_rag_entailment, embedding_similarity, etc.).
+func (s *GRCService) TriggerGLCheck(ctx context.Context, companyID, ismspItemID string) (*grc.Check, error) {
+	return s.CreateCheck(ctx, companyID, ismspItemID, false, nil, nil)
+}
+
 // ── 통합 클러스터 컴플라이언스 (경로 B+C 병합) ──
 
 // ClusterComplianceRequest is the input for unified cluster compliance evaluation.
