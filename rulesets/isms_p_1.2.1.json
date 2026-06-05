@@ -81,7 +81,7 @@
       "verdict_type": "needs_review"
     },
     {
-      "rule_id": "F-1.2.1-01",
+      "rule_id": "R-1.2.1-02",
       "name": "K8s 클러스터 자산 인벤토리",
       "judgment_source": "k8s_api",
       "extraction_method": "manual",
@@ -129,6 +129,37 @@
         ],
         "k8s_only_check": true,
         "deferred": false
+      },
+      "reclassified_from": "F-1.2.1-01",
+      "output_type": "report",
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-1.2.1-01",
+        "additional_review_items": [
+          "이 K8s 자산 목록이 회사 자산관리대장에 포함되어 있는가",
+          "K8s 외 자산(온프레미스, 외부 위탁 등)은 별도 식별되어 있는가"
+        ],
+        "manual_check_areas": [
+          "외부 위탁 자산 식별 절차",
+          "자산관리시스템(CMDB)"
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": 4,
+            "description": "외부 위탁 IT 서비스 자산 식별 누락",
+            "match": "partial"
+          }
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "1.2.1",
+            "match_strength": "supportive"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "외부 자산관리대장/CMDB에 K8s 자산 + 온프레미스·외부위탁 자산이 통합 등재되고 분류·중요도가 산정돼 최신 관리됨"
+        ]
       }
     },
     {

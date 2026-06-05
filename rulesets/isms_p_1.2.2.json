@@ -71,7 +71,7 @@
       }
     },
     {
-      "rule_id": "F-1.2.2-01",
+      "rule_id": "R-1.2.2-03",
       "name": "클러스터 내부 통신 관계 인벤토리",
       "judgment_source": "k8s_api",
       "extraction_method": "manual",
@@ -113,10 +113,34 @@
         ],
         "k8s_only_check": true,
         "deferred": false
+      },
+      "reclassified_from": "F-1.2.2-01",
+      "output_type": "report",
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-1.2.2-01",
+        "additional_review_items": [
+          "이 통신 관계가 회사 정보흐름도에 반영되어 있는가",
+          "개인정보 처리 흐름이 별도 표시되어 있는가"
+        ],
+        "manual_check_areas": [
+          "개인정보 처리 시스템 흐름도"
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "1.2.2",
+            "match_strength": "supportive"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "도출된 통신 관계가 정보서비스 흐름도에 누락 없이 반영됨",
+          "개인정보 처리 흐름이 개인정보 흐름도에 수집·보유·이용/제공·파기 단계로 표시됨"
+        ]
       }
     },
     {
-      "rule_id": "F-1.2.2-02",
+      "rule_id": "R-1.2.2-04",
       "name": "외부 의존성 발견",
       "judgment_source": "k8s_api",
       "extraction_method": "manual",
@@ -160,6 +184,31 @@
         ],
         "k8s_only_check": true,
         "deferred": false
+      },
+      "reclassified_from": "F-1.2.2-02",
+      "output_type": "report",
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-1.2.2-02",
+        "additional_review_items": [
+          "발견된 외부 의존성이 모두 정보흐름도에 등록되어 있는가",
+          "미등록 외부 연계 사유 확인",
+          "외부 위탁 계약 현황 매칭"
+        ],
+        "manual_check_areas": [
+          "외부 위탁 계약서",
+          "외부 연계 시스템 목록"
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "1.2.2",
+            "match_strength": "supportive"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "발견된 외부 연계가 정보흐름도에 모두 등록돼 있고 외부 위탁 계약/외부 연계 시스템 목록과 일치함"
+        ]
       }
     },
     {

@@ -79,6 +79,33 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
+      },
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-2.10.3-03",
+        "additional_review_items": [
+          "발견된 NodePort가 의도된 공개인가",
+          "VPC SG에서 노드의 NodePort 차단되어 있는가"
+        ],
+        "manual_check_areas": [
+          "NodePort 사용 정책",
+          "VPC Security Group 설정"
+        ],
+        "alternative_controls": [
+          "VPC Security Group",
+          "Network ACL"
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.10.3",
+            "match_strength": "indirect"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "VPC SG/Network ACL에서 해당 NodePort가 외부로부터 차단",
+          "의도된 공개로 NodePort 사용 정책상 승인·문서화됨"
+        ]
       }
     },
     {
@@ -135,55 +162,6 @@
       }
     },
     {
-      "rule_id": "F-2.10.3-03",
-      "name": "NodePort 노출 현황",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "needs_review",
-      "manual_meta": {
-        "target_resource": "Service",
-        "required_data": [
-          "cluster_services"
-        ],
-        "condition": {
-          "operator": "field_equals",
-          "field": "spec.type",
-          "value": "NodePort"
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.10.3",
-            "match_strength": "indirect"
-          }
-        ],
-        "kisa_defect_case_refs": [],
-        "additional_review_items": [
-          "발견된 NodePort가 의도된 공개인가",
-          "VPC SG에서 노드의 NodePort 차단되어 있는가"
-        ],
-        "manual_check_areas": [
-          "NodePort 사용 정책",
-          "VPC Security Group 설정"
-        ],
-        "automation_coverage": {
-          "percentage": 50,
-          "covered": "NodePort Service 식별",
-          "not_covered": "VPC SG 차단 여부"
-        },
-        "alternative_controls": [
-          "VPC Security Group",
-          "Network ACL"
-        ],
-        "offcluster_satisfaction_conditions": [
-          "VPC SG/Network ACL에서 해당 NodePort가 외부로부터 차단",
-          "의도된 공개로 NodePort 사용 정책상 승인·문서화됨"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
-      }
-    },
-    {
       "rule_id": "R-2.10.3-GL01",
       "name": "공개서버 분리·강화 보호대책",
       "judgment_source": "text_extraction",
@@ -205,7 +183,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -230,7 +212,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -255,7 +241,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     }
   ],

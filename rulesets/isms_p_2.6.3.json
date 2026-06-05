@@ -55,7 +55,9 @@
       "name": "내부 Service mTLS 강제 점검",
       "judgment_source": "k8s_api",
       "extraction_method": "api",
-      "acceptable_mtls_modes": ["STRICT"],
+      "acceptable_mtls_modes": [
+        "STRICT"
+      ],
       "compliance_indicators": [
         {
           "field": "istio_injection_enabled",
@@ -98,7 +100,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -123,7 +129,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -148,7 +158,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -173,7 +187,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     }
   ],

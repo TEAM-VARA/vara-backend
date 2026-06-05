@@ -672,7 +672,9 @@
         "비밀번호 관리 정책 문서가 존재하며 비밀번호 생성 규칙·변경 주기·저장 방법을 포함하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "지침서에 비밀번호 생성규칙, 변경주기, 저장방법이 모두 명시"}
+        {
+          "description": "지침서에 비밀번호 생성규칙, 변경주기, 저장방법이 모두 명시"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -688,7 +690,12 @@
         "비밀번호 최소 길이를 8자 이상으로 설정하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"field": "최소길이", "op": ">=", "value": 8, "description": "비밀번호 최소 8자 이상 규정"}
+        {
+          "field": "최소길이",
+          "op": ">=",
+          "value": 8,
+          "description": "비밀번호 최소 8자 이상 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -704,7 +711,12 @@
         "비밀번호 최대 사용 기간을 90일 이하로 설정하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"field": "최대사용일수", "op": "<=", "value": 90, "description": "비밀번호 최대 사용기간 90일 이하 규정"}
+        {
+          "field": "최대사용일수",
+          "op": "<=",
+          "value": 90,
+          "description": "비밀번호 최대 사용기간 90일 이하 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -720,7 +732,9 @@
         "초기(임시) 비밀번호 발급 시 최초 로그인 시 변경을 강제하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "초기/임시 비밀번호 발급 시 최초 로그인 시 강제 변경 규정"}
+        {
+          "description": "초기/임시 비밀번호 발급 시 최초 로그인 시 강제 변경 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -736,7 +750,9 @@
         "비밀번호를 일방향(단방향) 암호화(bcrypt, argon2, PBKDF2 등)하여 저장하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "비밀번호 일방향 암호화 저장 및 평문 저장 금지 규정"}
+        {
+          "description": "비밀번호 일방향 암호화 저장 및 평문 저장 금지 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -752,7 +768,12 @@
         "비밀번호 입력 오류가 일정 횟수 누적되면 계정을 잠금 처리하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"field": "잠금횟수", "op": "<=", "value": 5, "description": "5회 이내 입력 오류 시 계정 잠금 규정"}
+        {
+          "field": "잠금횟수",
+          "op": "<=",
+          "value": 5,
+          "description": "5회 이내 입력 오류 시 계정 잠금 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -768,7 +789,9 @@
         "관리자 계정 및 중요 시스템 접근 시 다중인증(MFA)을 적용하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "관리자·중요 시스템 접근 시 다중인증(MFA) 적용 규정"}
+        {
+          "description": "관리자·중요 시스템 접근 시 다중인증(MFA) 적용 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -784,7 +807,9 @@
         "로그인 실패 메시지에서 아이디·비밀번호 구분 노출을 금지하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "로그인 실패 시 아이디·비밀번호 구분 정보 미노출 규정"}
+        {
+          "description": "로그인 실패 시 아이디·비밀번호 구분 정보 미노출 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -800,7 +825,9 @@
         "생일·전화번호·아이디처럼 추측하기 쉬운 비밀번호를 쓰지 못하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "추측하기 쉬운 비밀번호 사용 금지 규정"}
+        {
+          "description": "추측하기 쉬운 비밀번호 사용 금지 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -816,7 +843,9 @@
         "같은 문자 반복이나 연속된 숫자로 된 비밀번호를 제한하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "반복·연속 문자 비밀번호 제한 규정"}
+        {
+          "description": "반복·연속 문자 비밀번호 제한 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -832,7 +861,9 @@
         "비밀번호를 입력하거나 변경할 때 화면에 마스킹 처리하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "비밀번호 입력 시 화면 가림(마스킹) 규정"}
+        {
+          "description": "비밀번호 입력 시 화면 가림(마스킹) 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -848,7 +879,9 @@
         "비밀번호를 종이·파일·모바일 등에 기록·보관하는 것을 제한하고 부득이하면 암호화하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "비밀번호 기록·보관 제한 규정"}
+        {
+          "description": "비밀번호 기록·보관 제한 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -864,7 +897,9 @@
         "비밀번호 노출이나 침해가 의심되면 지체 없이 변경하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "유출 의심 시 즉시 변경 규정"}
+        {
+          "description": "유출 의심 시 즉시 변경 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -880,7 +915,9 @@
         "비밀번호 분실 시 본인 확인을 거쳐 안전하게 재발급하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "분실 시 본인확인 후 재발급 규정"}
+        {
+          "description": "분실 시 본인확인 후 재발급 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -896,7 +933,9 @@
         "관리자 비밀번호는 일반 사용자와 분리해 더 강한 기준으로 관리하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "관리자 비밀번호 별도 강화 관리 규정"}
+        {
+          "description": "관리자 비밀번호 별도 강화 관리 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",

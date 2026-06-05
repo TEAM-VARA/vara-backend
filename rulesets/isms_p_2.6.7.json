@@ -51,37 +51,10 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
-      }
-    },
-    {
-      "rule_id": "F-2.6.7-01",
-      "name": "Pod egress 통제 현황",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "needs_review",
-      "manual_meta": {
-        "target_resource": "Pod + NetworkPolicy",
-        "required_data": [
-          "cluster_pods",
-          "cluster_network_policies"
-        ],
-        "condition": {
-          "operator": "egress_policy_applied"
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.6.7",
-            "match_strength": "direct"
-          }
-        ],
-        "kisa_defect_case_refs": [
-          {
-            "case_number": null,
-            "description": "운영 서버에서 외부 인터넷 자유 접속",
-            "match": "direct"
-          }
-        ],
+      },
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-2.6.7-01",
         "additional_review_items": [
           "K8s 외 VPC NAT Gateway 화이트리스트 적용 여부",
           "프록시 서버를 통한 외부 접속 통제",
@@ -92,26 +65,33 @@
           "프록시 서버 운영 현황",
           "VPC 라우팅 정책"
         ],
-        "automation_coverage": {
-          "percentage": 40,
-          "covered": "K8s NetworkPolicy 기반 통제",
-          "not_covered": "VPC NAT, 프록시 등 외부 통제"
-        },
         "alternative_controls": [
           "VPC NAT Gateway 화이트리스트",
           "프록시 서버(Squid 등)",
           "Cilium FQDN policy",
           "AWS Network Firewall"
         ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "운영 서버에서 외부 인터넷 자유 접속",
+            "match": "direct"
+          }
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.7",
+            "match_strength": "direct"
+          }
+        ],
         "offcluster_satisfaction_conditions": [
           "VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제됨"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
+        ]
       }
     },
     {
-      "rule_id": "F-2.6.7-02",
+      "rule_id": "R-2.6.7-02",
       "name": "실제 외부 도메인 접속 관찰 (eBPF)",
       "judgment_source": "k8s_api",
       "extraction_method": "manual",
@@ -152,7 +132,32 @@
           "관찰된 외부 접속이 화이트리스트 범위 내이고 의심 도메인 없음(DNS 로그 분석 기록으로 확인)"
         ],
         "k8s_only_check": true,
-        "deferred": false
+        "deferred": true,
+        "deferred_reason": "행위 관측(외부 도메인 트래픽). eBPF/DNS 로그 파이프라인 연동 후 활성화"
+      },
+      "deferred_from": "F-2.6.7-02",
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-2.6.7-02",
+        "additional_review_items": [
+          "화이트리스트와 실제 접속 패턴 일치 여부",
+          "의심 도메인 접속이 있는가",
+          "개인정보 처리 Pod의 외부 접속 패턴 검토"
+        ],
+        "manual_check_areas": [
+          "외부 접속 화이트리스트",
+          "DNS 로그 분석 기록"
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.7",
+            "match_strength": "supportive"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "관찰된 외부 접속이 화이트리스트 범위 내이고 의심 도메인 없음(DNS 로그 분석 기록으로 확인)"
+        ]
       }
     },
     {
@@ -177,7 +182,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -202,7 +211,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -227,7 +240,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     }
   ],

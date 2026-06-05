@@ -37,6 +37,46 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "F-2.5.1-01",
+        "additional_review_items": [
+          "해당 Pod가 인증범위 내 자산인가",
+          "default SA 사용에 대한 회사 정책상 예외 허용 사례인가",
+          "시스템 namespace는 예외 처리"
+        ],
+        "manual_check_areas": [
+          "공용 계정 사용 예외 승인 기록"
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "공용 계정 사용",
+            "match": "direct"
+          }
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.5.1",
+            "match_strength": "direct"
+          },
+          {
+            "framework": "개인정보보호법",
+            "item": "안전성 확보조치 - 계정 분리",
+            "match_strength": "direct"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "시스템 namespace(kube-system·kube-public·kube-node-lease) 예외 대상",
+          "공용/default SA 사용에 책임자 예외 승인 기록 있음(인증범위 내 일반 워크로드면 전용 SA 필요)"
+        ],
+        "exception_namespaces": [
+          "kube-system",
+          "kube-public",
+          "kube-node-lease"
+        ]
       }
     },
     {
@@ -84,74 +124,7 @@
       }
     },
     {
-      "rule_id": "F-2.5.1-01",
-      "name": "default ServiceAccount 사용 발견",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "potential_finding",
-      "manual_meta": {
-        "target_resource": "Pod",
-        "required_data": [
-          "cluster_pods.service_account",
-          "cluster_pods.namespace"
-        ],
-        "condition": {
-          "operator": "in_set",
-          "field": "service_account",
-          "values": [
-            "",
-            "default"
-          ]
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.5.1",
-            "match_strength": "direct"
-          },
-          {
-            "framework": "개인정보보호법",
-            "item": "안전성 확보조치 - 계정 분리",
-            "match_strength": "direct"
-          }
-        ],
-        "kisa_defect_case_refs": [
-          {
-            "case_number": null,
-            "description": "공용 계정 사용",
-            "match": "direct"
-          }
-        ],
-        "additional_review_items": [
-          "해당 Pod가 인증범위 내 자산인가",
-          "default SA 사용에 대한 회사 정책상 예외 허용 사례인가",
-          "시스템 namespace는 예외 처리"
-        ],
-        "manual_check_areas": [
-          "공용 계정 사용 예외 승인 기록"
-        ],
-        "automation_coverage": {
-          "percentage": 100,
-          "covered": "K8s 내 공용계정 패턴",
-          "not_covered": "사람 사용자 계정(외부 IdP)"
-        },
-        "exception_conditions": {
-          "exception_namespaces": [
-            "kube-system",
-            "kube-public",
-            "kube-node-lease"
-          ]
-        },
-        "offcluster_satisfaction_conditions": [
-          "시스템 namespace(kube-system·kube-public·kube-node-lease) 예외 대상",
-          "공용/default SA 사용에 책임자 예외 승인 기록 있음(인증범위 내 일반 워크로드면 전용 SA 필요)"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
-      }
-    },
-    {
-      "rule_id": "F-2.5.1-02",
+      "rule_id": "R-2.5.1-04",
       "name": "미사용(orphan) ServiceAccount 발견",
       "judgment_source": "k8s_api",
       "extraction_method": "manual",
@@ -198,6 +171,36 @@
         ],
         "k8s_only_check": true,
         "deferred": false
+      },
+      "promoted_from": "F-2.5.1-02",
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "F-2.5.1-02",
+        "additional_review_items": [
+          "이 SA들이 계획된 향후 사용을 위한 것인가",
+          "정기 점검 미실시로 잔존한 계정인가",
+          "회사의 계정 정기 점검 주기/기록 확인"
+        ],
+        "manual_check_areas": [
+          "최근 점검 기록"
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "불필요 계정 정기 점검/삭제 미흡",
+            "match": "partial"
+          }
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.5.1",
+            "match_strength": "indirect"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "해당 SA가 예정 사용분으로 문서화돼 있거나 계정 정기 점검 기록상 인지·관리됨"
+        ]
       }
     },
     {

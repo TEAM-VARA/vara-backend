@@ -380,9 +380,10 @@ type ViolatedAsset struct {
 
 // ItemLayers groups rule results by evaluation layer.
 type ItemLayers struct {
-	GL []RuleResult `json:"gl,omitempty"` // 정책 (Guideline) rules
-	R  []RuleResult `json:"r,omitempty"`  // 기술 (K8s native) rules
-	F  []RuleResult `json:"f,omitempty"`  // 보조 (Finding/Manual) rules
+	GL     []RuleResult `json:"gl,omitempty"`     // 정책 (Guideline) rules
+	R      []RuleResult `json:"r,omitempty"`      // 기술 (K8s native) rules — 승격/deferred 포함
+	F      []RuleResult `json:"f,omitempty"`      // 보조 (Finding/Manual) — F 흡수 후 잔여 없음; 하위호환
+	Report []RuleResult `json:"report,omitempty"` // 인벤토리/방증 리포트 — 합격률 분모 제외
 }
 
 // ItemComplianceResult holds compliance results for a single ISMS-P item.
@@ -478,9 +479,10 @@ const (
 // ── Rule Layer Tags ──
 
 const (
-	LayerGL = "GL" // 정책 (Guideline)
-	LayerR  = "R"  // 기술 (Runtime/K8s native)
-	LayerF  = "F"  // 보조 (Finding/Manual)
+	LayerGL     = "GL"     // 정책 (Guideline)
+	LayerR      = "R"      // 기술 (Runtime/K8s native)
+	LayerF      = "F"      // 보조 (Finding/Manual) — 흡수 완료 후 잔여 없음; 하위호환 보존
+	LayerReport = "REPORT" // 인벤토리/방증 리포트 — verdict 없음, 합격률 분모 제외
 )
 
 // NormalizeVerdict maps legacy Korean verdict strings to the new enum.

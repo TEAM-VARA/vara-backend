@@ -49,6 +49,32 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "F-2.5.2-01",
+        "additional_review_items": [
+          "해당 SA가 인증범위 내 자산인가",
+          "명명 자체보다 권한 범위 점검(F-2.5.5와 결합)",
+          "회사 명명 규칙 문서와 비교"
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "admin, guest, test 등 추측 가능한 ID 운영",
+            "match": "direct"
+          }
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.5.2",
+            "match_strength": "direct"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "명명 규칙 문서상 허용된 명칭이거나, SA 권한이 최소화돼 위험이 통제됨"
+        ]
       }
     },
     {
@@ -75,74 +101,14 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
-      }
-    },
-    {
-      "rule_id": "F-2.5.2-01",
-      "name": "추측 가능한 명칭의 ServiceAccount 발견",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "potential_finding",
-      "manual_meta": {
-        "target_resource": "ServiceAccount",
-        "required_data": [
-          "cluster_service_accounts.name"
-        ],
-        "condition": {
-          "operator": "regex_match",
-          "field": "name",
-          "pattern": "^(admin|root|test|temp|guest)(-.*)?$"
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.5.2",
-            "match_strength": "direct"
-          }
-        ],
-        "kisa_defect_case_refs": [
-          {
-            "case_number": null,
-            "description": "admin, guest, test 등 추측 가능한 ID 운영",
-            "match": "direct"
-          }
-        ],
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "F-2.5.2-02",
         "additional_review_items": [
-          "해당 SA가 인증범위 내 자산인가",
-          "명명 자체보다 권한 범위 점검(F-2.5.5와 결합)",
-          "회사 명명 규칙 문서와 비교"
+          "용도가 의미적으로 식별 가능한가",
+          "운영 표준 명명 규칙과 일치하는가"
         ],
-        "manual_check_areas": [
-
-        ],
-        "automation_coverage": {
-          "percentage": 80,
-          "covered": "K8s SA 명명 점검",
-          "not_covered": "사람 사용자 ID 체계"
-        },
-        "offcluster_satisfaction_conditions": [
-          "명명 규칙 문서상 허용된 명칭이거나, SA 권한이 최소화돼 위험이 통제됨"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
-      }
-    },
-    {
-      "rule_id": "F-2.5.2-02",
-      "name": "일반 명명 패턴 ServiceAccount 발견",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "potential_finding",
-      "manual_meta": {
-        "target_resource": "ServiceAccount",
-        "required_data": [
-          "cluster_service_accounts.name"
-        ],
-        "condition": {
-          "operator": "regex_match",
-          "field": "name",
-          "pattern": "^(user|account|sa)[0-9]+$"
-        },
         "compliance_mappings": [
           {
             "framework": "ISMS-P",
@@ -150,24 +116,9 @@
             "match_strength": "indirect"
           }
         ],
-        "kisa_defect_case_refs": [],
-        "additional_review_items": [
-          "용도가 의미적으로 식별 가능한가",
-          "운영 표준 명명 규칙과 일치하는가"
-        ],
-        "manual_check_areas": [
-
-        ],
-        "automation_coverage": {
-          "percentage": 80,
-          "covered": "명명 규칙 점검만",
-          "not_covered": "실제 사용 패턴"
-        },
         "offcluster_satisfaction_conditions": [
           "운영 표준 명명 규칙 문서상 용도가 의미적으로 식별 가능하게 매핑·관리됨"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
+        ]
       }
     },
     {
@@ -192,7 +143,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -217,7 +172,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -242,7 +201,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     }
   ],

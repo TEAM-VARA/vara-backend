@@ -32,6 +32,41 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "F-2.10.5-01",
+        "additional_review_items": [
+          "미설정 Ingress가 개인정보/중요정보 송수신 경로인가",
+          "외부 LB에서 TLS 종료 + 클러스터 내 mTLS 구조인가"
+        ],
+        "manual_check_areas": [
+          "송수신 인터페이스 목록",
+          "개인정보 처리 시스템 흐름도"
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "HTTP 통신으로 개인정보 송수신",
+            "match": "direct"
+          }
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.10.5",
+            "match_strength": "direct"
+          },
+          {
+            "framework": "개인정보보호법",
+            "item": "안전성 확보조치 - 전송 시 암호화",
+            "match_strength": "direct"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "외부 LB TLS 종료 + 클러스터 내 mTLS 구조",
+          "해당 경로가 개인정보/중요정보 송수신 경로가 아님(송수신 인터페이스 목록 확인)"
+        ]
       }
     },
     {
@@ -59,94 +94,16 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
-      }
-    },
-    {
-      "rule_id": "F-2.10.5-01",
-      "name": "외부 공개 Ingress TLS 현황",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "potential_finding",
-      "manual_meta": {
-        "target_resource": "Ingress",
-        "required_data": [
-          "cluster_ingresses"
-        ],
-        "condition": {
-          "operator": "field_non_empty",
-          "field": "spec.tls",
-          "scope": "external_only"
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.10.5",
-            "match_strength": "direct"
-          },
-          {
-            "framework": "개인정보보호법",
-            "item": "안전성 확보조치 - 전송 시 암호화",
-            "match_strength": "direct"
-          }
-        ],
-        "kisa_defect_case_refs": [
-          {
-            "case_number": null,
-            "description": "HTTP 통신으로 개인정보 송수신",
-            "match": "direct"
-          }
-        ],
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "F-2.10.5-02",
         "additional_review_items": [
-          "미설정 Ingress가 개인정보/중요정보 송수신 경로인가",
-          "외부 LB에서 TLS 종료 + 클러스터 내 mTLS 구조인가"
+          "평문 호출이 비중요 외부 서비스인가",
+          "중요 정보 송수신이면 https:// 변경 필요"
         ],
         "manual_check_areas": [
-          "송수신 인터페이스 목록",
-          "개인정보 처리 시스템 흐름도"
-        ],
-        "automation_coverage": {
-          "percentage": 40,
-          "covered": "K8s Ingress TLS",
-          "not_covered": "mTLS, 외부 LB TLS"
-        },
-        "offcluster_satisfaction_conditions": [
-          "외부 LB TLS 종료 + 클러스터 내 mTLS 구조",
-          "해당 경로가 개인정보/중요정보 송수신 경로가 아님(송수신 인터페이스 목록 확인)"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
-      }
-    },
-    {
-      "rule_id": "F-2.10.5-02",
-      "name": "ExternalName Service 평문 호출 발견",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "potential_finding",
-      "manual_meta": {
-        "target_resource": "Service",
-        "required_data": [
-          "cluster_services"
-        ],
-        "condition": {
-          "operator": "all_of",
-          "conditions": [
-            {
-              "field": "spec.type",
-              "equals": "ExternalName"
-            },
-            {
-              "field": "spec.externalName",
-              "regex_match": "^http://"
-            }
-          ]
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.10.5",
-            "match_strength": "direct"
-          }
+          "외부 호출 인터페이스 목록"
         ],
         "kisa_defect_case_refs": [
           {
@@ -155,23 +112,16 @@
             "match": "direct"
           }
         ],
-        "additional_review_items": [
-          "평문 호출이 비중요 외부 서비스인가",
-          "중요 정보 송수신이면 https:// 변경 필요"
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.10.5",
+            "match_strength": "direct"
+          }
         ],
-        "manual_check_areas": [
-          "외부 호출 인터페이스 목록"
-        ],
-        "automation_coverage": {
-          "percentage": 100,
-          "covered": "ExternalName http:// 점검",
-          "not_covered": "실제 호출되는 도메인의 정책"
-        },
         "offcluster_satisfaction_conditions": [
           "평문 호출 대상이 개인정보/중요정보 비송수신 비중요 외부 서비스로 확인됨(중요정보면 https 전환 필요)"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
+        ]
       }
     },
     {
@@ -196,7 +146,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -221,7 +175,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     }
   ],

@@ -316,10 +316,11 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		itemName    string
 		ruleResults []grc.RuleResult
 		// asset key → violated rules
-		assets    map[string]*grc.ViolatedAsset
-		glResults []grc.RuleResult
-		rResults  []grc.RuleResult
-		fResults  []grc.RuleResult
+		assets        map[string]*grc.ViolatedAsset
+		glResults     []grc.RuleResult
+		rResults      []grc.RuleResult
+		fResults      []grc.RuleResult
+		reportResults []grc.RuleResult // LayerReport: 인벤토리/방증, 합격률 분모 제외
 	}
 	items := map[string]*itemTracker{}
 	getItem := func(itemID, itemName string) *itemTracker {
@@ -333,6 +334,10 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		items[itemID] = it
 		return it
 	}
+
+	// ── Stage 2: R룰 manual_check_output 주입을 위한 룰 정의 맵 ──
+	// 19개 흡수된 R룰에 ARI/MCA/AC/KDC 등을 enrichManualOutput으로 부착한다.
+	ruleDef := buildRuleDefMap(s.rulesetStore)
 
 	// 5. R-rules: per-pod evaluation
 	nsRelatedCache := map[string]*postgres.ClusterRelatedRows{}
@@ -376,11 +381,20 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 			if grr.Layer == "" {
 				grr.Layer = grc.LayerR
 			}
+
+			// Stage 2: 흡수된 F룰의 수동점검 출력(ARI/MCA/AC/KDC)을 R 결과에 주입.
+			// needs_review 출신은 verdict를 NEEDS_REVIEW로 덮어써 합격률 분모에서 제외.
+			if def, ok := ruleDef[grr.RuleID]; ok {
+				enrichManualOutput(&grr, def)
+			}
+
 			it.ruleResults = append(it.ruleResults, grr)
 			it.rResults = append(it.rResults, grr)
 
-			// If failed, record the pod as a violated asset
-			if rr.Verdict == "미준수" {
+			// If failed, record the pod as a violated asset.
+			// needs_review 출신은 enrichManualOutput이 NEEDS_REVIEW로 덮어쓰므로
+			// 이 블록에 진입하지 않는다 (위양성 방지).
+			if grr.Verdict == "미준수" || grr.Verdict == grc.VerdictNOT_MET {
 				ri := grc.ViolatedRuleInfo{
 					RuleID:      rr.RuleID,
 					FailMessage: rr.FailMessage,
@@ -426,10 +440,23 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 			fr.Layer = grc.LayerF
 		}
 		it.ruleResults = append(it.ruleResults, fr)
-		it.fResults = append(it.fResults, fr)
 
-		// If finding matched (potential issue), record affected resources
-		if fr.Verdict == "검토필요" || fr.Verdict == "미준수" || fr.Verdict == grc.VerdictNEEDS_REVIEW || fr.Verdict == grc.VerdictNOT_MET {
+		// Stage 2: 레이어별 분기
+		// LayerR  → 승격/deferred 룰 (합격률 분모 포함/skipped로 제외)
+		// LayerReport → 리포트형 룰 (합격률 분모 제외, 별도 섹션)
+		// LayerF  → 흡수 완료 후 잔여 없음, 하위호환 보존
+		switch fr.Layer {
+		case grc.LayerR:
+			it.rResults = append(it.rResults, fr)
+		case grc.LayerReport:
+			it.reportResults = append(it.reportResults, fr)
+		default: // LayerF (하위호환)
+			it.fResults = append(it.fResults, fr)
+		}
+
+		// 위반 자산 기록: NOT_MET인 경우만 (NEEDS_REVIEW·REPORT 제외).
+		// 승격 룰(LayerR, NOT_MET)은 AffectedResources를 통해 기록된다.
+		if fr.Verdict == "미준수" || fr.Verdict == grc.VerdictNOT_MET {
 			ri := grc.ViolatedRuleInfo{
 				RuleID:      fr.RuleID,
 				FailMessage: fr.FailMessage,
@@ -468,25 +495,31 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 			TotalRules:  len(it.ruleResults),
 			RuleResults: it.ruleResults,
 			Layers: &grc.ItemLayers{
-				GL: it.glResults,
-				R:  it.rResults,
-				F:  it.fResults,
+				GL:     it.glResults,
+				R:      it.rResults,
+				F:      it.fResults,
+				Report: it.reportResults,
 			},
 		}
 
 		for _, rr := range it.ruleResults {
+			// Stage 2: 리포트형 룰(LayerReport)은 합격률 분모에서 제외.
+			// 인벤토리/방증 출력이므로 충족/미충족 어디에도 포함하지 않는다.
+			if rr.Layer == grc.LayerReport {
+				continue
+			}
 			switch rr.Verdict {
 			case "준수", grc.VerdictMET:
 				item.Passed++
 			case "미준수", grc.VerdictNOT_MET:
 				item.Failed++
 			case "검토필요", grc.VerdictNEEDS_REVIEW:
-				item.NeedsReview++
+				item.NeedsReview++ // 확인불가: 분모 제외 (NEEDS_REVIEW origin 포함)
 			case grc.VerdictNO_DATA:
 				item.NoData++
 			case grc.VerdictINDETERMINATE:
 				item.Indeterminate++
-			default: // skipped 등
+			default: // skipped (deferred 등) — 분모 제외
 				item.Skipped++
 			}
 		}
@@ -628,9 +661,18 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 			result.TotalRules += gl.TotalRules
 		} else {
 			// New item (only has GL rules)
+			name := itemNameMap[gl.ISMSPItemID]
+			if name == "" {
+				if rs, loadErr := s.rulesetStore.Load(gl.ISMSPItemID); loadErr == nil {
+					name = rs.Item.Name
+				}
+			}
+			if name == "" {
+				name = gl.ISMSPItemID // fallback: use item ID as name
+			}
 			item := grc.ItemComplianceResult{
 				ISMSPItemID: gl.ISMSPItemID,
-				ItemName:    itemNameMap[gl.ISMSPItemID],
+				ItemName:    name,
 				TotalRules:  gl.TotalRules,
 				Passed:      gl.Passed,
 				Failed:      gl.Failed,
@@ -667,7 +709,7 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 		if item.Failed > 0 {
 			item.Verdict = "미준수"
 			result.NonCompliantItems++
-		} else if item.NeedsReview > 0 {
+		} else if item.NeedsReview > 0 || item.NoData > 0 || item.Indeterminate > 0 {
 			item.Verdict = "검토필요"
 			result.NeedsReviewItems++
 		} else if item.Passed > 0 {
@@ -713,7 +755,11 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 				item.Note += " — 조치: " + strings.Join(top, "; ")
 			}
 		case "검토필요":
-			item.Note = fmt.Sprintf("%d개 룰 검토 필요 (자동 판단 불가, 수동 확인 권장)", item.NeedsReview)
+			if item.NeedsReview > 0 {
+				item.Note = fmt.Sprintf("%d개 룰 검토 필요 (자동 판단 불가, 수동 확인 권장)", item.NeedsReview)
+			} else {
+				item.Note = fmt.Sprintf("데이터 부족 (NO_DATA %d건, 확인불가 %d건) — 수동 확인 권장", item.NoData, item.Indeterminate)
+			}
 		case "준수":
 			item.Note = fmt.Sprintf("%d개 룰 전부 통과", item.Passed)
 			// Add matched indicators from rule results if available
@@ -1100,6 +1146,86 @@ func (s *GRCService) GetPodViolations(ctx context.Context, companyID, clusterNam
 	}
 	result.TotalViolatedItems = len(result.ViolatedItems)
 	return result, nil
+}
+
+// ── Stage 2 helpers: F→R 흡수 / manual_check_output 주입 ──
+
+// buildRuleDefMap returns a flat map of ruleID → *Rule across all loaded rulesets.
+// Used to look up ManualCheckOutput when enriching per-pod R-rule results.
+func buildRuleDefMap(store *RulesetStore) map[string]*Rule {
+	m := map[string]*Rule{}
+	for _, rs := range store.LoadAll() {
+		for i := range rs.Rules {
+			r := &rs.Rules[i]
+			m[r.RuleID] = r
+		}
+	}
+	return m
+}
+
+// needsReviewAbsorbedFromIDs is the set of original F-rule IDs whose verdict_type
+// was "needs_review". When their R-counterpart is enriched, the verdict is forced
+// to NEEDS_REVIEW so the result is excluded from the compliance-rate denominator
+// (충족/미충족만 분모 포함, 확인불가 제외).
+//
+// Source: §6-6 of the F-absorption design doc.
+// F-2.6.1-01→R-2.6.1-02, F-2.6.1-02→R-2.6.1-03, F-2.6.1-03→R-2.6.1-04,
+// F-2.6.7-01→R-2.6.7-01, F-2.10.3-03→R-2.10.3-03
+var needsReviewAbsorbedFromIDs = map[string]bool{
+	"F-2.6.1-01":  true,
+	"F-2.6.1-02":  true,
+	"F-2.6.1-03":  true,
+	"F-2.6.7-01":  true,
+	"F-2.10.3-03": true,
+}
+
+// enrichManualOutput copies absorbed F-finding metadata (ARI/MCA/AC/KDC/etc.) into
+// an R-rule result according to the applies_when policy:
+//   - "fail"   → expose only when R verdict is NOT_MET (potential_finding 출신)
+//   - "always" → always expose (needs_review / additional_evidence 출신)
+//
+// needs_review 출신은 R verdict를 NEEDS_REVIEW로 덮어써 합격률 분모에서 제외한다
+// (§6-6 결정: "집계 단계 제외가 더 안전").
+// additional_evidence 출신은 verdict를 그대로 두고 방증 컨텍스트만 부착한다.
+func enrichManualOutput(grr *grc.RuleResult, def *Rule) {
+	mco := def.ManualCheckOutput
+	if mco == nil {
+		return
+	}
+
+	isFail := grr.Verdict == grc.VerdictNOT_MET || grr.Verdict == "미준수"
+	if mco.AppliesWhen == "fail" && !isFail {
+		return // potential_finding 출신: R 미충족일 때만 수동점검 컨텍스트 노출
+	}
+
+	// ARI / MCA / AC / offcluster 복사
+	if len(mco.AdditionalReviewItems) > 0 {
+		grr.AdditionalReviewItems = toRawJSON(mco.AdditionalReviewItems)
+	}
+	if len(mco.ManualCheckAreas) > 0 {
+		grr.ManualCheckAreas = toRawJSON(mco.ManualCheckAreas)
+	}
+	if len(mco.AlternativeControls) > 0 {
+		grr.AlternativeControls = toRawJSON(mco.AlternativeControls)
+	}
+	if len(mco.OffclusterSatisfactionConditions) > 0 {
+		grr.OffclusterSatisfactionConditions = toRawJSON(mco.OffclusterSatisfactionConditions)
+	}
+	// KDC / compliance_mappings: json.RawMessage는 그대로 참조
+	if len(mco.KisaDefectCaseRefs) > 0 {
+		grr.KisaDefectCaseRefs = mco.KisaDefectCaseRefs
+	}
+	if len(mco.ComplianceMappings) > 0 {
+		grr.ComplianceMappings = mco.ComplianceMappings
+	}
+
+	// needs_review 출신: verdict 덮어쓰기 → 합격률 분모 제외
+	if needsReviewAbsorbedFromIDs[mco.AbsorbedFrom] {
+		if grr.Reason == "" {
+			grr.Reason = fmt.Sprintf("R 자동측정: %s → 수동 검토 필요 (확인불가)", grr.Verdict)
+		}
+		grr.Verdict = grc.VerdictNEEDS_REVIEW
+	}
 }
 
 func envOrDefault(key, def string) string {
