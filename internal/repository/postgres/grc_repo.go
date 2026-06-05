@@ -1591,6 +1591,33 @@ func (r *GRCRepo) ListCompanyItemsWithGuidelines(ctx context.Context) ([]grc.GLC
 	return targets, rows.Err()
 }
 
+// ListCompaniesWithGlobalGuidelines returns distinct company_ids that have at least one
+// guideline with isms_p_item_id IS NULL (global guideline, applies to all items).
+func (r *GRCRepo) ListCompaniesWithGlobalGuidelines(ctx context.Context) ([]string, error) {
+	rows, err := r.pg.Query(ctx, `
+		SELECT DISTINCT company_id
+		FROM grc_guidelines
+		WHERE isms_p_item_id IS NULL
+		  AND extracted_text IS NOT NULL
+		  AND extracted_text != ''
+		ORDER BY company_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var companies []string
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			return nil, err
+		}
+		companies = append(companies, c)
+	}
+	return companies, rows.Err()
+}
+
 // UpdateCheckGuidelineIDs saves the guideline IDs used in a check.
 func (r *GRCRepo) UpdateCheckGuidelineIDs(ctx context.Context, checkID string, guidelineIDs []int64) error {
 	_, err := r.pg.Exec(ctx, `

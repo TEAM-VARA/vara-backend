@@ -226,32 +226,49 @@ func (h *GRCHandler) UploadGuideline(c *gin.Context) {
 		return
 	}
 
-	// 지침서가 특정 ISMS-P 항목에 속하면:
-	// 1) GL 룰 캐시 무효화 (새 지침서로 재계산 필요)
-	// 2) 즉시 GL 점검 트리거
+	// GL 점검 자동 트리거
+	// - isms_p_item_id 지정: 해당 항목만 트리거
+	// - isms_p_item_id 없음: GL 룰이 있는 모든 항목 트리거
 	var triggeredCheckID string
+	var triggeredCheckIDs []string
+
 	if ismspItemIDPtr != nil && *ismspItemIDPtr != "" {
 		h.svc.InvalidateGLCache(c.Request.Context(), companyID, *ismspItemIDPtr)
 		chk, trigErr := h.svc.TriggerGLCheck(c.Request.Context(), companyID, *ismspItemIDPtr)
 		if trigErr != nil {
-			// 업로드는 성공했으므로 점검 트리거 실패를 치명적 오류로 처리하지 않음
 			log.Printf("[grc-handler] auto GL check trigger failed for %s/%s: %v", companyID, *ismspItemIDPtr, trigErr)
 		} else {
 			triggeredCheckID = chk.CheckID
 		}
+	} else {
+		// 전체 GL 항목에 대해 점검 트리거
+		glItemIDs := h.svc.ListGLRuleItemIDs()
+		for _, itemID := range glItemIDs {
+			h.svc.InvalidateGLCache(c.Request.Context(), companyID, itemID)
+			chk, trigErr := h.svc.TriggerGLCheck(c.Request.Context(), companyID, itemID)
+			if trigErr != nil {
+				log.Printf("[grc-handler] auto GL check trigger failed for %s/%s: %v", companyID, itemID, trigErr)
+				continue
+			}
+			triggeredCheckIDs = append(triggeredCheckIDs, chk.CheckID)
+		}
+		if len(triggeredCheckIDs) > 0 {
+			triggeredCheckID = triggeredCheckIDs[0]
+		}
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"id":                  g.ID,
-		"company_id":          g.CompanyID,
-		"isms_p_item_id":      g.ISMSPItemID,
-		"filename":            g.Filename,
-		"file_size_bytes":     g.FileSizeBytes,
-		"has_text":            g.ExtractedText != "",
-		"has_embedding":       len(g.Embedding) > 0,
-		"version":             g.Version,
-		"uploaded_at":         g.UploadedAt,
-		"triggered_check_id":  triggeredCheckID,
+		"id":                   g.ID,
+		"company_id":           g.CompanyID,
+		"isms_p_item_id":       g.ISMSPItemID,
+		"filename":             g.Filename,
+		"file_size_bytes":      g.FileSizeBytes,
+		"has_text":             g.ExtractedText != "",
+		"has_embedding":        len(g.Embedding) > 0,
+		"version":              g.Version,
+		"uploaded_at":          g.UploadedAt,
+		"triggered_check_id":   triggeredCheckID,
+		"triggered_check_ids":  triggeredCheckIDs,
 	})
 }
 
