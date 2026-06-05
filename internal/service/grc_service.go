@@ -266,10 +266,55 @@ func (s *GRCService) ListFindingClusterSummaries(ctx context.Context, companyID 
 
 // ── GL 지침서 자동 점검 ──
 
-// ListGLCheckTargets returns all (company_id, isms_p_item_id) pairs that have at least
-// one guideline with extracted text, ready for automated GL-layer evaluation.
+// ListGLRuleItemIDs returns all ISMS-P item IDs that have at least one GL rule
+// (judgment_source=text_extraction, method=llm_rag_entailment).
+func (s *GRCService) ListGLRuleItemIDs() []string {
+	rulesets := s.rulesetStore.LoadAll()
+	var items []string
+	for _, rs := range rulesets {
+		for _, rule := range rs.Rules {
+			if rule.JudgmentSource == "text_extraction" &&
+				rule.JudgmentLogic.Type == "semantic_match" &&
+				rule.JudgmentLogic.Method == "llm_rag_entailment" {
+				items = append(items, rs.Item.ID)
+				break
+			}
+		}
+	}
+	return items
+}
+
+// ListGLCheckTargets returns all (company_id, isms_p_item_id) pairs for GL evaluation.
+// Includes item-specific guidelines AND expands global guidelines (isms_p_item_id=NULL)
+// across all GL rule items.
 func (s *GRCService) ListGLCheckTargets(ctx context.Context) ([]grc.GLCheckTarget, error) {
-	return s.repo.ListCompanyItemsWithGuidelines(ctx)
+	targets, err := s.repo.ListCompanyItemsWithGuidelines(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Companies with global (no item_id) guidelines → expand to all GL rule items
+	globalCompanies, err := s.repo.ListCompaniesWithGlobalGuidelines(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(globalCompanies) > 0 {
+		glItems := s.ListGLRuleItemIDs()
+		seen := make(map[string]bool, len(targets))
+		for _, t := range targets {
+			seen[t.CompanyID+"/"+t.ISMSPItemID] = true
+		}
+		for _, company := range globalCompanies {
+			for _, itemID := range glItems {
+				key := company + "/" + itemID
+				if !seen[key] {
+					targets = append(targets, grc.GLCheckTarget{CompanyID: company, ISMSPItemID: itemID})
+					seen[key] = true
+				}
+			}
+		}
+	}
+	return targets, nil
 }
 
 // TriggerGLCheck creates a guideline-only compliance check (no evidence files) for the
