@@ -75,5 +75,5 @@ func (s *GRCService) EvaluateRuleWithEvidence(ctx context.Context, ruleRef strin
 		filenames = []string{"inline"}
 	}
 	data := CanonicalEvidenceForRule(*rule, evidencePayload)
-	return s.evaluateRule(ctx, *rule, data, filenames, nil), nil
+	return s.evaluateRule(ctx, *rule, data, filenames, nil, nil), nil
 }

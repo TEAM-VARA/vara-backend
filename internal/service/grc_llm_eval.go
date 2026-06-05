@@ -26,12 +26,15 @@ type scoredSentence struct {
 //  2. Retrieve top-k sentences via BGE-M3 cosine similarity
 //  3. Call VLM (Qwen on Colab) for entailment judgment
 //  4. Map verdict to grc.RuleResult
+// cachedGLSentences: pre-computed top-K sentences from precomputeGLRuleTopSentences.
+// When non-nil, Steps 1–4 (sentence collection + embedding + cosine similarity) are skipped.
 func (s *GRCService) evaluateLLMRAGEntailment(
 	ctx context.Context,
 	rule Rule,
 	dbGuidelines []grc.Guideline,
 	evidenceData []any,
 	base grc.RuleResult,
+	cachedGLSentences []string,
 ) grc.RuleResult {
 
 	base.Layer = grc.LayerGL
@@ -42,6 +45,41 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 		base.SkipReason = "VLM 서버 비가동 (llm_rag_entailment)"
 		base.Reason = "VLM 서버 비가동"
 		return base
+	}
+
+	// ── Fast path: use pre-computed top sentences (skip embedding entirely) ──
+	if len(cachedGLSentences) > 0 {
+		log.Printf("[grc-rag] rule=%s: cache HIT, skipping embedding (%d sentences)", rule.RuleID, len(cachedGLSentences))
+		var topHits []scoredSentence
+		for i, s := range cachedGLSentences {
+			topHits = append(topHits, scoredSentence{index: i, text: s, score: 1.0})
+		}
+		query := buildRuleQuery(rule)
+		polarity, params := extractRulePolarity(rule)
+		var retrieved []vlm.RetrievedSentence
+		for i, hit := range topHits {
+			retrieved = append(retrieved, vlm.RetrievedSentence{Index: i + 1, Text: hit.text, Score: hit.score})
+		}
+		judgeReq := vlm.JudgeRequest{
+			RuleRequirement:    query,
+			Polarity:           polarity,
+			Parameters:         params,
+			RetrievedSentences: retrieved,
+		}
+		if reqJSON, err := json.Marshal(judgeReq); err == nil {
+			log.Printf("[grc-rag] VLM REQUEST (cached) rule=%s:\n%s", rule.RuleID, string(reqJSON))
+		}
+		judgeResp, err := s.vlmClient.Judge(ctx, judgeReq)
+		if err != nil || judgeResp == nil {
+			base.Verdict = grc.VerdictINDETERMINATE
+			base.SkipReason = fmt.Sprintf("VLM 판정 오류: %v", err)
+			base.Reason = "VLM 판정 오류"
+			return base
+		}
+		if respJSON, err := json.Marshal(judgeResp); err == nil {
+			log.Printf("[grc-rag] VLM RESPONSE (cached) rule=%s:\n%s", rule.RuleID, string(respJSON))
+		}
+		return mapVLMVerdictToResult(judgeResp, topHits, base)
 	}
 
 	// ── Guard: embedding client must be available for retrieval ──

@@ -827,6 +827,129 @@ func (r *GRCRepo) FindSimilarEvidence(ctx context.Context, queryEmb []float32, l
 	return files, nil
 }
 
+// ── GL Rule Top-Sentence Cache ──
+
+// SaveGLRuleTopSentences upserts the top-K guideline sentences for a GL rule.
+func (r *GRCRepo) SaveGLRuleTopSentences(ctx context.Context, companyID, ismspItemID, ruleID string, topSentences []string) error {
+	_, err := r.pg.Exec(ctx, `
+		INSERT INTO grc_gl_rule_top_sentences (company_id, isms_p_item_id, rule_id, top_sentences, computed_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (company_id, isms_p_item_id, rule_id)
+		DO UPDATE SET top_sentences = EXCLUDED.top_sentences, computed_at = NOW()
+	`, companyID, ismspItemID, ruleID, topSentences)
+	return err
+}
+
+// GetGLRuleTopSentences retrieves cached top sentences for a GL rule.
+// Returns (sentences, true, nil) on cache hit; (nil, false, nil) on miss.
+func (r *GRCRepo) GetGLRuleTopSentences(ctx context.Context, companyID, ismspItemID, ruleID string) ([]string, bool, error) {
+	var sentences []string
+	err := r.pg.QueryRow(ctx, `
+		SELECT top_sentences FROM grc_gl_rule_top_sentences
+		WHERE company_id = $1 AND isms_p_item_id = $2 AND rule_id = $3
+	`, companyID, ismspItemID, ruleID).Scan(&sentences)
+	if err != nil {
+		return nil, false, nil // treat all errors as cache miss
+	}
+	return sentences, true, nil
+}
+
+// InvalidateGLRuleCache removes all top-sentence caches for a (company, item) pair.
+// Call this when a new guideline is uploaded to force fresh precomputation.
+func (r *GRCRepo) InvalidateGLRuleCache(ctx context.Context, companyID, ismspItemID string) error {
+	_, err := r.pg.Exec(ctx, `
+		DELETE FROM grc_gl_rule_top_sentences WHERE company_id = $1 AND isms_p_item_id = $2
+	`, companyID, ismspItemID)
+	return err
+}
+
+// ── Guideline Sentence Embeddings ──
+
+// SentenceEmbedding holds a guideline sentence with its embedding vector.
+type SentenceEmbedding struct {
+	Text      string
+	Embedding []float32
+}
+
+// HasGuidelineSentenceEmbeddings returns true if any sentence embeddings exist for the guideline.
+func (r *GRCRepo) HasGuidelineSentenceEmbeddings(ctx context.Context, guidelineID int64) (bool, error) {
+	var count int
+	err := r.pg.QueryRow(ctx, `
+		SELECT COUNT(*) FROM grc_guideline_sentence_embeddings WHERE guideline_id = $1 LIMIT 1
+	`, guidelineID).Scan(&count)
+	return count > 0, err
+}
+
+// SaveGuidelineSentenceEmbeddings stores per-sentence embeddings for a guideline.
+// Idempotent: uses ON CONFLICT DO NOTHING.
+func (r *GRCRepo) SaveGuidelineSentenceEmbeddings(ctx context.Context, guidelineID int64, sentences []string, embeddings [][]float32) error {
+	if len(sentences) == 0 {
+		return nil
+	}
+	batch := &pgx.Batch{}
+	count := 0
+	for i, sentence := range sentences {
+		if i >= len(embeddings) || embeddings[i] == nil {
+			continue
+		}
+		vecStr := vectorToString(embeddings[i])
+		if vecStr == nil {
+			continue
+		}
+		batch.Queue(
+			`INSERT INTO grc_guideline_sentence_embeddings (guideline_id, sentence_index, sentence_text, embedding)
+			 VALUES ($1, $2, $3, $4::vector)
+			 ON CONFLICT (guideline_id, sentence_index) DO NOTHING`,
+			guidelineID, i, sentence, *vecStr,
+		)
+		count++
+	}
+	if count == 0 {
+		return nil
+	}
+	results := r.pg.SendBatch(ctx, batch)
+	defer results.Close()
+	for i := 0; i < count; i++ {
+		if _, err := results.Exec(); err != nil {
+			// log but continue — partial save is better than none
+			fmt.Printf("[grc-repo] sentence embedding row %d save error: %v\n", i, err)
+		}
+	}
+	return results.Close()
+}
+
+// GetGuidelineSentenceEmbeddingsForItem loads all stored sentence embeddings for all guidelines
+// belonging to a (company, isms_p_item_id) pair. Returns empty slice if none exist.
+func (r *GRCRepo) GetGuidelineSentenceEmbeddingsForItem(ctx context.Context, companyID, ismspItemID string) ([]SentenceEmbedding, error) {
+	rows, err := r.pg.Query(ctx, `
+		SELECT e.sentence_text, e.embedding::text
+		FROM grc_guideline_sentence_embeddings e
+		JOIN grc_guidelines g ON g.id = e.guideline_id
+		WHERE g.company_id = $1
+		  AND g.isms_p_item_id = $2
+		ORDER BY g.id, e.sentence_index
+	`, companyID, ismspItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []SentenceEmbedding
+	for rows.Next() {
+		var text string
+		var vecText string
+		if err := rows.Scan(&text, &vecText); err != nil {
+			continue
+		}
+		emb, err := parseVectorText(vecText)
+		if err != nil || len(emb) == 0 {
+			continue
+		}
+		result = append(result, SentenceEmbedding{Text: text, Embedding: emb})
+	}
+	return result, rows.Err()
+}
+
 // ── Cloud Environments ──
 
 // InsertCloudEnvironment inserts a new cloud environment resource.

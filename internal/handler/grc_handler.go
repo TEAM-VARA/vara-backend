@@ -226,9 +226,12 @@ func (h *GRCHandler) UploadGuideline(c *gin.Context) {
 		return
 	}
 
-	// 지침서가 특정 ISMS-P 항목에 속하면 즉시 GL 점검 트리거
+	// 지침서가 특정 ISMS-P 항목에 속하면:
+	// 1) GL 룰 캐시 무효화 (새 지침서로 재계산 필요)
+	// 2) 즉시 GL 점검 트리거
 	var triggeredCheckID string
 	if ismspItemIDPtr != nil && *ismspItemIDPtr != "" {
+		h.svc.InvalidateGLCache(c.Request.Context(), companyID, *ismspItemIDPtr)
 		chk, trigErr := h.svc.TriggerGLCheck(c.Request.Context(), companyID, *ismspItemIDPtr)
 		if trigErr != nil {
 			// 업로드는 성공했으므로 점검 트리거 실패를 치명적 오류로 처리하지 않음
