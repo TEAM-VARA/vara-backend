@@ -1823,7 +1823,8 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 	verdict := "준수"
 	severity := "low"
 	for _, r := range ruleResults {
-		if r.Verdict == "미준수" {
+		nv := grc.NormalizeVerdict(r.Verdict)
+		if nv == grc.VerdictNOT_MET {
 			verdict = "미준수"
 			for _, v := range r.Violations {
 				switch v.Severity {
@@ -1839,7 +1840,7 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 					}
 				}
 			}
-		} else if r.Verdict == "검토필요" && verdict != "미준수" {
+		} else if (nv == grc.VerdictNEEDS_REVIEW || nv == grc.VerdictINDETERMINATE || nv == grc.VerdictNO_DATA) && verdict != "미준수" {
 			verdict = "검토필요"
 		}
 	}
@@ -2907,14 +2908,14 @@ func aggregateSummary(results []grc.RuleResult, evidenceCount int) grc.Summary {
 		EvidenceCollected: evidenceCount,
 	}
 	for _, r := range results {
-		switch r.Verdict {
-		case "준수":
+		switch grc.NormalizeVerdict(r.Verdict) {
+		case grc.VerdictMET:
 			s.Passed++
-		case "미준수":
+		case grc.VerdictNOT_MET:
 			s.Failed++
-		case "검토필요":
+		case grc.VerdictNEEDS_REVIEW, grc.VerdictINDETERMINATE, grc.VerdictNO_DATA:
 			s.NeedsReview++
-		case "skipped":
+		case grc.VerdictSKIPPED:
 			s.Skipped++
 		}
 	}
@@ -2924,7 +2925,7 @@ func aggregateSummary(results []grc.RuleResult, evidenceCount int) grc.Summary {
 func generateRecommendations(results []grc.RuleResult, ruleset *Ruleset) []grc.Recommendation {
 	var recs []grc.Recommendation
 	for _, r := range results {
-		if r.Verdict != "미준수" {
+		if grc.NormalizeVerdict(r.Verdict) != grc.VerdictNOT_MET {
 			continue
 		}
 		// Find the rule in ruleset to get legal_basis.
