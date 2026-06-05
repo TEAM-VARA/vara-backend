@@ -8,6 +8,27 @@ import (
 	"sync"
 )
 
+// ManualCheckOutput is attached to R-rules that absorbed a former F-finding rule (Stage 2).
+// It carries manual-check context (ARI/MCA/AC/KDC) to be surfaced alongside the R verdict.
+// COV(automation_coverage)는 도구 자기평가 메타스탯이므로 흡수하지 않는다.
+type ManualCheckOutput struct {
+	// AppliesWhen controls when this output is exposed in results.
+	// "fail"   = R이 미준수일 때만 노출 (potential_finding 출신)
+	// "always" = 항상 노출 (needs_review / additional_evidence 출신)
+	AppliesWhen string `json:"applies_when,omitempty"`
+
+	// AbsorbedFrom is the original F-rule ID that was absorbed into this R-rule.
+	AbsorbedFrom string `json:"absorbed_from,omitempty"`
+
+	AdditionalReviewItems            []string        `json:"additional_review_items,omitempty"`
+	ManualCheckAreas                 []string        `json:"manual_check_areas,omitempty"`
+	AlternativeControls              []string        `json:"alternative_controls,omitempty"`
+	KisaDefectCaseRefs               json.RawMessage `json:"kisa_defect_case_refs,omitempty"`
+	ComplianceMappings               json.RawMessage `json:"compliance_mappings,omitempty"`
+	OffclusterSatisfactionConditions []string        `json:"offcluster_satisfaction_conditions,omitempty"`
+	ExceptionNamespaces              []string        `json:"exception_namespaces,omitempty"`
+}
+
 // ManualRuleMeta holds F-finding-specific metadata for manual judgment rules.
 type ManualRuleMeta struct {
 	TargetResource                   string          `json:"target_resource,omitempty"`
@@ -74,6 +95,27 @@ type Rule struct {
 	// F-룰 (extraction_method: "manual") 전용
 	VerdictType string          `json:"verdict_type,omitempty"` // potential_finding | needs_review
 	ManualMeta  *ManualRuleMeta `json:"manual_meta,omitempty"`
+
+	// ── Stage 2: F→R 흡수/승격/리포트/deferred 분류 플래그 ──
+
+	// ManualCheckOutput: 이 R룰이 흡수한 F룰의 수동점검 출력 메타데이터.
+	// applies_when 규칙대로 R 결과에 부착된다.
+	ManualCheckOutput *ManualCheckOutput `json:"manual_check_output,omitempty"`
+
+	// PromotedFrom: 원래 F룰이었으나 자동화 가능하여 R룰로 승격된 경우 원 F룰 ID.
+	// 해당 룰은 Layer=R로 처리되며 합격률 분모에 포함된다.
+	PromotedFrom string `json:"promoted_from,omitempty"`
+
+	// ReclassifiedFrom: verdict 없는 인벤토리/방증 출력으로 재분류된 경우 원 F룰 ID.
+	// OutputType="report"와 함께 사용. 합격률 분모 제외.
+	ReclassifiedFrom string `json:"reclassified_from,omitempty"`
+
+	// DeferredFrom: eBPF 등 파이프라인 미연동으로 보류 처리된 경우 원 F룰 ID.
+	// manual_meta.deferred=true와 함께 사용. 합격률 분모 제외.
+	DeferredFrom string `json:"deferred_from,omitempty"`
+
+	// OutputType: "report" = 인벤토리/방증 리포트형 출력 (합격률 분모 제외).
+	OutputType string `json:"output_type,omitempty"`
 }
 
 // IsManual returns true if this rule requires manual judgment (F-finding).

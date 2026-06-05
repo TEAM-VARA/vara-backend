@@ -29,7 +29,12 @@
         "특수 권한 현황을 분기 이내 주기로 정기 검토하고 불필요한 권한을 회수하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"field": "검토주기", "op": "<=", "value": "분기", "description": "특수 권한 검토 주기를 분기 이내로 규정"}
+        {
+          "field": "검토주기",
+          "op": "<=",
+          "value": "분기",
+          "description": "특수 권한 검토 주기를 분기 이내로 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -45,7 +50,9 @@
         "불필요한 특수 권한을 발견 즉시 회수하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "불필요한 특수 권한 발견 시 즉시 회수 규정"}
+        {
+          "description": "불필요한 특수 권한 발견 시 즉시 회수 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -61,7 +68,9 @@
         "특수 계정 사용 시 로그 기록 및 감사를 통해 책임추적성을 확보하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "특수 계정 사용 시 로그 기록 및 감사 수행 규정"}
+        {
+          "description": "특수 계정 사용 시 로그 기록 및 감사 수행 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -77,7 +86,9 @@
         "특수 계정 목록을 별도로 식별하여 최신 상태로 관리하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "특수 계정 목록을 최신 상태로 유지·관리 규정"}
+        {
+          "description": "특수 계정 목록을 최신 상태로 유지·관리 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -93,7 +104,9 @@
         "특수 권한 부여 시 신청·승인(결재) 절차를 거치도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "특수 권한 부여 시 승인 절차(신청·결재) 규정"}
+        {
+          "description": "특수 권한 부여 시 승인 절차(신청·결재) 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -109,7 +122,9 @@
         "특수 계정의 공동 사용을 금지하고 개인별로 계정을 부여하도록 규정한다."
       ],
       "compliance_indicators": [
-        {"description": "특수 계정의 공동 사용 금지 및 개인별 계정 부여 규정"}
+        {
+          "description": "특수 계정의 공동 사용 금지 및 개인별 계정 부여 규정"
+        }
       ],
       "judgment_logic": {
         "type": "semantic_match",
@@ -122,65 +137,32 @@
       "judgment_source": "k8s_api",
       "extraction_method": "api",
       "compliance_indicators": [
-        {"field": "has_cluster_admin", "op": "==", "value": false, "description": "cluster-admin 바인딩 없음"},
-        {"field": "has_wildcard_permission", "op": "==", "value": false, "description": "verbs:* + resources:* 와일드카드 권한 없음"},
-        {"field": "has_cluster_wide_secrets", "op": "==", "value": false, "description": "클러스터 전체 Secret 접근 권한 없음"}
-      ],
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required"
-      }
-    },
-    {
-      "rule_id": "R-2.5.5-02",
-      "name": "위험 RBAC verb 조합 점검",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "dangerous_verb_combinations": [
-        {"name": "pod_exec_attach", "verbs": ["create", "get"], "resources": ["pods/exec", "pods/attach", "pods/portforward"], "risk": "컨테이너 내부 임의 명령 실행"},
-        {"name": "secret_read_cluster_wide", "verbs": ["get", "list", "watch"], "resources": ["secrets"], "scope": "cluster_wide", "risk": "클러스터 전체 비밀정보 열람"},
-        {"name": "secret_write", "verbs": ["create", "update", "patch", "delete"], "resources": ["secrets"], "risk": "비밀정보 변조·삭제"},
-        {"name": "rbac_escalate", "verbs": ["escalate"], "resources": ["clusterroles", "roles"], "risk": "RBAC 권한 자체 상승"},
-        {"name": "rbac_bind", "verbs": ["bind"], "resources": ["clusterroles", "roles"], "risk": "임의 권한 바인딩"},
-        {"name": "impersonate", "verbs": ["impersonate"], "resources": ["users", "groups", "serviceaccounts"], "risk": "다른 계정 가장하여 API 호출"},
-        {"name": "node_proxy", "verbs": ["get", "create"], "resources": ["nodes/proxy"], "risk": "kubelet API 직접 접근"},
-        {"name": "sa_token_request", "verbs": ["create"], "resources": ["serviceaccounts/token"], "risk": "임의 ServiceAccount 토큰 발급"}
-      ],
-      "compliance_indicators": [
-        {"field": "has_dangerous_verb_combo", "op": "==", "value": false, "description": "위험 verb 조합 미보유"}
-      ],
-      "exception_check": {
-        "annotation": "rbac-exception/justification",
-        "system_namespaces": ["kube-system", "kube-node-lease"]
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required"
-      }
-    },
-    {
-      "rule_id": "F-2.5.5-01",
-      "name": "클러스터 최고 권한 보유 SA 발견",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "potential_finding",
-      "manual_meta": {
-        "target_resource": "ServiceAccount + RBAC chain",
-        "required_data": [
-          "cluster_pods.service_account",
-          "cluster_role_bindings",
-          "cluster_cluster_role_bindings",
-          "cluster_roles",
-          "cluster_cluster_roles"
-        ],
-        "condition": {
-          "operator": "any_of",
-          "conditions": [
-            {"binding_target": "cluster-admin"},
-            {"rules_contain": {"verbs": ["*"], "resources": ["*"]}},
-            {"cluster_scope_secret_access": ["get", "list", "watch"]}
-          ]
+        {
+          "field": "has_cluster_admin",
+          "op": "==",
+          "value": false,
+          "description": "cluster-admin 바인딩 없음"
         },
+        {
+          "field": "has_wildcard_permission",
+          "op": "==",
+          "value": false,
+          "description": "verbs:* + resources:* 와일드카드 권한 없음"
+        },
+        {
+          "field": "has_cluster_wide_secrets",
+          "op": "==",
+          "value": false,
+          "description": "클러스터 전체 Secret 접근 권한 없음"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required"
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "F-2.5.5-01",
         "manual_check_areas": [
           "권한 부여 결재 기록"
         ],
@@ -190,28 +172,128 @@
       }
     },
     {
-      "rule_id": "F-2.5.5-02",
-      "name": "위험 RBAC 권한 보유 SA 발견",
+      "rule_id": "R-2.5.5-02",
+      "name": "위험 RBAC verb 조합 점검",
       "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "potential_finding",
-      "manual_meta": {
-        "target_resource": "ServiceAccount + RBAC chain",
-        "required_data": [
-          "cluster_role_bindings",
-          "cluster_cluster_role_bindings",
-          "cluster_roles",
-          "cluster_cluster_roles"
-        ],
-        "condition": {
-          "operator": "any_dangerous_verb",
-          "patterns": [
-            {"name": "pod_exec", "resource": "pods/exec", "verbs": ["create", "*"]},
-            {"name": "secret_write", "resource": "secrets", "verbs": ["create", "update", "patch", "*"]},
-            {"name": "rbac_escalate", "resource": "*", "verbs": ["escalate"]},
-            {"name": "impersonate", "resource": "users|groups|serviceaccounts", "verbs": ["impersonate"]}
-          ]
+      "extraction_method": "api",
+      "dangerous_verb_combinations": [
+        {
+          "name": "pod_exec_attach",
+          "verbs": [
+            "create",
+            "get"
+          ],
+          "resources": [
+            "pods/exec",
+            "pods/attach",
+            "pods/portforward"
+          ],
+          "risk": "컨테이너 내부 임의 명령 실행"
         },
+        {
+          "name": "secret_read_cluster_wide",
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "scope": "cluster_wide",
+          "risk": "클러스터 전체 비밀정보 열람"
+        },
+        {
+          "name": "secret_write",
+          "verbs": [
+            "create",
+            "update",
+            "patch",
+            "delete"
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "risk": "비밀정보 변조·삭제"
+        },
+        {
+          "name": "rbac_escalate",
+          "verbs": [
+            "escalate"
+          ],
+          "resources": [
+            "clusterroles",
+            "roles"
+          ],
+          "risk": "RBAC 권한 자체 상승"
+        },
+        {
+          "name": "rbac_bind",
+          "verbs": [
+            "bind"
+          ],
+          "resources": [
+            "clusterroles",
+            "roles"
+          ],
+          "risk": "임의 권한 바인딩"
+        },
+        {
+          "name": "impersonate",
+          "verbs": [
+            "impersonate"
+          ],
+          "resources": [
+            "users",
+            "groups",
+            "serviceaccounts"
+          ],
+          "risk": "다른 계정 가장하여 API 호출"
+        },
+        {
+          "name": "node_proxy",
+          "verbs": [
+            "get",
+            "create"
+          ],
+          "resources": [
+            "nodes/proxy"
+          ],
+          "risk": "kubelet API 직접 접근"
+        },
+        {
+          "name": "sa_token_request",
+          "verbs": [
+            "create"
+          ],
+          "resources": [
+            "serviceaccounts/token"
+          ],
+          "risk": "임의 ServiceAccount 토큰 발급"
+        }
+      ],
+      "compliance_indicators": [
+        {
+          "field": "has_dangerous_verb_combo",
+          "op": "==",
+          "value": false,
+          "description": "위험 verb 조합 미보유"
+        }
+      ],
+      "exception_check": {
+        "annotation": "rbac-exception/justification",
+        "system_namespaces": [
+          "kube-system",
+          "kube-node-lease"
+        ]
+      },
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required"
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "F-2.5.5-02",
         "manual_check_areas": [
           "RBAC 정책 문서 확인",
           "권한 부여 결재 기록"

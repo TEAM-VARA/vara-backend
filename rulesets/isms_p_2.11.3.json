@@ -50,7 +50,7 @@
       }
     },
     {
-      "rule_id": "F-2.11.3-01",
+      "rule_id": "R-2.11.3-02",
       "name": "운영 환경 Shell 활동 관찰 (eBPF)",
       "judgment_source": "k8s_api",
       "extraction_method": "manual",
@@ -112,8 +112,47 @@
           "이상행위 탐지 도구(Falco/Tetragon)·로그 보관 정책 운영 중"
         ],
         "k8s_only_check": true,
-        "deferred": false,
-        "deferred_reason": "K8s audit log 미수집으로 burst/forbidden/unexpected_creator 룰 비활성"
+        "deferred": true,
+        "deferred_reason": "행위 관측(운영 shell exec). eBPF(Falco/Tetragon) 파이프라인 연동 후 활성화"
+      },
+      "deferred_from": "F-2.11.3-01",
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-2.11.3-01",
+        "additional_review_items": [
+          "발견된 shell exec이 인가된 운영 작업이었는가",
+          "kubectl exec 권한 보유 SA 식별",
+          "활동 시간대가 업무 시간 내인가",
+          "회사의 운영 접근 정책 확인"
+        ],
+        "manual_check_areas": [
+          "이상행위 탐지 도구 운영(Falco, Tetragon)",
+          "탐지 룰 정의 문서",
+          "모니터링 로그 보관 정책"
+        ],
+        "alternative_controls": [
+          "SSM Session Manager",
+          "Teleport",
+          "외부 PAM 도구"
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "모니터링 사각지대 - 운영 중 비정상 활동 미감지",
+            "match": "partial"
+          }
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.11.3",
+            "match_strength": "indirect"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "탐지된 shell exec이 인가된 운영 작업(결재·SSM Session Manager/Teleport/PAM 기록)으로 확인",
+          "이상행위 탐지 도구(Falco/Tetragon)·로그 보관 정책 운영 중"
+        ]
       }
     },
     {
@@ -138,7 +177,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -163,7 +206,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     }
   ],

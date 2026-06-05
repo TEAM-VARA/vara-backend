@@ -43,6 +43,32 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
+      },
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-2.1.3-01",
+        "additional_review_items": [
+          "회사가 K8s annotation으로 책임자를 관리하는 정책인가",
+          "외부 자산관리시스템(CMDB)에서 책임자 매핑 여부",
+          "책임자 미지정 자산의 사유 확인"
+        ],
+        "manual_check_areas": [
+          "자산관리시스템(CMDB) 책임자 매핑"
+        ],
+        "alternative_controls": [
+          "외부 CMDB",
+          "ITSM 시스템"
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.1.3",
+            "match_strength": "indirect"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "K8s owner 라벨이 없어도 외부 CMDB/ITSM에 워크로드의 책임자·소유팀이 매핑돼 있음"
+        ]
       }
     },
     {
@@ -70,59 +96,7 @@
       }
     },
     {
-      "rule_id": "F-2.1.3-01",
-      "name": "Pod 책임자 정보 부재",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "additional_evidence",
-      "manual_meta": {
-        "target_resource": "Pod",
-        "required_data": [
-          "cluster_pods.annotations",
-          "cluster_pods.labels"
-        ],
-        "condition": {
-          "operator": "any_owner_indicator_exists",
-          "fields": [
-            "annotations.owner",
-            "annotations.contact",
-            "labels.team"
-          ]
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.1.3",
-            "match_strength": "indirect"
-          }
-        ],
-        "kisa_defect_case_refs": [],
-        "additional_review_items": [
-          "회사가 K8s annotation으로 책임자를 관리하는 정책인가",
-          "외부 자산관리시스템(CMDB)에서 책임자 매핑 여부",
-          "책임자 미지정 자산의 사유 확인"
-        ],
-        "manual_check_areas": [
-          "자산관리시스템(CMDB) 책임자 매핑"
-        ],
-        "automation_coverage": {
-          "percentage": 30,
-          "covered": "K8s 라벨 기반 책임자 식별",
-          "not_covered": "외부 시스템 매핑, 책임 위임 절차"
-        },
-        "alternative_controls": [
-          "외부 CMDB",
-          "ITSM 시스템"
-        ],
-        "offcluster_satisfaction_conditions": [
-          "K8s owner 라벨이 없어도 외부 CMDB/ITSM에 워크로드의 책임자·소유팀이 매핑돼 있음"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
-      }
-    },
-    {
-      "rule_id": "F-2.1.3-02",
+      "rule_id": "R-2.1.3-03",
       "name": "자산 변경 활동 감지",
       "judgment_source": "k8s_api",
       "extraction_method": "manual",
@@ -163,6 +137,31 @@
         ],
         "k8s_only_check": true,
         "deferred": false
+      },
+      "reclassified_from": "F-2.1.3-02",
+      "output_type": "report",
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-2.1.3-02",
+        "additional_review_items": [
+          "이 변경 사항이 회사 자산관리 절차를 거쳤는가",
+          "자산관리대장에 반영되었는가",
+          "변경 신청/승인 결재 기록과 매칭"
+        ],
+        "manual_check_areas": [
+          "변경관리 시스템(ITSM)",
+          "자산관리대장"
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.1.3",
+            "match_strength": "supportive"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "감지된 변경이 변경관리(ITSM) 신청·승인 결재를 거쳤고 자산관리대장에 반영됨"
+        ]
       }
     },
     {

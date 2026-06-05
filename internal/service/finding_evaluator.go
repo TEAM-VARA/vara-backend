@@ -73,7 +73,19 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 	base.Deferred                          = meta.Deferred
 	base.DeferredReason                    = meta.DeferredReason
 	base.OffclusterSatisfactionConditions  = toRawJSON(meta.OffclusterSatisfactionConditions)
-	base.Layer                             = grc.LayerF
+
+	// ── Stage 2: F 흡수 이후 레이어 분류 ──
+	// PromotedFrom / DeferredFrom → R 레이어 (합격률 분모: 승격=포함, deferred=skipped로 제외)
+	// ReclassifiedFrom / OutputType="report" → REPORT 레이어 (합격률 분모 제외)
+	// 그 외 수동 룰 → F 레이어 (하위호환, 흡수 완료 후 잔여 없음)
+	switch {
+	case rule.OutputType == "report" || rule.ReclassifiedFrom != "":
+		base.Layer = grc.LayerReport
+	case rule.PromotedFrom != "" || rule.DeferredFrom != "":
+		base.Layer = grc.LayerR
+	default:
+		base.Layer = grc.LayerF
+	}
 
 	if meta.Deferred {
 		base.Matched = false
@@ -168,10 +180,24 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 		return base
 	}
 
+	// ── Stage 2: 승격된 R룰 (PromotedFrom != "") — R룰 시맨틱 verdict ──
+	// potential_finding 출신이지만 자동화 가능하므로 Matched=true → NOT_MET (확정 위반).
+	// deriveManualVerdict를 거치지 않는다 (그쪽은 NEEDS_REVIEW를 돌려줌).
+	if rule.PromotedFrom != "" {
+		if result.Matched {
+			result.Verdict = grc.VerdictNOT_MET
+			result.Reason = "자동화 R룰(승격): 위반 탐지"
+		} else {
+			result.Verdict = grc.VerdictMET
+			result.Reason = "자동화 R룰(승격): 위반 미탐지"
+		}
+		return result
+	}
+
 	if reportOperators[op] {
 		result.Verdict = grc.VerdictMET
 		result.Reason = "보고서형 결과 (정보 제공)"
-		result.Layer = grc.LayerF
+		// Layer는 base에서 이미 설정됨 (ReclassifiedFrom != "" → LayerReport)
 		return result
 	}
 	return deriveManualVerdict(result)

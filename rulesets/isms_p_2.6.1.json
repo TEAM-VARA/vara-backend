@@ -82,6 +82,43 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
+      },
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-2.6.1-01",
+        "additional_review_items": [
+          "K8s NetworkPolicy 외 네트워크 분리 통제가 적용되어 있는가",
+          "미적용 namespace가 인증범위 내인가",
+          "운영망/개발망/DMZ 등 영역별 분리 설계"
+        ],
+        "manual_check_areas": [
+          "네트워크 분리 설계 문서",
+          "VPC/Subnet/Security Group 정책",
+          "사내망 IP 관리 대장"
+        ],
+        "alternative_controls": [
+          "VPC subnet 분리 + Security Group",
+          "Istio AuthorizationPolicy",
+          "Calico GlobalNetworkPolicy",
+          "별도 클러스터 운영"
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "서버팜과 사무망 미분리",
+            "match": "partial"
+          }
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.1",
+            "match_strength": "indirect"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "영역 분리가 VPC 서브넷+SG / 별도 클러스터 / Istio AuthorizationPolicy / Calico GlobalNetworkPolicy 등으로 적용됨"
+        ]
       }
     },
     {
@@ -132,6 +169,33 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
+      },
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-2.6.1-02",
+        "additional_review_items": [
+          "미발견 시 K8s NetworkPolicy 무효화 가능성 - 외부 통제로 분리 확인",
+          "발견 시 정책 강제 옵션 활성화 여부(도구는 옵션 미확인)"
+        ],
+        "manual_check_areas": [
+          "CNI 설정 문서",
+          "Network 강제 정책 운영 상태"
+        ],
+        "alternative_controls": [
+          "AWS VPC CNI + Security Group",
+          "Service Mesh",
+          "외부 NetFW"
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.1",
+            "match_strength": "indirect"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "AWS VPC CNI+SG, Service Mesh, 외부 방화벽 등으로 통신 통제가 강제됨(정책 강제 CNI 미발견이어도)"
+        ]
       }
     },
     {
@@ -151,142 +215,10 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
-      }
-    },
-    {
-      "rule_id": "F-2.6.1-01",
-      "name": "NetworkPolicy 적용 현황",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "needs_review",
-      "manual_meta": {
-        "target_resource": "Namespace + NetworkPolicy",
-        "required_data": [
-          "cluster_namespaces",
-          "cluster_network_policies"
-        ],
-        "condition": {
-          "operator": "default_deny_coverage_report"
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.6.1",
-            "match_strength": "indirect"
-          }
-        ],
-        "kisa_defect_case_refs": [
-          {
-            "case_number": null,
-            "description": "서버팜과 사무망 미분리",
-            "match": "partial"
-          }
-        ],
-        "additional_review_items": [
-          "K8s NetworkPolicy 외 네트워크 분리 통제가 적용되어 있는가",
-          "미적용 namespace가 인증범위 내인가",
-          "운영망/개발망/DMZ 등 영역별 분리 설계"
-        ],
-        "manual_check_areas": [
-          "네트워크 분리 설계 문서",
-          "VPC/Subnet/Security Group 정책",
-          "사내망 IP 관리 대장"
-        ],
-        "automation_coverage": {
-          "percentage": 40,
-          "covered": "K8s NetworkPolicy 적용 현황",
-          "not_covered": "K8s 외 네트워크 통제, 사내망 단말 인증"
-        },
-        "alternative_controls": [
-          "VPC subnet 분리 + Security Group",
-          "Istio AuthorizationPolicy",
-          "Calico GlobalNetworkPolicy",
-          "별도 클러스터 운영"
-        ],
-        "offcluster_satisfaction_conditions": [
-          "영역 분리가 VPC 서브넷+SG / 별도 클러스터 / Istio AuthorizationPolicy / Calico GlobalNetworkPolicy 등으로 적용됨"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
-      }
-    },
-    {
-      "rule_id": "F-2.6.1-02",
-      "name": "CNI NetworkPolicy 강제 상태",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "needs_review",
-      "manual_meta": {
-        "target_resource": "Cluster Workload",
-        "required_data": [
-          "cluster_workloads"
-        ],
-        "condition": {
-          "operator": "daemonset_exists",
-          "namespace": "kube-system",
-          "name_patterns": [
-            "calico-node",
-            "cilium",
-            "calico-kube-controllers"
-          ]
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.6.1",
-            "match_strength": "indirect"
-          }
-        ],
-        "kisa_defect_case_refs": [],
-        "additional_review_items": [
-          "미발견 시 K8s NetworkPolicy 무효화 가능성 - 외부 통제로 분리 확인",
-          "발견 시 정책 강제 옵션 활성화 여부(도구는 옵션 미확인)"
-        ],
-        "manual_check_areas": [
-          "CNI 설정 문서",
-          "Network 강제 정책 운영 상태"
-        ],
-        "automation_coverage": {
-          "percentage": 50,
-          "covered": "CNI 배포 여부",
-          "not_covered": "정책 강제 옵션 활성화 상태"
-        },
-        "alternative_controls": [
-          "AWS VPC CNI + Security Group",
-          "Service Mesh",
-          "외부 NetFW"
-        ],
-        "offcluster_satisfaction_conditions": [
-          "AWS VPC CNI+SG, Service Mesh, 외부 방화벽 등으로 통신 통제가 강제됨(정책 강제 CNI 미발견이어도)"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
-      }
-    },
-    {
-      "rule_id": "F-2.6.1-03",
-      "name": "Cross-namespace 통신 통제 현황",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "needs_review",
-      "manual_meta": {
-        "target_resource": "NetworkPolicy + Namespace",
-        "required_data": [
-          "cluster_network_policies",
-          "cluster_namespaces",
-          "cluster_pods"
-        ],
-        "condition": {
-          "operator": "cross_ns_traffic_control_report"
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.6.1",
-            "match_strength": "indirect"
-          }
-        ],
-        "kisa_defect_case_refs": [],
+      },
+      "manual_check_output": {
+        "applies_when": "always",
+        "absorbed_from": "F-2.6.1-03",
         "additional_review_items": [
           "영역별 분리가 cluster 또는 VPC 분리로 이뤄지면 K8s 통제 불필요",
           "단일 클러스터 내 영역 분리라면 K8s 통제 적용 권장"
@@ -295,22 +227,22 @@
           "네트워크 분리 설계 문서",
           "VPC 분리 정책"
         ],
-        "automation_coverage": {
-          "percentage": 50,
-          "covered": "K8s NetworkPolicy 차원의 cross-ns 통제",
-          "not_covered": "VPC/Service Mesh 차원의 통제"
-        },
         "alternative_controls": [
           "VPC 라우팅",
           "Service Mesh",
           "별도 클러스터"
         ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.1",
+            "match_strength": "indirect"
+          }
+        ],
         "offcluster_satisfaction_conditions": [
           "운영/개발 영역이 별도 VPC(서브넷+SG)/별도 클러스터로 분리",
           "Service Mesh AuthorizationPolicy/mTLS로 ns 간 통신 차단"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
+        ]
       }
     },
     {
@@ -335,7 +267,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -360,7 +296,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -385,7 +325,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -410,7 +354,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     }
   ],

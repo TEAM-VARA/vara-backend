@@ -208,6 +208,45 @@
         "method": "k8s_structured_match + vlm_extract_then_structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "F-2.7.1-01",
+        "additional_review_items": [
+          "미설정 Ingress가 외부 LB(CloudFront 등)에서 TLS 종료 후 평문 전달 구조인가",
+          "그렇다면 클러스터 내 통신 보호 별도 통제 필요(mTLS 등)",
+          "진짜 HTTP 평문이라면 즉시 시정"
+        ],
+        "manual_check_areas": [
+          "저장 데이터 암호화 적용"
+        ],
+        "alternative_controls": [
+          "CloudFront/외부 LB TLS",
+          "외부 인증서 관리"
+        ],
+        "kisa_defect_case_refs": [
+          {
+            "case_number": null,
+            "description": "외부 송수신 시 평문 전송",
+            "match": "direct"
+          }
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.7.1",
+            "match_strength": "direct"
+          },
+          {
+            "framework": "개인정보보호법",
+            "item": "안전성 확보조치 - 전송 시 암호화",
+            "match_strength": "direct"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "외부 LB(CloudFront/ALB) TLS 종료 후 내부는 mTLS 보호 구조",
+          "저장 데이터 암호화(Secret etcd·KMS)가 별도 적용됨"
+        ]
       }
     },
     {
@@ -295,66 +334,6 @@
       }
     },
     {
-      "rule_id": "F-2.7.1-01",
-      "name": "Ingress TLS 적용 현황",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "potential_finding",
-      "manual_meta": {
-        "target_resource": "Ingress",
-        "required_data": [
-          "cluster_ingresses"
-        ],
-        "condition": {
-          "operator": "field_non_empty",
-          "field": "spec.tls"
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.7.1",
-            "match_strength": "direct"
-          },
-          {
-            "framework": "개인정보보호법",
-            "item": "안전성 확보조치 - 전송 시 암호화",
-            "match_strength": "direct"
-          }
-        ],
-        "kisa_defect_case_refs": [
-          {
-            "case_number": null,
-            "description": "외부 송수신 시 평문 전송",
-            "match": "direct"
-          }
-        ],
-        "additional_review_items": [
-          "미설정 Ingress가 외부 LB(CloudFront 등)에서 TLS 종료 후 평문 전달 구조인가",
-          "그렇다면 클러스터 내 통신 보호 별도 통제 필요(mTLS 등)",
-          "진짜 HTTP 평문이라면 즉시 시정"
-        ],
-        "manual_check_areas": [
-          "저장 데이터 암호화 적용"
-        ],
-        "automation_coverage": {
-          "percentage": 20,
-          "covered": "Ingress 레벨 TLS",
-          "not_covered": "Secret etcd 암호화, ConfigMap 평문, KMS 키 관리"
-        },
-        "alternative_controls": [
-          "CloudFront/외부 LB TLS",
-          "외부 인증서 관리"
-        ],
-        "offcluster_satisfaction_conditions": [
-          "외부 LB(CloudFront/ALB) TLS 종료 후 내부는 mTLS 보호 구조",
-          "저장 데이터 암호화(Secret etcd·KMS)가 별도 적용됨"
-        ],
-        "k8s_only_check": true,
-        "deferred": false,
-        "deferred_reason": "AWS API 미접근으로 EKS describe/KMS/ALB 점검 불가"
-      }
-    },
-    {
       "rule_id": "R-2.7.1-GL01",
       "name": "암호정책 수립",
       "judgment_source": "text_extraction",
@@ -376,7 +355,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -401,7 +384,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     },
     {
@@ -426,7 +413,11 @@
         "type": "semantic_match",
         "method": "llm_rag_entailment",
         "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": ["충족", "미충족", "확인불가"]
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
       }
     }
   ],
