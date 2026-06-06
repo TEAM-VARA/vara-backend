@@ -330,12 +330,10 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 	verdict := resp.Verdict
 	base.Layer = grc.LayerGL
 
-	// ── 후처리: "부분"인데 누락요소가 근거문장에 이미 있으면 "충족"으로 보정 ──
-	if verdict == "부분" && resp.MissingElem != "" && len(resp.BasisIdx) > 0 {
-		if missingFoundInBasis(resp.MissingElem, resp.BasisIdx, topHits) {
-			log.Printf("[grc-rag] post-fix: 부분→충족 (누락요소 %q가 근거문장에 존재)", resp.MissingElem)
-			verdict = "충족"
-		}
+	// ── "부분"도 "충족"으로 통합: 관련 내용이 있으면 충족 ──
+	if verdict == "부분" {
+		log.Printf("[grc-rag] post-fix: 부분→충족 (내용 존재 시 충족 정책)")
+		verdict = "충족"
 	}
 
 	switch verdict {
@@ -343,7 +341,7 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 		base.Verdict = grc.VerdictMET
 		base.Reason = fmt.Sprintf("LLM 충족 판정, 근거 문장 %d건", len(resp.BasisIdx))
 		var indicators []string
-		indicators = append(indicators, fmt.Sprintf("LLM 판정: 충족 (양태: %s)", resp.Modality))
+		indicators = append(indicators, "LLM 판정: 충족")
 		// Build evidence_data JSON
 		type evidenceEntry struct {
 			SentenceIndex int     `json:"sentence_index"`
@@ -367,19 +365,9 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 			base.EvidenceData = ej
 		}
 
-	case "부분":
-		base.Verdict = grc.VerdictNEEDS_REVIEW
-		base.Reason = fmt.Sprintf("LLM 부분충족, 누락요소: %s", resp.MissingElem)
-		var indicators []string
-		indicators = append(indicators, fmt.Sprintf("LLM 판정: 부분충족 (양태: %s)", resp.Modality))
-		if resp.MissingElem != "" {
-			indicators = append(indicators, fmt.Sprintf("누락요소: %s", resp.MissingElem))
-		}
-		base.MatchedIndicators = indicators
-
 	case "불충족":
 		base.Verdict = grc.VerdictNOT_MET
-		desc := fmt.Sprintf("LLM 판정: 불충족 (양태: %s)", resp.Modality)
+		desc := "LLM 판정: 불충족"
 		if resp.MissingElem != "" {
 			desc += fmt.Sprintf(" / 누락요소: %s", resp.MissingElem)
 			base.Reason = fmt.Sprintf("LLM 불충족, 누락요소: %s", resp.MissingElem)
