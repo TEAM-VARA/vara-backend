@@ -240,6 +240,28 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		analysisScheduler.Start(context.Background())
 		log.Printf("server: analysis scheduler started (cluster=%s, interval=%v)", clusterName, analysisInterval)
 	}
+	// ── RBAC Chain Scheduler 시작 (권한상승 fixpoint 분석 자동 실행) ──
+	if os.Getenv("DISABLE_RBAC_CHAIN_SCHEDULER") != "true" {
+		clusterName := os.Getenv("DEFAULT_CLUSTER_NAME")
+		if clusterName == "" {
+			clusterName = "vara-eks-test"
+		}
+
+		rbacChainInterval := 30 * time.Minute
+		if envInterval := os.Getenv("RBAC_CHAIN_INTERVAL_MINUTES"); envInterval != "" {
+			if mins, err := strconv.Atoi(envInterval); err == nil && mins > 0 {
+				rbacChainInterval = time.Duration(mins) * time.Minute
+			}
+		}
+
+		rbacChainScheduler := scheduler.NewRBACChainScheduler(
+			rbacChainSvc,
+			clusterName,
+			rbacChainInterval,
+		)
+		rbacChainScheduler.Start(context.Background())
+		log.Printf("server: rbac-chain scheduler started (cluster=%s, interval=%v)", clusterName, rbacChainInterval)
+	}
 	return &Server{
 		cfg: cfg,
 		httpSrv: &http.Server{

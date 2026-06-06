@@ -136,9 +136,12 @@ func newRouter(
 		api.POST("/scoring/pods/:pod_uid/refresh", podRefresh.Refresh)
 
 		// ── RBAC Chain (권한상승 분석, fixpoint) ──
+		api.GET("/scoring/rbac-chain/rules", rbacChain.ListRules) // RC-4 룰 카탈로그 (050) — 정적 경로 우선
 		api.POST("/scoring/rbac-chain/compute", rbacChain.Compute)
 		api.GET("/scoring/rbac-chain/clusters/:cluster_name", rbacChain.GetByCluster)
+		api.GET("/scoring/rbac-chain/clusters/:cluster_name/permissions", rbacChain.FindSAsByPermission) // RC-5a 역질의
 		api.GET("/scoring/rbac-chain/clusters/:cluster_name/sa/:namespace/:name", rbacChain.GetSA)
+		api.GET("/scoring/rbac-chain/clusters/:cluster_name/sa/:namespace/:name/permissions", rbacChain.GetSAPermissions) // RC-5b
 
 		// ── Toxic Combination (작업 B-4) ──
 		api.POST("/scoring/toxic/compute", toxic.Compute)

@@ -555,6 +555,14 @@ func processSubject(
 	// Python: s_ns = subject.get("namespace") — None if 키 없음/None.
 	sNS, sNSIsNull := getOptionalString(subject, "namespace")
 
+	// K8s RBAC authorizer 시맨틱(appliesToUser): RoleBinding의 ServiceAccount
+	// subject가 namespace를 생략하면 binding의 namespace로 default 한다.
+	// (ClusterRoleBinding은 default할 namespace가 없으니 그대로 둔다.)
+	if sKind == "ServiceAccount" && sNSIsNull && !bindingNSIsNull && bindingNS != "" {
+		sNS = bindingNS
+		sNSIsNull = false
+	}
+
 	provBase := map[string]any{
 		"binding_kind":      bindingKind,
 		"binding_namespace": nullableString(bindingNS, bindingNSIsNull),
