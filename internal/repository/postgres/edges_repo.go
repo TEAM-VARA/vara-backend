@@ -1663,3 +1663,20 @@ func (r *EdgesRepo) scanSimpleNodes(ctx context.Context, q, cluster, kind string
 	}
 	return result, rows.Err()
 }
+
+// CleanupOldSnapshots는 layer×edge_type별 최신 snapshot만 남기고 삭제합니다.
+// 5분 주기 파이프라인의 snapshot 누적 방지 (retention).
+func (r *EdgesRepo) CleanupOldSnapshots(ctx context.Context, clusterName string) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `
+		DELETE FROM edges
+		WHERE cluster_name = $1
+		  AND (layer, edge_type, snapshot_at) NOT IN (
+		    SELECT layer, edge_type, MAX(snapshot_at)
+		    FROM edges WHERE cluster_name = $1
+		    GROUP BY layer, edge_type)
+	`, clusterName)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}

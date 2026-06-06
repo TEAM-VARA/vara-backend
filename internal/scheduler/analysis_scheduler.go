@@ -141,6 +141,12 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 	}
 	log.Printf("analysis-scheduler: pipeline completed, total=%v", time.Since(start))
 
-	// TODO: snapshot retention — 주기 실행으로 edges/점수 snapshot이 누적되므로
-	//       오래된 snapshot 정리(예: 최근 24h 유지) 추가 예정 (작업 14번과 연계)
+	// ─────────────────────────────────────────────
+	// Phase 4: snapshot retention (최신만 유지)
+	// ─────────────────────────────────────────────
+	if deleted, err := s.edgesRepo.CleanupOldSnapshots(ctx, s.clusterName); err != nil {
+		log.Printf("analysis-scheduler: cleanup failed: %v", err)
+	} else if deleted > 0 {
+		log.Printf("analysis-scheduler: cleaned %d old edge snapshots", deleted)
+	}
 }
