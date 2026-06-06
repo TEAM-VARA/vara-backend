@@ -165,6 +165,21 @@ func (s *RBACChainService) GetSA(ctx context.Context, cluster, ns, name string) 
 	return s.repo.GetSADetail(ctx, cluster, ns, name)
 }
 
+// ListSAPermissions — SA 최종 권한 전체 (repo 패스스루). RC-5b.
+func (s *RBACChainService) ListSAPermissions(ctx context.Context, cluster, ns, name string) ([]postgres.PermissionOut, error) {
+	return s.repo.ListSAPermissions(ctx, cluster, ns, name)
+}
+
+// FindSAsByPermission — 특정 권한(resource/verb)을 가진 SA 역질의 (repo 패스스루). RC-5a.
+func (s *RBACChainService) FindSAsByPermission(ctx context.Context, cluster, resource, verb string) ([]postgres.SAPermMatchOut, error) {
+	return s.repo.FindSAsByPermission(ctx, cluster, resource, verb)
+}
+
+// ListRules — RBAC 권한상승 룰 카탈로그(rbac_rule_catalog) 조회 (repo 패스스루). RC-4.
+func (s *RBACChainService) ListRules(ctx context.Context, category, engineStatus string) ([]postgres.RuleCatalogOut, error) {
+	return s.repo.ListRuleCatalog(ctx, category, engineStatus)
+}
+
 // ── helpers ──
 
 // parseISOTime — captured_at(ISO8601 문자열) → time.Time.
