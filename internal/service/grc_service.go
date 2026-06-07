@@ -462,6 +462,9 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 			// 통일된 강등 정책: 미준수 && (대체통제 || non-direct 매핑) → NEEDS_REVIEW.
 			applyReviewDemotion(&grr, def)
 
+			// INDETERMINATE인데 표시문자열이 비면 Reason으로 채워 빈 줄 렌더를 막는다.
+			grr = ensureVerdictDisplay(grr)
+
 			it.ruleResults = append(it.ruleResults, grr)
 			it.rResults = append(it.rResults, grr)
 
@@ -2059,10 +2062,14 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 			result = s.applyGuidelineEmbedding(rule, matched, embByFile, dbGuidelines, result)
 		}
 
+		result = ensureVerdictDisplay(result)
 		ruleResults = append(ruleResults, result)
 		pct := 40 + (i+1)*50/len(ruleset.Rules)
 		_ = s.repo.UpdateCheckProgress(ctx, checkID, pct)
 	}
+
+	// 동일 RuleID가 한 점검에서 중복 평가된 경우 1건으로 정리한다 (definitive 우선).
+	ruleResults = dedupRuleResultsByID(ruleResults)
 
 	// Step 3: Aggregate results.
 	_ = s.repo.UpdateCheckProgress(ctx, checkID, 95)

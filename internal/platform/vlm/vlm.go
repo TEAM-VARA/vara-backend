@@ -159,7 +159,12 @@ func buildUserPrompt(req JudgeRequest) string {
 
 	b.WriteString("\n\n## 검색된 지침서 문장\n")
 	for _, s := range req.RetrievedSentences {
-		fmt.Fprintf(&b, "[%d] %s (유사도: %.3f)\n", s.Index, s.Text, s.Score)
+		// 유사도가 미상(음수 센티넬, 예: 텍스트 캐시 경로)이면 표기를 생략한다.
+		if s.Score < 0 {
+			fmt.Fprintf(&b, "[%d] %s\n", s.Index, s.Text)
+		} else {
+			fmt.Fprintf(&b, "[%d] %s (유사도: %.3f)\n", s.Index, s.Text, s.Score)
+		}
 	}
 
 	b.WriteString("\n위 문장들이 룰 요건을 함의(충족)하는지 판정하라. JSON만 출력.")
