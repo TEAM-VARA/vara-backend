@@ -200,6 +200,8 @@ func ComputeFinalScore(globalImage, local, toxic float64) (final, globalContrib,
 	weightedAvg := globalContrib + localContrib
 	final = weightedAvg * toxic
 
+	final = clamp(final, 0, 100)
+
 	final = round2Final(final)
 	globalContrib = round2Final(globalContrib)
 	localContrib = round2Final(localContrib)

@@ -40,14 +40,22 @@ func (s *BreakdownService) GetBreakdown(ctx context.Context, clusterName, podUID
 		return nil, nil
 	}
 
+	// cap 전 원값 재계산 — 상한(100)이 적용된 경우 formula에 투명하게 표기
+	rawFinal := (f.GlobalImageScore*0.6 + f.LocalScore*0.4) * f.ToxicMultiplier
+	formula := fmt.Sprintf("(%.2f × 0.6 + %.2f × 0.4) × %.2f = %.2f",
+		f.GlobalImageScore, f.LocalScore, f.ToxicMultiplier, f.FinalScore)
+	if rawFinal > 100 {
+		formula = fmt.Sprintf("(%.2f × 0.6 + %.2f × 0.4) × %.2f = %.2f → 상한 적용 %.2f",
+			f.GlobalImageScore, f.LocalScore, f.ToxicMultiplier, rawFinal, f.FinalScore)
+	}
+
 	bd := &scoring.ScoreBreakdown{
 		PodUID:     f.PodUID,
 		PodName:    f.PodName,
 		FinalScore: f.FinalScore,
 		RiskLevel:  f.RiskLevel,
 		RiskLabel:  riskLabelKR(f.RiskLevel),
-		Formula: fmt.Sprintf("(%.2f × 0.6 + %.2f × 0.4) × %.2f = %.2f",
-			f.GlobalImageScore, f.LocalScore, f.ToxicMultiplier, f.FinalScore),
+		Formula:    formula,
 	}
 
 	// 2. Global section
