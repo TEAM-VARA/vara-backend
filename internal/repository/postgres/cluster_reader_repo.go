@@ -878,11 +878,19 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 		}
 	}
 
-	// ── Workloads (namespace-scoped) ──
+	// ── Workloads (namespace-scoped, nearest snapshot) ──
+	// 수집기가 Pod과 Workload를 별도 주기로 적재하므로 snapshot_at이 수십 초 어긋남.
+	// exact match 대신 가장 가까운 snapshot을 사용.
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT kind, name, namespace, selector, template_labels, containers
-			 FROM cluster_workloads WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			 FROM cluster_workloads
+			 WHERE cluster_name=$1 AND namespace=$3
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_workloads
+			       WHERE cluster_name=$1 AND namespace=$3
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt, namespace)
 		if err != nil {
 			return nil, fmt.Errorf("query workloads: %w", err)
@@ -1103,11 +1111,17 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 		}
 	}
 
-	// ── Workloads (all namespaces) ──
+	// ── Workloads (all namespaces, nearest snapshot) ──
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT kind, name, namespace, selector, template_labels, containers
-			 FROM cluster_workloads WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 FROM cluster_workloads
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_workloads
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query workloads: %w", err)
