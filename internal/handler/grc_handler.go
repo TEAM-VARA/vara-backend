@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"mime/multipart"
 	"net/http"
@@ -721,21 +722,48 @@ func (h *GRCHandler) GetComplianceOverview(c *gin.Context) {
 }
 
 // deduplicateRuleResults collapses per-pod rule results into one entry per rule_id.
-// Keeps the first occurrence (with full detail) and adds an affected_count field.
+// Tracks pass/fail counts so mixed-verdict rules (2 fail out of 14) are visible.
 func deduplicateRuleResults(results []grc.RuleResult) []grc.RuleResult {
 	if len(results) == 0 {
 		return results
 	}
-	seen := map[string]int{} // rule_id → index in deduped
+	seen := map[string]int{}
 	var deduped []grc.RuleResult
 	for _, r := range results {
+		isFail := r.Verdict == "미준수" || r.Verdict == grc.VerdictNOT_MET
+		isPass := r.Verdict == "준수" || r.Verdict == grc.VerdictMET
+
 		if idx, ok := seen[r.RuleID]; ok {
 			deduped[idx].AffectedCount++
+			if isPass {
+				deduped[idx].AffectedPassCount++
+			}
+			if isFail {
+				deduped[idx].AffectedFailCount++
+				if len(deduped[idx].Violations) == 0 && len(r.Violations) > 0 {
+					deduped[idx].Violations = r.Violations
+				}
+				if deduped[idx].FailMessage == "" && r.FailMessage != "" {
+					deduped[idx].FailMessage = r.FailMessage
+				}
+			}
 			continue
 		}
 		r.AffectedCount = 1
+		if isPass {
+			r.AffectedPassCount = 1
+		}
+		if isFail {
+			r.AffectedFailCount = 1
+		}
 		seen[r.RuleID] = len(deduped)
 		deduped = append(deduped, r)
+	}
+	for i := range deduped {
+		if deduped[i].AffectedFailCount > 0 && deduped[i].AffectedPassCount > 0 {
+			deduped[i].Verdict = grc.VerdictNOT_MET
+			deduped[i].Reason = fmt.Sprintf("%d/%d pods 미준수", deduped[i].AffectedFailCount, deduped[i].AffectedCount)
+		}
 	}
 	return deduped
 }

@@ -405,7 +405,7 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		evaluable, noData, missingFields := checkIndicatorDataAvailability(rule.ComplianceIndicators)
 		if noData > 0 && evaluable == 0 {
 			base.Verdict = grc.VerdictNO_DATA
-			base.Reason = fmt.Sprintf("데이터 소스 부재: DB 테이블에 해당 필드 컬럼 없음 (%d개 인디케이터)", noData)
+			base.Reason = fmt.Sprintf("수집 범위 외 — 자동점검 불가 (해당 필드 미수집, %d개 인디케이터)", noData)
 			base.Layer = grc.LayerR
 			if mj, err := json.Marshal(missingFields); err == nil {
 				base.MissingInputs = mj

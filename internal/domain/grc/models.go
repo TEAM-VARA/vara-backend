@@ -143,6 +143,8 @@ type RuleResult struct {
 	ComplianceMappings    json.RawMessage `json:"compliance_mappings,omitempty"`
 	KisaDefectCaseRefs    json.RawMessage `json:"kisa_defect_case_refs,omitempty"`
 	AffectedCount         int             `json:"affected_count,omitempty"`
+	AffectedPassCount     int             `json:"affected_pass_count,omitempty"`
+	AffectedFailCount     int             `json:"affected_fail_count,omitempty"`
 	Deferred              bool            `json:"deferred,omitempty"`
 	DeferredReason        string          `json:"deferred_reason,omitempty"`
 	OffclusterSatisfactionConditions json.RawMessage `json:"offcluster_satisfaction_conditions,omitempty"`
