@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/vara/backend/internal/domain/scoring"
 	"github.com/vara/backend/internal/repository/postgres"
 	"github.com/vara/backend/internal/service"
 )
@@ -87,7 +88,7 @@ func (h *PodDetailHandler) GetPodDetail(c *gin.Context) {
 	}
 
 	resp := PodDetailResponse{
-		PodName:        pod.Name,
+		PodName:        scoring.NormalizePodName(pod.Name),
 		PodUID:         pod.PodUID,
 		Namespace:      pod.Namespace,
 		ClusterName:    clusterName,
