@@ -141,6 +141,7 @@ type RuleResult struct {
 	AlternativeControls   json.RawMessage `json:"alternative_controls,omitempty"`
 	ComplianceMappings    json.RawMessage `json:"compliance_mappings,omitempty"`
 	KisaDefectCaseRefs    json.RawMessage `json:"kisa_defect_case_refs,omitempty"`
+	AffectedCount         int             `json:"affected_count,omitempty"`
 	Deferred              bool            `json:"deferred,omitempty"`
 	DeferredReason        string          `json:"deferred_reason,omitempty"`
 	OffclusterSatisfactionConditions json.RawMessage `json:"offcluster_satisfaction_conditions,omitempty"`
@@ -406,8 +407,9 @@ type ItemComplianceResult struct {
 	NoData         int             `json:"no_data,omitempty"`
 	Indeterminate  int             `json:"indeterminate,omitempty"`
 	Skipped        int             `json:"skipped"`
-	ViolatedAssets []ViolatedAsset `json:"violated_assets"`
-	RuleResults    []RuleResult    `json:"rule_results,omitempty"`
+	ViolatedAssetCount int              `json:"violated_asset_count,omitempty"`
+	ViolatedAssets     []ViolatedAsset  `json:"violated_assets,omitempty"`
+	RuleResults        []RuleResult     `json:"rule_results,omitempty"`
 	Layers         *ItemLayers     `json:"layers,omitempty"`
 }
 

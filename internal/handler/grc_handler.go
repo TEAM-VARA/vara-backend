@@ -689,7 +689,43 @@ func (h *GRCHandler) GetComplianceOverview(c *gin.Context) {
 		grcError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
 	}
+
+	// Overview 페이로드 축소: rule_results를 룰 단위로 중복 제거,
+	// violated_assets에서 violated_rules 상세 제거 (name/namespace만 보존).
+	for i := range result.Items {
+		result.Items[i].RuleResults = deduplicateRuleResults(result.Items[i].RuleResults)
+		result.Items[i].ViolatedAssetCount = len(result.Items[i].ViolatedAssets)
+		for j := range result.Items[i].ViolatedAssets {
+			result.Items[i].ViolatedAssets[j].ViolatedRules = nil
+		}
+		if result.Items[i].Layers != nil {
+			result.Items[i].Layers.R = deduplicateRuleResults(result.Items[i].Layers.R)
+			result.Items[i].Layers.GL = deduplicateRuleResults(result.Items[i].Layers.GL)
+			result.Items[i].Layers.F = deduplicateRuleResults(result.Items[i].Layers.F)
+			result.Items[i].Layers.Report = deduplicateRuleResults(result.Items[i].Layers.Report)
+		}
+	}
 	c.JSON(http.StatusOK, result)
+}
+
+// deduplicateRuleResults collapses per-pod rule results into one entry per rule_id.
+// Keeps the first occurrence (with full detail) and adds an affected_count field.
+func deduplicateRuleResults(results []grc.RuleResult) []grc.RuleResult {
+	if len(results) == 0 {
+		return results
+	}
+	seen := map[string]int{} // rule_id → index in deduped
+	var deduped []grc.RuleResult
+	for _, r := range results {
+		if idx, ok := seen[r.RuleID]; ok {
+			deduped[idx].AffectedCount++
+			continue
+		}
+		r.AffectedCount = 1
+		seen[r.RuleID] = len(deduped)
+		deduped = append(deduped, r)
+	}
+	return deduped
 }
 
 // GET /compliance/findings/summary
