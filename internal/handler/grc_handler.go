@@ -668,6 +668,18 @@ func (h *GRCHandler) EvaluateClusterCompliance(c *gin.Context) {
 		return
 	}
 
+	// 응답 페이로드 축소 (P2-10): Pod 수만큼 반복되는 룰 결과를 rule_id 단위로
+	// 중복 제거 (affected_count로 합산). DB에는 service 단계에서 전체가 저장됨.
+	for i := range result.Items {
+		result.Items[i].RuleResults = deduplicateRuleResults(result.Items[i].RuleResults)
+		if result.Items[i].Layers != nil {
+			result.Items[i].Layers.R = deduplicateRuleResults(result.Items[i].Layers.R)
+			result.Items[i].Layers.GL = deduplicateRuleResults(result.Items[i].Layers.GL)
+			result.Items[i].Layers.F = deduplicateRuleResults(result.Items[i].Layers.F)
+			result.Items[i].Layers.Report = deduplicateRuleResults(result.Items[i].Layers.Report)
+		}
+	}
+
 	c.JSON(http.StatusOK, result)
 }
 

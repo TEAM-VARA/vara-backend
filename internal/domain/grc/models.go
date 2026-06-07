@@ -103,6 +103,7 @@ type EvidenceFile struct {
 // ── 룰 평가 결과 ──
 
 // RuleResult holds the evaluation result for a single rule (auto or manual).
+// RuleResult is a single rule evaluation outcome.
 type RuleResult struct {
 	ID                int64       `json:"-"`
 	CheckID           string      `json:"-"`
@@ -406,6 +407,7 @@ type ItemComplianceResult struct {
 	NeedsReview    int             `json:"needs_review"`
 	NoData         int             `json:"no_data,omitempty"`
 	Indeterminate  int             `json:"indeterminate,omitempty"`
+	NotApplicable  int             `json:"not_applicable,omitempty"` // 해당없음 (vacuous pass — 준수와 분리)
 	Skipped        int             `json:"skipped"`
 	ViolatedAssetCount int              `json:"violated_asset_count,omitempty"`
 	ViolatedAssets     []ViolatedAsset  `json:"violated_assets,omitempty"`
@@ -427,6 +429,7 @@ type ClusterComplianceResult struct {
 	NeedsReviewItems   int                    `json:"needs_review_items"`
 	NoDataItems        int                    `json:"no_data_items,omitempty"`
 	IndeterminateItems int                    `json:"indeterminate_items,omitempty"`
+	NotApplicableItems int                    `json:"not_applicable_items,omitempty"` // 항목 전체가 해당없음
 	TotalRules         int                    `json:"total_rules"`
 	TotalPods          int                    `json:"total_pods"`
 	Items              []ItemComplianceResult `json:"items"`
@@ -484,6 +487,8 @@ const (
 	VerdictINDETERMINATE = "INDETERMINATE" // 확인불가
 	VerdictNEEDS_REVIEW  = "NEEDS_REVIEW"  // 검토필요
 	VerdictSKIPPED       = "SKIPPED"       // 건너뜀
+	VerdictNA            = "N_A"           // 해당없음 (점검 대상 리소스 부재 — vacuous pass, 준수와 분리 집계)
+	VerdictREPORT        = "REPORT"        // 보고서형 (정보 제공 — 합격률 분모 제외)
 )
 
 // ── Rule Layer Tags ──
@@ -510,6 +515,10 @@ func NormalizeVerdict(v string) string {
 		return VerdictINDETERMINATE
 	case "skip", "skipped", "SKIPPED":
 		return VerdictSKIPPED
+	case "해당없음", "N_A", "N/A":
+		return VerdictNA
+	case "REPORT":
+		return VerdictREPORT
 	default:
 		return v
 	}
@@ -530,12 +539,16 @@ func LegacyVerdict(v string) string {
 		return "확인불가"
 	case VerdictSKIPPED:
 		return "skipped"
+	case VerdictNA:
+		return "해당없음"
+	case VerdictREPORT:
+		return "정보"
 	default:
 		return v
 	}
 }
 
-// RuleLayer returns the layer tag for a rule_id.
+// RuleLayer returns the layer tag for a rule_id. (R/GL/F)
 func RuleLayer(ruleID string) string {
 	if len(ruleID) > 0 && ruleID[0] == 'F' {
 		return LayerF

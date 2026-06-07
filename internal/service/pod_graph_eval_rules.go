@@ -8,6 +8,46 @@ import (
 	"github.com/vara/backend/internal/domain/grc"
 )
 
+// systemNamespaces are platform-managed namespaces exempt from org-policy rules
+// (계정/자산/메시 관련 룰의 시스템 컴포넌트 예외 — 2.5.1과 동일 정책).
+var systemNamespaces = map[string]bool{
+	"kube-system":     true,
+	"kube-public":     true,
+	"kube-node-lease": true,
+}
+
+func isSystemNamespace(ns string) bool { return systemNamespaces[ns] }
+
+// podHasController reports whether the Pod shows evidence of being managed by a
+// workload controller (Deployment/ReplicaSet/DaemonSet 등). Used to distinguish
+// "워크로드가 정말 없음"(N/A) from "워크로드 수집 누락"(NO_DATA).
+func podHasController(pod map[string]any) bool {
+	if len(jsonSlice(pod, "metadata", "ownerReferences")) > 0 {
+		return true
+	}
+	labels := jsonMap(pod, "metadata", "labels")
+	if _, ok := labels["pod-template-hash"]; ok {
+		return true // ReplicaSet/Deployment 산하
+	}
+	if _, ok := labels["controller-revision-hash"]; ok {
+		return true // DaemonSet/StatefulSet 산하
+	}
+	return false
+}
+
+// workloadDataMissing reports that the snapshot has no workload rows even though
+// the Pod is clearly controller-managed — i.e. collection gap, not real absence.
+func workloadDataMissing(req PodGraphRequest) bool {
+	return len(req.RelatedResources.Workloads) == 0 && podHasController(req.Pod)
+}
+
+// noDataWorkloadResult builds a NO_DATA verdict for workload-collection gaps.
+func noDataWorkloadResult(base PodRuleResult) PodRuleResult {
+	base.Verdict = grc.VerdictNO_DATA
+	base.Reason = "워크로드(Deployment/DaemonSet 등) 데이터 미수집 — Pod에 컨트롤러 흔적(ownerReferences/pod-template-hash)이 있으나 workload 스냅샷이 비어 있음. 수집기 확인 필요"
+	return base
+}
+
 // ─────────────────────────────────────────────
 // 1.2.2 현황 및 흐름분석
 // ─────────────────────────────────────────────
@@ -103,6 +143,15 @@ func evalWorkloadOwnerAnnotation(_ Rule, req PodGraphRequest, base PodRuleResult
 	base.Severity = "high"
 	podName := jsonStr(req.Pod, "metadata", "name")
 	podNS := jsonStr(req.Pod, "metadata", "namespace")
+
+	// 시스템 네임스페이스 예외: 플랫폼 관리 컴포넌트(coredns, kube-proxy 등)에
+	// 회사 자산 책임자 annotation을 요구하는 것은 과도 — 2.5.1과 동일 예외 정책.
+	if isSystemNamespace(podNS) {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("시스템 네임스페이스 '%s' — 예외 적용", podNS)}
+		return base
+	}
+
 	annotations := jsonMap(req.Pod, "metadata", "annotations")
 
 	// 룰 인디케이터(R-2.1.3-01): pod.metadata.annotations.isms-p/owner, .../isms-p/owner-team.
@@ -308,8 +357,13 @@ func evalCrossTeamSASharing(_ Rule, req PodGraphRequest, base PodRuleResult) Pod
 // 2.5.2 사용자 식별
 // ─────────────────────────────────────────────
 
-var predictableSARegex = regexp.MustCompile(`^(admin|root|test|temp|guest)(-.*)?$`)
-var genericSARegex = regexp.MustCompile(`^(user|account|sa)[0-9]+$`)
+// predictableSARegex: 추측 가능한 SA 이름 deny list.
+// 'default' 포함 — fail message("예측 가능한 ServiceAccount 이름 사용(default, admin 등)")와
+// 2.5.1-01(default SA 미준수) 판정과 일관되도록 수정 (기존엔 default가 통과하는 버그).
+var predictableSARegex = regexp.MustCompile(`^(default|admin|root|test|temp|guest|system|operator)(-.*)?$`)
+
+// genericSARegex: 일반(generic) 명명 패턴 — user1, sa2 같은 번호형 + 무의미한 단독 이름.
+var genericSARegex = regexp.MustCompile(`^(user|account|sa|app|service|svc)[0-9]*$`)
 
 // R-2.5.2-POD-01: 추측 가능한 SA 이름
 func evalPredictableSAName(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
@@ -319,6 +373,13 @@ func evalPredictableSAName(_ Rule, req PodGraphRequest, base PodRuleResult) PodR
 		saName = "default"
 	}
 	podNS := jsonStr(req.Pod, "metadata", "namespace")
+
+	// 시스템 네임스페이스 예외 (2.5.1과 동일 정책)
+	if isSystemNamespace(podNS) {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("시스템 네임스페이스 '%s' — 예외 적용", podNS)}
+		return base
+	}
 
 	if predictableSARegex.MatchString(saName) {
 		base.Verdict = "미준수"
@@ -346,6 +407,20 @@ func evalGenericSANamePattern(_ Rule, req PodGraphRequest, base PodRuleResult) P
 	}
 	podNS := jsonStr(req.Pod, "metadata", "namespace")
 
+	// 시스템 네임스페이스 예외 (2.5.1과 동일 정책)
+	if isSystemNamespace(podNS) {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("시스템 네임스페이스 '%s' — 예외 적용", podNS)}
+		return base
+	}
+
+	// default SA는 R-2.5.2-01(추측 가능 이름)에서 이미 미준수 처리 — 중복 위반 방지
+	if saName == "default" {
+		base.Verdict = "skip"
+		base.SkipReason = "default SA — R-2.5.2-01에서 판정 (중복 방지)"
+		return base
+	}
+
 	if genericSARegex.MatchString(saName) {
 		base.Verdict = "미준수"
 		base.Violations = []grc.Violation{{
@@ -370,6 +445,13 @@ func evalGenericSANamePattern(_ Rule, req PodGraphRequest, base PodRuleResult) P
 // R-2.6.1-POD-03: CNI 정책 강제 DaemonSet 미배포
 func evalCNIDaemonSet(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
 	base.Severity = "high"
+
+	// 수집 누락 가드: workload 데이터가 아예 없으면 "CNI 미감지"는 측정 결과가 아니라
+	// 데이터 부재다 (이번 클러스터의 aws-node DaemonSet이 미수집으로 미준수 처리된 사례).
+	if len(req.RelatedResources.Workloads) == 0 {
+		return noDataWorkloadResult(base)
+	}
+
 	cniNames := []string{"calico-node", "cilium", "calico-kube-controllers", "weave-net", "aws-node"}
 
 	for _, wl := range req.RelatedResources.Workloads {
@@ -682,6 +764,13 @@ func evalCrossEnvSecretRef(_ Rule, req PodGraphRequest, base PodRuleResult) PodR
 // R-2.9.1-POD-01: change-cause annotation 부재
 func evalChangeCause(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
 	base.Severity = "medium"
+
+	// 수집 누락 가드: Pod에 컨트롤러 흔적이 있는데 workload 스냅샷이 비어 있으면
+	// "Deployment 없음 — 해당 없음"(준수)이 아니라 NO_DATA (데이터 오류 기반 통과 방지).
+	if workloadDataMissing(req) {
+		return noDataWorkloadResult(base)
+	}
+
 	var violations []grc.Violation
 	var matched []string
 	found := false
@@ -728,6 +817,12 @@ func evalChangeCause(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleRes
 // R-2.9.1-POD-02: revisionHistoryLimit=0 (롤백 불가)
 func evalRevisionHistoryLimit(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
 	base.Severity = "high"
+
+	// 수집 누락 가드 (evalChangeCause와 동일)
+	if workloadDataMissing(req) {
+		return noDataWorkloadResult(base)
+	}
+
 	var violations []grc.Violation
 	var matched []string
 	found := false

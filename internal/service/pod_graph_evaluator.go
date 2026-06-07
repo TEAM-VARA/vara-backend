@@ -56,6 +56,7 @@ type PodGraphSummary struct {
 	Pass                int                       `json:"pass"`
 	Fail                int                       `json:"fail"`
 	Skip                int                       `json:"skip"`
+	NotApplicable       int                       `json:"not_applicable,omitempty"` // 해당없음 (vacuous pass)
 	BySeverity          map[string]*SeverityCount `json:"by_severity"`
 }
 
@@ -70,6 +71,7 @@ type PodGraphResult struct {
 	Passed         int              `json:"passed"`
 	Failed         int              `json:"failed"`
 	Skipped        int              `json:"skipped"`
+	NotApplicable  int              `json:"not_applicable,omitempty"` // 해당없음 (vacuous pass)
 	Summary        *PodGraphSummary `json:"summary,omitempty"`
 	RuleResults    []PodRuleResult  `json:"rule_results"`
 }
@@ -113,6 +115,7 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 		ClusterName: req.ClusterName,
 	}
 
+	var unimplemented []string
 	for _, rs := range rulesets {
 		for _, rule := range rs.Rules {
 			// Skip non-k8s rules (e.g. text_extraction, guideline_rag) in pod graph evaluation
@@ -127,10 +130,27 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 			if strings.Contains(rule.RuleID, "-GL") {
 				continue
 			}
+			// Skip manual rules — handled by EvaluateManualRules (승격/리포트/deferred 포함).
+			// 룰셋 JSON이 judgment_source=k8s_api로 선언했어도 수동 룰이면 Pod 평가 대상 아님
+			// (기존엔 여기서 "알 수 없는 Pod 룰" skip이 Pod 수만큼 중복 생성됨).
+			if rule.IsManual() {
+				continue
+			}
+			// Skip rules with no pod-level evaluator implementation.
+			// 카탈로그에는 있으나 엔진 미구현인 룰(예: R-2.5.4-03~15)을 사전 제외해
+			// "알 수 없는 Pod 룰" skip 노이즈(13룰×Pod 수 = 182건)를 제거한다.
+			if !podRuleImplemented(rule.RuleID) {
+				unimplemented = append(unimplemented, rule.RuleID)
+				continue
+			}
 			rr := evaluatePodRule(rule, rs.Item.ID, rs.Item.Name, req)
 			result.RuleResults = append(result.RuleResults, rr)
 			log.Printf("[pod-graph] rule=%s verdict=%s", rule.RuleID, rr.Verdict)
 		}
+	}
+	if len(unimplemented) > 0 {
+		log.Printf("[pod-graph] excluded %d unimplemented pod rules: %s",
+			len(unimplemented), strings.Join(unimplemented, ","))
 	}
 
 	result.TotalRules = len(result.RuleResults)
@@ -157,6 +177,10 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 			result.Passed++
 			summary.Pass++
 			summary.BySeverity[sev].Pass++
+		case grc.VerdictNA, "해당없음":
+			// 점검 대상 부재 — 준수/미준수 어디에도 포함하지 않음
+			result.NotApplicable++
+			summary.NotApplicable++
 		case "skip", grc.VerdictSKIPPED:
 			result.Skipped++
 			summary.Skip++
@@ -173,10 +197,10 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 	}
 	result.Summary = summary
 
-	// Persist to DB
+	// Persist to DB (NA는 skipped 버킷에 합산 — 스키마 호환: total = passed+failed+skipped)
 	id, err := s.repo.SavePodGraphEvaluation(ctx,
 		req.CompanyID, req.ClusterName, podName, namespace,
-		result.OverallVerdict, result.TotalRules, result.Passed, result.Failed, result.Skipped,
+		result.OverallVerdict, result.TotalRules, result.Passed, result.Failed, result.Skipped+result.NotApplicable,
 		result.RuleResults, result.Summary,
 	)
 	if err != nil {
@@ -324,6 +348,49 @@ func checkIndicatorDataAvailability(indicators []Indicator) (evaluable int, noDa
 	return
 }
 
+// implementedPodRules is the set of canonical rule IDs (without -POD-) that have
+// a pod-level evaluator in evaluatePodRule's dispatch switch. Rules declared in
+// ruleset JSON with judgment_source=k8s_api but missing here are excluded from
+// pod evaluation up-front (P1-8: "알 수 없는 Pod 룰" skip 노이즈 제거).
+var implementedPodRules = map[string]bool{
+	"R-1.2.1-01": true, "R-1.2.1-02": true,
+	"R-1.2.2-01": true, "R-1.2.2-02": true,
+	"R-2.1.3-01": true, "R-2.1.3-02": true,
+	"R-2.5.1-01": true, "R-2.5.1-02": true, "R-2.5.1-03": true,
+	"R-2.5.2-01": true, "R-2.5.2-02": true,
+	"R-2.5.5-01": true, "R-2.5.5-02": true,
+	"R-2.6.1-01": true, "R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true,
+	"R-2.6.3-01": true, "R-2.6.3-02": true,
+	"R-2.6.7-01": true,
+	"R-2.7.1-01": true, "R-2.7.1-02": true, "R-2.7.1-03": true, "R-2.7.1-04": true,
+	"R-2.8.3-01": true, "R-2.8.3-02": true, "R-2.8.3-03": true,
+	"R-2.9.1-01": true, "R-2.9.1-02": true,
+	"R-2.10.2-08": true,
+	"R-2.10.3-01": true, "R-2.10.3-02": true, "R-2.10.3-03": true, "R-2.10.3-04": true, "R-2.10.3-05": true,
+	"R-2.10.5-01": true, "R-2.10.5-03": true,
+	"R-2.10.8-01": true, "R-2.10.8-02": true, "R-2.10.8-03": true,
+	"R-2.11.3-01": true,
+}
+
+// podRuleImplemented reports whether a pod-level evaluator exists for the rule.
+func podRuleImplemented(ruleID string) bool {
+	return implementedPodRules[strings.Replace(ruleID, "-POD-", "-", 1)]
+}
+
+// allIndicatorsNA reports whether every matched indicator marks the rule as
+// "해당 없음" (점검 대상 리소스 부재 — vacuous pass).
+func allIndicatorsNA(indicators []string) bool {
+	if len(indicators) == 0 {
+		return false
+	}
+	for _, mi := range indicators {
+		if !strings.Contains(mi, "해당 없음") {
+			return false
+		}
+	}
+	return true
+}
+
 // evaluatePodRule dispatches to the appropriate rule evaluator by rule_id.
 func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphRequest) PodRuleResult {
 	base := PodRuleResult{
@@ -457,6 +524,13 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	// Set layer for all R-rule results
 	if result.Layer == "" {
 		result.Layer = grc.LayerR
+	}
+
+	// 해당없음(N/A) 분리: 점검 대상 리소스 부재로 통과한 vacuous pass는
+	// "준수"가 아니라 "해당없음"으로 집계한다 (준수 항목 수 부풀림 방지).
+	if result.Verdict == "준수" && allIndicatorsNA(result.MatchedIndicators) {
+		result.Verdict = grc.VerdictNA
+		result.Reason = "점검 대상 리소스 부재 — 해당없음 (준수 아님)"
 	}
 
 	// 미준수 판정 시 FailMessage/Remediation 자동 부여
@@ -1222,6 +1296,14 @@ func evalDangerousVerbCombos(rule Rule, req PodGraphRequest, base PodRuleResult)
 func evalMTLS(rule Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
 	podNS := jsonStr(req.Pod, "metadata", "namespace")
 	ns := req.RelatedResources.Namespace
+
+	// 시스템 네임스페이스 예외: kube-system 등 시스템 컴포넌트에 sidecar injection을
+	// 요구하는 것은 비현실적 (Istio 공식 문서도 kube-system 제외 권장).
+	if isSystemNamespace(podNS) {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("시스템 네임스페이스 '%s' — mTLS 예외 적용", podNS)}
+		return base
+	}
 
 	// Check istio-injection label on namespace
 	nsLabels := jsonMap(ns, "metadata", "labels")

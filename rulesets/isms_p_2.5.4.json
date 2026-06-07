@@ -42,7 +42,7 @@
     {
       "rule_id": "R-2.5.4-03",
       "name": "OS 패스워드 정책 설정값 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "/etc/login.defs",
@@ -103,7 +103,7 @@
     {
       "rule_id": "R-2.5.4-04",
       "name": "AD 패스워드 정책 설정값 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "Group Policy",
@@ -154,7 +154,7 @@
     {
       "rule_id": "R-2.5.4-05",
       "name": "IAM 패스워드 정책 설정값 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "IAM Password Policy",
@@ -214,7 +214,7 @@
     {
       "rule_id": "R-2.5.4-06",
       "name": "DB 패스워드 정책 설정값 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "CREATE PROFILE",
@@ -265,7 +265,7 @@
     {
       "rule_id": "R-2.5.4-07",
       "name": "WAS 패스워드 정책 설정값 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "Admin Console",
@@ -308,7 +308,7 @@
     {
       "rule_id": "R-2.5.4-08",
       "name": "회원가입·비밀번호 변경 화면 강제화 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "회원가입",
@@ -360,7 +360,7 @@
     {
       "rule_id": "R-2.5.4-09",
       "name": "비밀번호 변경주기 준수 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "User ID",
@@ -405,7 +405,7 @@
     {
       "rule_id": "R-2.5.4-10",
       "name": "임시 비밀번호 강제 변경 코드 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "isTemporary",
@@ -444,7 +444,7 @@
     {
       "rule_id": "R-2.5.4-11",
       "name": "임시 비밀번호 강제 변경 화면 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "임시 비밀번호로 로그인하셨습니다",
@@ -469,7 +469,7 @@
     {
       "rule_id": "R-2.5.4-12",
       "name": "임시 비밀번호 미변경자 목록 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "발급일",
@@ -500,7 +500,7 @@
     {
       "rule_id": "R-2.5.4-13",
       "name": "DB 비밀번호 저장 형태 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "password",
@@ -548,7 +548,7 @@
     {
       "rule_id": "R-2.5.4-14",
       "name": "MFA 설정 정책 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "MFA",
@@ -611,7 +611,7 @@
     {
       "rule_id": "R-2.5.4-15",
       "name": "로그인 화면 인증수단 점검",
-      "judgment_source": "k8s_api",
+      "judgment_source": "evidence_upload",
       "extraction_method": "rag",
       "keywords": [
         "Login",
