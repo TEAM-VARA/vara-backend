@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/vara/backend/internal/domain/grc"
+	"github.com/vara/backend/internal/domain/scoring"
 	"github.com/vara/backend/internal/platform/embedding"
 	"github.com/vara/backend/internal/platform/ocr"
 	"github.com/vara/backend/internal/platform/pdfext"
@@ -471,13 +472,14 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 					FailMessage: rr.FailMessage,
 					Remediation: rr.Remediation,
 				}
-				assetKey := fmt.Sprintf("Pod/%s/%s", pod.Namespace, pod.Name)
+				normalName := scoring.NormalizePodName(pod.Name)
+				assetKey := fmt.Sprintf("Pod/%s/%s", pod.Namespace, normalName)
 				if a, ok := it.assets[assetKey]; ok {
 					a.ViolatedRules = append(a.ViolatedRules, ri)
 				} else {
 					it.assets[assetKey] = &grc.ViolatedAsset{
 						Kind:          "Pod",
-						Name:          pod.Name,
+						Name:          normalName,
 						Namespace:     pod.Namespace,
 						ViolatedRules: []grc.ViolatedRuleInfo{ri},
 					}

@@ -51,7 +51,7 @@ func (s *BreakdownService) GetBreakdown(ctx context.Context, clusterName, podUID
 
 	bd := &scoring.ScoreBreakdown{
 		PodUID:     f.PodUID,
-		PodName:    f.PodName,
+		PodName:    scoring.NormalizePodName(f.PodName),
 		FinalScore: f.FinalScore,
 		RiskLevel:  f.RiskLevel,
 		RiskLabel:  riskLabelKR(f.RiskLevel),

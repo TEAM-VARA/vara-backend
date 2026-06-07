@@ -179,7 +179,7 @@ func (s *FinalScoringService) computePod(input postgres.PodFinalInput, clusterNa
 	result := scoring.FinalScoreResult{
 		ClusterName:     clusterName,
 		PodUID:          input.PodUID,
-		PodName:         input.PodName,
+		PodName:         scoring.NormalizePodName(input.PodName),
 		PodNamespace:    input.PodNamespace,
 		ToxicMultiplier: toxic,
 		SnapshotAt:      input.PodSnapshotAt,

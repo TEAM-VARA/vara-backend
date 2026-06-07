@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vara/backend/internal/domain/grc"
+	"github.com/vara/backend/internal/domain/scoring"
 	"github.com/vara/backend/internal/repository/postgres"
 )
 
@@ -377,11 +378,11 @@ func evalOwnerIndicatorExists(base grc.RuleResult, snap *ClusterSnapshot, cond m
 		if !found {
 			missingCount++
 			if len(missingList) < 10 {
-				missingList = append(missingList, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+				missingList = append(missingList, fmt.Sprintf("%s/%s", pod.Namespace, scoring.NormalizePodName(pod.Name)))
 			}
 			base.AffectedResources = append(base.AffectedResources, grc.AffectedResource{
 				Kind:      "Pod",
-				Name:      pod.Name,
+				Name:      scoring.NormalizePodName(pod.Name),
 				Namespace: pod.Namespace,
 			})
 		}
@@ -453,11 +454,11 @@ func evalInSet(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) 
 				podCount++
 				nsDistribution[pod.Namespace]++
 				if len(matchedPods) < 10 {
-					matchedPods = append(matchedPods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+					matchedPods = append(matchedPods, fmt.Sprintf("%s/%s", pod.Namespace, scoring.NormalizePodName(pod.Name)))
 				}
 				base.AffectedResources = append(base.AffectedResources, grc.AffectedResource{
 					Kind:      "Pod",
-					Name:      pod.Name,
+					Name:      scoring.NormalizePodName(pod.Name),
 					Namespace: pod.Namespace,
 				})
 				break
@@ -915,11 +916,11 @@ func evalEgressPolicyApplied(base grc.RuleResult, snap *ClusterSnapshot) grc.Rul
 		if !nsWithEgress[pod.Namespace] {
 			missingCount++
 			if len(podList) < 10 {
-				podList = append(podList, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+				podList = append(podList, fmt.Sprintf("%s/%s", pod.Namespace, scoring.NormalizePodName(pod.Name)))
 			}
 			base.AffectedResources = append(base.AffectedResources, grc.AffectedResource{
 				Kind:      "Pod",
-				Name:      pod.Name,
+				Name:      scoring.NormalizePodName(pod.Name),
 				Namespace: pod.Namespace,
 			})
 		}
@@ -1335,14 +1336,14 @@ func evalTagMutableCheck(base grc.RuleResult, snap *ClusterSnapshot, cond map[st
 				if tag == mp || tag == "" {
 					mutableCount++
 					if len(mutableList) < 10 {
-						mutableList = append(mutableList, fmt.Sprintf("%s/%s:%s", pod.Namespace, pod.Name, image))
+						mutableList = append(mutableList, fmt.Sprintf("%s/%s:%s", pod.Namespace, scoring.NormalizePodName(pod.Name), image))
 					}
-					podKey := pod.Namespace + "/" + pod.Name
+					podKey := pod.Namespace + "/" + scoring.NormalizePodName(pod.Name)
 					if !affectedPods[podKey] {
 						affectedPods[podKey] = true
 						base.AffectedResources = append(base.AffectedResources, grc.AffectedResource{
 							Kind:      "Pod",
-							Name:      pod.Name,
+							Name:      scoring.NormalizePodName(pod.Name),
 							Namespace: pod.Namespace,
 						})
 					}
@@ -1397,14 +1398,14 @@ func evalDigestPresent(base grc.RuleResult, snap *ClusterSnapshot) grc.RuleResul
 			if digest == "" && !strings.Contains(image, "@sha256:") {
 				missingCount++
 				if len(list) < 10 {
-					list = append(list, fmt.Sprintf("%s/%s:%s", pod.Namespace, pod.Name, image))
+					list = append(list, fmt.Sprintf("%s/%s:%s", pod.Namespace, scoring.NormalizePodName(pod.Name), image))
 				}
-				podKey := pod.Namespace + "/" + pod.Name
+				podKey := pod.Namespace + "/" + scoring.NormalizePodName(pod.Name)
 				if !affectedPods[podKey] {
 					affectedPods[podKey] = true
 					base.AffectedResources = append(base.AffectedResources, grc.AffectedResource{
 						Kind:      "Pod",
-						Name:      pod.Name,
+						Name:      scoring.NormalizePodName(pod.Name),
 						Namespace: pod.Namespace,
 					})
 				}

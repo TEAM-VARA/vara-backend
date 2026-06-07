@@ -43,6 +43,9 @@ func (h *FinalScoringHandler) Compute(c *gin.Context) {
 		return
 	}
 
+	for i := range response.Details {
+		response.Details[i].PodName = scoring.NormalizePodName(response.Details[i].PodName)
+	}
 	c.JSON(http.StatusOK, response)
 }
 
@@ -103,6 +106,7 @@ func (h *FinalScoringHandler) GetByPod(c *gin.Context) {
 		return
 	}
 
+	result.PodName = scoring.NormalizePodName(result.PodName)
 	c.JSON(http.StatusOK, result)
 }
 
@@ -128,13 +132,14 @@ func (h *FinalScoringHandler) GetByCluster(c *gin.Context) {
 	}
 
 	emergencyCount, warningCount, cautionCount, safeCount := 0, 0, 0, 0
-	for _, r := range results {
+	for i := range results {
+		results[i].PodName = scoring.NormalizePodName(results[i].PodName)
 		switch {
-		case r.FinalScore >= 80:
+		case results[i].FinalScore >= 80:
 			emergencyCount++
-		case r.FinalScore >= 50:
+		case results[i].FinalScore >= 50:
 			warningCount++
-		case r.FinalScore >= 20:
+		case results[i].FinalScore >= 20:
 			cautionCount++
 		default:
 			safeCount++
