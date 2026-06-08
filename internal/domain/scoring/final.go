@@ -133,11 +133,11 @@ type FinalComputeResponse struct {
 
 // ScoreBreakdown은 Final Score의 구성과 각 항목의 의미·해석을 담습니다.
 type ScoreBreakdown struct {
-	PodUID     string  `json:"podUid"`
-	PodName    string  `json:"podName"`
-	FinalScore float64 `json:"finalScore"`
-	RiskLevel  string  `json:"riskLevel"`
-	RiskLabel  string  `json:"riskLabel"`
+	PodUID     string  `json:"pod_uid"`
+	PodName    string  `json:"pod_name"`
+	FinalScore float64 `json:"final_score"`
+	RiskLevel  string  `json:"risk_level"`
+	RiskLabel  string  `json:"risk_label"`
 
 	Global BreakdownSection `json:"global"`
 	Local  BreakdownSection `json:"local"`
@@ -149,7 +149,7 @@ type ScoreBreakdown struct {
 // BreakdownSection은 한 항목(Global/Local/Toxic)의 점수·설명·해석·세부요인입니다.
 type BreakdownSection struct {
 	Label          string            `json:"label"`             // "Global Score"
-	RawScore       float64           `json:"rawScore"`          // 원점수 (Toxic은 multiplier)
+	RawScore       float64           `json:"raw_score"`          // 원점수 (Toxic은 multiplier)
 	Weight         float64           `json:"weight,omitempty"`  // 0.6 / 0.4 (Toxic 없음)
 	Contribution   float64           `json:"contribution"`      // 가중 기여분
 	Description    string            `json:"description"`       // 항목 정의 (고정)
@@ -166,14 +166,14 @@ type BreakdownFactor struct {
 }
 
 type BreakdownGlobal struct {
-	RawScore     float64 `json:"rawScore"`
+	RawScore     float64 `json:"raw_score"`
 	Weight       float64 `json:"weight"`
 	Contribution float64 `json:"contribution"`
-	TopCVE       string  `json:"topCve,omitempty"`
+	TopCVE       string  `json:"top_cve,omitempty"`
 }
 
 type BreakdownLocal struct {
-	RawScore     float64 `json:"rawScore"`
+	RawScore     float64 `json:"raw_score"`
 	Weight       float64 `json:"weight"`
 	Contribution float64 `json:"contribution"`
 }

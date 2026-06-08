@@ -67,7 +67,7 @@ func (h *AnalysisHandler) GetCentrality(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"cluster": cluster,
-		"sortBy":  c.DefaultQuery("sort", "pagerank"),
+		"sort_by":  c.DefaultQuery("sort", "pagerank"),
 		"count":   len(rows),
 		"nodes":   rows,
 	})
