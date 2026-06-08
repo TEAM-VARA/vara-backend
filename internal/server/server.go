@@ -229,6 +229,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		analysisScheduler := scheduler.NewAnalysisScheduler(
 			analysisSvc,
 			edgesRepo,
+			imageGlobalCacheSvc,
+			sbomRepo,
 			exposureSvc,
 			attackPathSvc,
 			localScoringSvc,
