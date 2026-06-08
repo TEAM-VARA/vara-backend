@@ -10,15 +10,19 @@ import (
 )
 
 // AnalysisScheduler는 그래프 파이프라인 전체를 주기적으로 재계산합니다.
+//  0. 글로벌 점수 캐시 갱신 (sboms digest 전체, 만료분만 재계산)
 //  1. 엣지 4종 (identity → supply_chain → network → host)
 //  2. 점수 체인 (exposure → attack-path → local → toxic → final)
 //  3. 그래프 분석 사전계산 (BFS Blast Radius, PageRank, Betweenness, Dijkstra)
+//  4. snapshot retention (최신만 유지)
 //
 // 데이터(cluster_pods, eBPF)는 에이전트가 채우므로, 이 파이프라인만 돌면
 // DB 정리/클러스터 재배포 후에도 다음 주기에 자동 복구됩니다.
 type AnalysisScheduler struct {
 	svc         *service.AnalysisService
 	edgesRepo   *postgres.EdgesRepo
+	imgCacheSvc *service.ImageGlobalCacheService
+	sbomRepo    *postgres.SBOMRepo
 	exposureSvc *service.ExposureService
 	attackSvc   *service.AttackPathService
 	localSvc    *service.LocalScoringService
@@ -33,6 +37,8 @@ type AnalysisScheduler struct {
 func NewAnalysisScheduler(
 	svc *service.AnalysisService,
 	edgesRepo *postgres.EdgesRepo,
+	imgCacheSvc *service.ImageGlobalCacheService,
+	sbomRepo *postgres.SBOMRepo,
 	exposureSvc *service.ExposureService,
 	attackSvc *service.AttackPathService,
 	localSvc *service.LocalScoringService,
@@ -47,6 +53,8 @@ func NewAnalysisScheduler(
 	return &AnalysisScheduler{
 		svc:         svc,
 		edgesRepo:   edgesRepo,
+		imgCacheSvc: imgCacheSvc,
+		sbomRepo:    sbomRepo,
 		exposureSvc: exposureSvc,
 		attackSvc:   attackSvc,
 		localSvc:    localSvc,
@@ -94,6 +102,30 @@ func (s *AnalysisScheduler) Stop() {
 func (s *AnalysisScheduler) run(ctx context.Context) {
 	start := time.Now()
 	log.Printf("analysis-scheduler: pipeline start (cluster=%s)", s.clusterName)
+
+	// ─────────────────────────────────────────────
+	// Phase 0: 글로벌 점수 캐시 갱신 (sboms digest 전체)
+	// ComputeAndStore(force=false)가 캐시 신선도를 확인 → 만료분만 외부 API 재호출,
+	// 신선한 digest는 cache hit으로 즉시 통과. final 점수가 글로벌을 읽으므로 Phase 2보다 먼저.
+	// ─────────────────────────────────────────────
+	if s.imgCacheSvc != nil && s.sbomRepo != nil {
+		digests, err := s.sbomRepo.ListDistinctDigests(ctx)
+		if err != nil {
+			log.Printf("analysis-scheduler: list digests failed: %v", err)
+		} else {
+			var refreshed, failed int
+			for _, d := range digests {
+				if _, err := s.imgCacheSvc.ComputeAndStore(ctx, d, false); err != nil {
+					failed++
+					log.Printf("analysis-scheduler: global refresh failed digest=%s: %v", d, err)
+				} else {
+					refreshed++
+				}
+			}
+			log.Printf("analysis-scheduler: global cache refreshed (%d/%d ok, %d failed, %v)",
+				refreshed, len(digests), failed, time.Since(start))
+		}
+	}
 
 	// ─────────────────────────────────────────────
 	// Phase 1: 엣지 재계산 (실패해도 다음 단계 진행 — 이전 snapshot으로 동작)
