@@ -455,10 +455,15 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 			}
 
 			// Stage 2: 흡수된 F룰의 수동점검 출력(ARI/MCA/AC/KDC)을 R 결과에 주입.
-			// needs_review 출신은 verdict를 NEEDS_REVIEW로 덮어써 합격률 분모에서 제외.
-			if def, ok := ruleDef[grr.RuleID]; ok {
+			def := ruleDef[grr.RuleID]
+			if def != nil {
 				enrichManualOutput(&grr, def)
 			}
+			// 통일된 강등 정책: 미준수 && (대체통제 || non-direct 매핑) → NEEDS_REVIEW.
+			applyReviewDemotion(&grr, def)
+
+			// INDETERMINATE인데 표시문자열이 비면 Reason으로 채워 빈 줄 렌더를 막는다.
+			grr = ensureVerdictDisplay(grr)
 
 			it.ruleResults = append(it.ruleResults, grr)
 			it.rResults = append(it.rResults, grr)
@@ -563,11 +568,13 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 	}
 
 	for itemID, it := range items {
+		// P2-10: rule_results와 layers가 동일 데이터를 중복 수록하던 문제(응답 ~2배) 수정.
+		// layers(gl/r/f/report 분리)만 응답에 포함하고 평탄화된 rule_results는 생략한다.
+		// 집계는 아래에서 it.ruleResults(내부 슬라이스)로 수행하므로 영향 없음.
 		item := grc.ItemComplianceResult{
 			ISMSPItemID: itemID,
 			ItemName:    it.itemName,
 			TotalRules:  len(it.ruleResults),
-			RuleResults: it.ruleResults,
 			Layers: &grc.ItemLayers{
 				GL:     it.glResults,
 				R:      it.rResults,
@@ -589,6 +596,8 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 				item.Failed++
 			case "검토필요", grc.VerdictNEEDS_REVIEW:
 				item.NeedsReview++ // 확인불가: 분모 제외 (NEEDS_REVIEW origin 포함)
+			case grc.VerdictNA, "해당없음":
+				item.NotApplicable++ // 점검 대상 부재 — 준수와 분리 집계
 			case grc.VerdictNO_DATA:
 				item.NoData++
 			case grc.VerdictINDETERMINATE:
@@ -601,13 +610,16 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		// Determine item-level composite verdict:
 		// GL NOT_MET or R NOT_MET → 항목 = NOT_MET (결함)
 		// No clear failures but R NO_DATA or F NEEDS_REVIEW or GL INDETERMINATE → NEEDS_REVIEW (확인필요)
-		// All MET → MET (준수)
+		// 실제 통과 룰 존재 → MET (준수)
+		// 전부 해당없음 → N_A (점검 대상 부재 — 준수로 부풀리지 않음)
 		if item.Failed > 0 {
 			item.Verdict = grc.VerdictNOT_MET
 		} else if item.NeedsReview > 0 || item.NoData > 0 || item.Indeterminate > 0 {
 			item.Verdict = grc.VerdictNEEDS_REVIEW
 		} else if item.Passed > 0 {
 			item.Verdict = grc.VerdictMET
+		} else if item.NotApplicable > 0 {
+			item.Verdict = grc.VerdictNA
 		} else {
 			item.Verdict = grc.VerdictSKIPPED
 		}
@@ -630,6 +642,8 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 			result.NonCompliantItems++
 		case "검토필요", grc.VerdictNEEDS_REVIEW:
 			result.NeedsReviewItems++
+		case grc.VerdictNA, "해당없음":
+			result.NotApplicableItems++
 		case grc.VerdictNO_DATA:
 			result.NoDataItems++
 		case grc.VerdictINDETERMINATE:
@@ -771,10 +785,12 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 	}
 
 	// 6. Recalculate item verdicts, totals, and generate notes
+	// (EvaluateClusterCompliance와 동일한 분기 순서 — overview/evaluate 판정 일관성)
 	result.TotalItems = len(result.Items)
 	result.CompliantItems = 0
 	result.NonCompliantItems = 0
 	result.NeedsReviewItems = 0
+	result.NotApplicableItems = 0
 	noDataItems := 0
 	for i := range result.Items {
 		item := &result.Items[i]
@@ -789,6 +805,9 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 		} else if item.Passed > 0 {
 			item.Verdict = "준수"
 			result.CompliantItems++
+		} else if item.NotApplicable > 0 {
+			item.Verdict = "해당없음"
+			result.NotApplicableItems++
 		} else {
 			item.Verdict = "데이터없음"
 			noDataItems++
@@ -835,11 +854,16 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 				item.Note = fmt.Sprintf("데이터 부족 (NO_DATA %d건, 확인불가 %d건) — 수동 확인 권장", item.NoData, item.Indeterminate)
 			}
 		case "준수":
-			item.Note = fmt.Sprintf("%d개 룰 전부 통과", item.Passed)
+			if item.NotApplicable > 0 {
+				item.Note = fmt.Sprintf("적용 가능 룰 %d개 통과 (해당없음 %d건 별도)", item.Passed, item.NotApplicable)
+			} else {
+				item.Note = fmt.Sprintf("%d개 룰 전부 통과", item.Passed)
+			}
 			// Add matched indicators from rule results if available
+			// (P2-10 이후 rule_results 대신 layers에 저장될 수 있어 둘 다 조회)
 			indicators := []string{}
-			for _, rr := range item.RuleResults {
-				if rr.Verdict == "준수" && len(rr.MatchedIndicators) > 0 {
+			for _, rr := range collectItemRuleResults(item) {
+				if grc.NormalizeVerdict(rr.Verdict) == grc.VerdictMET && len(rr.MatchedIndicators) > 0 {
 					for _, mi := range rr.MatchedIndicators {
 						if len(indicators) < 3 {
 							indicators = append(indicators, mi)
@@ -850,6 +874,8 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 			if len(indicators) > 0 {
 				item.Note += " — " + strings.Join(indicators, "; ")
 			}
+		case "해당없음":
+			item.Note = fmt.Sprintf("점검 대상 리소스 부재 (%d건) — 해당 환경에 적용되지 않는 항목 (준수 아님)", item.NotApplicable)
 		case "데이터없음":
 			item.Note = "아직 평가되지 않은 항목 — 클러스터 평가 또는 GL 점검 실행 필요"
 		}
@@ -857,6 +883,23 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 	result.NoDataItems = noDataItems
 
 	return result, nil
+}
+
+// collectItemRuleResults returns all rule results of an item, regardless of
+// whether they're stored in the flat RuleResults field (legacy) or Layers (P2-10 이후).
+func collectItemRuleResults(item *grc.ItemComplianceResult) []grc.RuleResult {
+	if len(item.RuleResults) > 0 {
+		return item.RuleResults
+	}
+	if item.Layers == nil {
+		return nil
+	}
+	var all []grc.RuleResult
+	all = append(all, item.Layers.GL...)
+	all = append(all, item.Layers.R...)
+	all = append(all, item.Layers.F...)
+	all = append(all, item.Layers.Report...)
+	return all
 }
 
 // mapKeys returns sorted keys from a map[string]bool.
@@ -1185,13 +1228,13 @@ func (s *GRCService) GetPodViolations(ctx context.Context, companyID, clusterNam
 			itemMap[rr.ISMSPItem] = acc
 		}
 		acc.total++
-		switch rr.Verdict {
-		case "준수":
+		switch grc.NormalizeVerdict(rr.Verdict) {
+		case grc.VerdictMET:
 			acc.passed++
-		case "미준수":
+		case grc.VerdictNOT_MET:
 			acc.failed++
 			acc.fails = append(acc.fails, rr)
-		default:
+		default: // skip / NA / NO_DATA / NEEDS_REVIEW — 위반 집계 제외
 			acc.skipped++
 		}
 	}
@@ -1237,20 +1280,68 @@ func buildRuleDefMap(store *RulesetStore) map[string]*Rule {
 	return m
 }
 
-// needsReviewAbsorbedFromIDs is the set of original F-rule IDs whose verdict_type
-// was "needs_review". When their R-counterpart is enriched, the verdict is forced
-// to NEEDS_REVIEW so the result is excluded from the compliance-rate denominator
-// (충족/미충족만 분모 포함, 확인불가 제외).
+// demoteToReviewOverride lists rule IDs that must be demoted (미준수 → NEEDS_REVIEW)
+// even though they carry no ManualCheckOutput metadata. These are rules where the
+// K8s measurement is only one possible implementation of the control and
+// off-cluster alternative controls can satisfy the ISMS-P requirement.
 //
-// Source: §6-6 of the F-absorption design doc.
-// F-2.6.1-01→R-2.6.1-02, F-2.6.1-02→R-2.6.1-03, F-2.6.1-03→R-2.6.1-04,
-// F-2.6.7-01→R-2.6.7-01, F-2.10.3-03→R-2.10.3-03
-var needsReviewAbsorbedFromIDs = map[string]bool{
-	"F-2.6.1-01":  true,
-	"F-2.6.1-02":  true,
-	"F-2.6.1-03":  true,
-	"F-2.6.7-01":  true,
-	"F-2.10.3-03": true,
+// R-2.6.3-02: istio-injection 라벨은 mTLS 구현 방식 중 하나일 뿐 — Linkerd,
+// AWS App Mesh, L7 게이트웨이 TLS 등 대체통제로 충족 가능하므로 자동 미준수 단정 불가.
+var demoteToReviewOverride = map[string]bool{
+	"R-2.6.3-02": true,
+}
+
+// complianceMappingEntry is the minimal shape of a compliance_mappings element.
+type complianceMappingEntry struct {
+	MatchStrength string `json:"match_strength"`
+}
+
+// hasDirectMapping reports whether any compliance mapping has match_strength "direct".
+// Empty/unparseable mappings are treated as direct (conservative: no demotion).
+func hasDirectMapping(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	var entries []complianceMappingEntry
+	if err := json.Unmarshal(raw, &entries); err != nil || len(entries) == 0 {
+		return true
+	}
+	for _, e := range entries {
+		if e.MatchStrength == "direct" {
+			return true
+		}
+	}
+	return false
+}
+
+// applyReviewDemotion implements the unified demotion policy (심사 일관성):
+//
+//	자동측정 미준수(NOT_MET) && (대체통제 존재 || ISMS-P 매핑이 direct가 아님)
+//	  → NEEDS_REVIEW (확인불가 — 합격률 분모 제외, 수동 검토 대상)
+//
+// 준수/N_A/NO_DATA 등 비-미준수 verdict는 절대 강등하지 않는다
+// (기존 needsReviewAbsorbedFromIDs가 준수까지 강등하던 과잉 동작 제거 — R-2.10.3-03 노이즈 수정).
+// direct 매핑이면서 대체통제가 없는 룰(예: R-2.5.1-01 default SA)만 NOT_MET이 확정된다.
+// 주의: OffclusterSatisfactionConditions는 거의 모든 룰에 존재하므로 기준에서 제외.
+func applyReviewDemotion(grr *grc.RuleResult, def *Rule) {
+	if grr.Verdict != grc.VerdictNOT_MET && grr.Verdict != "미준수" {
+		return // 미준수만 강등 대상
+	}
+
+	normID := strings.Replace(grr.RuleID, "-POD-", "-", 1)
+	demote := demoteToReviewOverride[normID]
+
+	if !demote && def != nil && def.ManualCheckOutput != nil {
+		mco := def.ManualCheckOutput
+		if len(mco.AlternativeControls) > 0 || !hasDirectMapping(mco.ComplianceMappings) {
+			demote = true
+		}
+	}
+
+	if demote {
+		grr.Reason = fmt.Sprintf("R 자동측정: %s → 수동 검토 필요 (대체통제/클러스터 외 충족 가능 — 확인불가)", grr.Verdict)
+		grr.Verdict = grc.VerdictNEEDS_REVIEW
+	}
 }
 
 // enrichManualOutput copies absorbed F-finding metadata (ARI/MCA/AC/KDC/etc.) into
@@ -1293,13 +1384,7 @@ func enrichManualOutput(grr *grc.RuleResult, def *Rule) {
 		grr.ComplianceMappings = mco.ComplianceMappings
 	}
 
-	// needs_review 출신: verdict 덮어쓰기 → 합격률 분모 제외
-	if needsReviewAbsorbedFromIDs[mco.AbsorbedFrom] {
-		if grr.Reason == "" {
-			grr.Reason = fmt.Sprintf("R 자동측정: %s → 수동 검토 필요 (확인불가)", grr.Verdict)
-		}
-		grr.Verdict = grc.VerdictNEEDS_REVIEW
-	}
+	// verdict 강등은 applyReviewDemotion에서 통일 처리한다 (미준수만 대상).
 }
 
 func envOrDefault(key, def string) string {
@@ -1777,8 +1862,21 @@ func (s *GRCService) ListCloudEnvironments(ctx context.Context, companyID, resou
 // Async Worker
 // ─────────────────────────────────────────────
 
+// checkWallClockLimit bounds a single GL check's total runtime so checks can't
+// hang in running/40% indefinitely (LLM/임베딩 지연 시 명시적 실패 처리).
+// env GRC_CHECK_TIMEOUT_MIN으로 조정 가능 (기본 15분).
+func checkWallClockLimit() time.Duration {
+	if v := os.Getenv("GRC_CHECK_TIMEOUT_MIN"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Minute
+		}
+	}
+	return 15 * time.Minute
+}
+
 func (s *GRCService) runWorker(checkID string) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), checkWallClockLimit())
+	defer cancel()
 
 	if err := s.repo.UpdateCheckStarted(ctx, checkID); err != nil {
 		log.Printf("[grc-worker] failed to mark check started: %s: %v", checkID, err)
@@ -1787,6 +1885,15 @@ func (s *GRCService) runWorker(checkID string) {
 
 	result, err := s.processCheck(ctx, checkID)
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			// 타임아웃은 영구 running 상태 대신 명시적 failed로 마감
+			log.Printf("[grc-worker] check %s timed out after %s", checkID, checkWallClockLimit())
+			_ = s.repo.UpdateCheckFailed(context.Background(), checkID, &grc.ErrorDetail{
+				Code:    "TIMEOUT",
+				Message: fmt.Sprintf("점검이 %s 내에 완료되지 않아 중단됨 (LLM/임베딩 서버 상태 확인 필요)", checkWallClockLimit()),
+			})
+			return
+		}
 		log.Printf("[grc-worker] check %s failed: %v", checkID, err)
 		errDetail := &grc.ErrorDetail{
 			Code:    "INTERNAL_ERROR",
@@ -1929,14 +2036,15 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 		cachedSentences := glTopSentences[rule.RuleID]
 
 		if len(matched) == 0 && !isGuidelineRAG {
+			// 증적 미제출은 위반(NOT_MET)이 아니라 평가불가(NO_DATA) —
+			// 증거 부재 ≠ 위반 (P0-3과 동일 원칙). 항목 verdict는 검토필요로 집계된다.
+			// 빈 줄로 렌더링되지 않도록 룰 이름·필요 증적 힌트를 표시 텍스트에 채운다
+			// (예: 2.5.4 R-03~15 evidence_upload 룰이 GL 점검 출력에 빈 메시지로 섞이던 문제).
 			result = grc.RuleResult{
-				RuleID:  rule.RuleID,
-				Verdict: grc.VerdictNOT_MET,
-				Reason:  "증적 미제출 — 해당 룰에 대한 증적 파일이 제출되지 않음",
-				Violations: []grc.Violation{{
-					Description: fmt.Sprintf("룰 %s: 증적 파일 미제출", rule.RuleID),
-					Severity:    "medium",
-				}},
+				RuleID:        rule.RuleID,
+				Verdict:       grc.VerdictNO_DATA,
+				Reason:        noEvidenceReason(rule),
+				MatchedIndicators: []string{noEvidenceReason(rule)},
 				EvidenceFiles: []string{},
 			}
 		} else if len(matched) == 0 && isGuidelineRAG {
@@ -1957,10 +2065,14 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 			result = s.applyGuidelineEmbedding(rule, matched, embByFile, dbGuidelines, result)
 		}
 
+		result = ensureVerdictDisplay(result)
 		ruleResults = append(ruleResults, result)
 		pct := 40 + (i+1)*50/len(ruleset.Rules)
 		_ = s.repo.UpdateCheckProgress(ctx, checkID, pct)
 	}
+
+	// 동일 RuleID가 한 점검에서 중복 평가된 경우 1건으로 정리한다 (definitive 우선).
+	ruleResults = dedupRuleResultsByID(ruleResults)
 
 	// Step 3: Aggregate results.
 	_ = s.repo.UpdateCheckProgress(ctx, checkID, 95)
@@ -1971,8 +2083,12 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 
 	verdict := "준수"
 	severity := "low"
+	effectiveRules := 0 // skip/NA 제외한 실제 평가 룰 수
 	for _, r := range ruleResults {
 		nv := grc.NormalizeVerdict(r.Verdict)
+		if nv != grc.VerdictSKIPPED && nv != grc.VerdictNA && nv != grc.VerdictREPORT {
+			effectiveRules++
+		}
 		if nv == grc.VerdictNOT_MET {
 			verdict = "미준수"
 			for _, v := range r.Violations {
@@ -1992,6 +2108,12 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 		} else if (nv == grc.VerdictNEEDS_REVIEW || nv == grc.VerdictINDETERMINATE || nv == grc.VerdictNO_DATA) && verdict != "미준수" {
 			verdict = "검토필요"
 		}
+	}
+	// 전 룰 skip이면 "준수"가 아니라 "데이터없음" — 하나도 평가되지 않은 점검을
+	// 준수로 집계하던 버그 수정 (예: 3룰 전부 skipped인데 verdict 준수).
+	if effectiveRules == 0 {
+		verdict = "데이터없음"
+		severity = ""
 	}
 
 	recommendations := generateRecommendations(ruleResults, ruleset)
@@ -2491,6 +2613,26 @@ func readTextFile(path string) (string, error) {
 // ─────────────────────────────────────────────
 // Evidence-to-Rule Matching
 // ─────────────────────────────────────────────
+
+// noEvidenceReason builds a human-readable NO_DATA message for a rule whose
+// evidence file was not submitted: which rule it is, and what to upload.
+// evidence_upload 룰(예: 2.5.4 R-03~15 OS/AD/IAM 설정 점검)이 빈 메시지로
+// 렌더링되지 않도록 룰 이름과 증적 힌트(keywords 일부)를 포함한다.
+func noEvidenceReason(rule Rule) string {
+	name := strings.TrimSpace(rule.Name)
+	if name == "" {
+		name = rule.RuleID
+	}
+	msg := fmt.Sprintf("증적 미제출 — '%s' 자동점검 불가", name)
+	if len(rule.Keywords) > 0 {
+		n := len(rule.Keywords)
+		if n > 3 {
+			n = 3
+		}
+		msg += fmt.Sprintf(" (필요 증적 예: %s)", strings.Join(rule.Keywords[:n], ", "))
+	}
+	return msg
+}
 
 func matchEvidenceToRule(files []grc.EvidenceFile, rule Rule, evidenceStore map[string]any) []grc.EvidenceFile {
 	var matched []grc.EvidenceFile
@@ -3255,7 +3397,8 @@ func aggregateSummary(results []grc.RuleResult, evidenceCount int) grc.Summary {
 			s.Failed++
 		case grc.VerdictNEEDS_REVIEW, grc.VerdictINDETERMINATE, grc.VerdictNO_DATA:
 			s.NeedsReview++
-		case grc.VerdictSKIPPED:
+		case grc.VerdictSKIPPED, grc.VerdictNA, grc.VerdictREPORT:
+			// 해당없음/보고서형은 합격률 분모 제외 — skipped 버킷으로 집계
 			s.Skipped++
 		}
 	}

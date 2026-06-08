@@ -246,6 +246,64 @@
       }
     },
     {
+      "rule_id": "R-2.6.1-SG01",
+      "name": "Security Group 인바운드 전체 개방 (영역 분리·비인가 접근)",
+      "judgment_source": "aws_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "AWS::EC2::SecurityGroup",
+        "required_data": [
+          "aws_security_groups.ingress_rules"
+        ],
+        "condition": {
+          "operator": "sg_world_open_ingress",
+          "forbidden_cidrs": ["0.0.0.0/0", "::/0"],
+          "allowed_public_ports": [80, 443]
+        },
+        "compliance_mappings": [
+          { "framework": "ISMS-P", "item": "2.6.1", "match_strength": "direct" }
+        ],
+        "kisa_defect_case_refs": [
+          { "case_number": null, "description": "서버팜/사무망 미분리 — 광범위 인바운드 허용", "match": "direct" }
+        ],
+        "additional_review_items": [
+          "0.0.0.0/0 인바운드가 의도된 공개 서비스(80/443)인지",
+          "운영망/개발망/DB존 등 영역별 SG 분리 설계 확인",
+          "허용 출발지를 특정 SG/CIDR로 제한했는지"
+        ],
+        "manual_check_areas": [
+          "VPC/Subnet/Security Group 영역 분리 설계 문서",
+          "사내망 IP 관리 대장"
+        ],
+        "automation_coverage": {
+          "percentage": 85,
+          "covered": "SG ingress 0.0.0.0/0 자동 탐지",
+          "not_covered": "영역 분리 설계 의도, 사내망 IP 정책"
+        },
+        "offcluster_satisfaction_conditions": [
+          "영역 분리가 VPC 서브넷+SG / 별도 클러스터 / Service Mesh 등으로 적용되고, 0.0.0.0/0 인바운드는 80/443 등 의도된 공개 서비스로 한정됨"
+        ],
+        "k8s_only_check": false,
+        "deferred": false
+      },
+      "promoted_from": "SG-2.6.1-01",
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "SG-2.6.1-01",
+        "additional_review_items": [
+          "0.0.0.0/0 인바운드가 의도된 공개 서비스(80/443)인지",
+          "영역별 SG 분리 설계 확인"
+        ],
+        "compliance_mappings": [
+          { "framework": "ISMS-P", "item": "2.6.1", "match_strength": "direct" }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "영역 분리가 VPC 서브넷+SG로 적용되고 광범위 인바운드가 통제됨"
+        ]
+      }
+    },
+    {
       "rule_id": "R-2.6.1-GL01",
       "name": "비인가 네트워크 접근 통제 절차",
       "judgment_source": "text_extraction",

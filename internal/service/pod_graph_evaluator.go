@@ -56,6 +56,7 @@ type PodGraphSummary struct {
 	Pass                int                       `json:"pass"`
 	Fail                int                       `json:"fail"`
 	Skip                int                       `json:"skip"`
+	NotApplicable       int                       `json:"not_applicable,omitempty"` // 해당없음 (vacuous pass)
 	BySeverity          map[string]*SeverityCount `json:"by_severity"`
 }
 
@@ -70,6 +71,7 @@ type PodGraphResult struct {
 	Passed         int              `json:"passed"`
 	Failed         int              `json:"failed"`
 	Skipped        int              `json:"skipped"`
+	NotApplicable  int              `json:"not_applicable,omitempty"` // 해당없음 (vacuous pass)
 	Summary        *PodGraphSummary `json:"summary,omitempty"`
 	RuleResults    []PodRuleResult  `json:"rule_results"`
 }
@@ -113,6 +115,7 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 		ClusterName: req.ClusterName,
 	}
 
+	var unimplemented []string
 	for _, rs := range rulesets {
 		for _, rule := range rs.Rules {
 			// Skip non-k8s rules (e.g. text_extraction, guideline_rag) in pod graph evaluation
@@ -127,10 +130,29 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 			if strings.Contains(rule.RuleID, "-GL") {
 				continue
 			}
+			// Skip manual rules — handled by EvaluateManualRules (승격/리포트/deferred 포함).
+			// 룰셋 JSON이 judgment_source=k8s_api로 선언했어도 수동 룰이면 Pod 평가 대상 아님
+			// (기존엔 여기서 "알 수 없는 Pod 룰" skip이 Pod 수만큼 중복 생성됨).
+			if rule.IsManual() {
+				continue
+			}
+			// Skip rules with no pod-level evaluator implementation.
+			// 카탈로그에는 있으나 엔진 미구현인 룰(예: R-2.5.4-03~15)을 사전 제외해
+			// "알 수 없는 Pod 룰" skip 노이즈(13룰×Pod 수 = 182건)를 제거한다.
+			if !podRuleImplemented(rule.RuleID) {
+				unimplemented = append(unimplemented, rule.RuleID)
+				continue
+			}
 			rr := evaluatePodRule(rule, rs.Item.ID, rs.Item.Name, req)
+			// 미측정(NO_DATA/skip/판정불가) 결과에 K8s 외부 확인처 가이드 부착
+			rr = attachOffClusterGuidance(rr, rule, rs.Item.ID)
 			result.RuleResults = append(result.RuleResults, rr)
 			log.Printf("[pod-graph] rule=%s verdict=%s", rule.RuleID, rr.Verdict)
 		}
+	}
+	if len(unimplemented) > 0 {
+		log.Printf("[pod-graph] excluded %d unimplemented pod rules: %s",
+			len(unimplemented), strings.Join(unimplemented, ","))
 	}
 
 	result.TotalRules = len(result.RuleResults)
@@ -157,14 +179,20 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 			result.Passed++
 			summary.Pass++
 			summary.BySeverity[sev].Pass++
+		case grc.VerdictNA, "해당없음":
+			// 점검 대상 부재 — 준수/미준수 어디에도 포함하지 않음
+			result.NotApplicable++
+			summary.NotApplicable++
 		case "skip", grc.VerdictSKIPPED:
 			result.Skipped++
 			summary.Skip++
-		case grc.VerdictNO_DATA, grc.VerdictINDETERMINATE:
-			// Data unavailable — count as skipped for backward compat
+		case grc.VerdictNO_DATA, grc.VerdictINDETERMINATE, grc.VerdictNEEDS_REVIEW:
+			// 판단 불가(데이터 부재/확인불가/검토필요) — 확정 미준수가 아니므로
+			// pod 단위 OverallVerdict를 미준수로 만들지 않고 skip 버킷으로 집계한다.
+			// (항목 단위 집계에서는 NEEDS_REVIEW를 '검토필요'로 별도 분리한다.)
 			result.Skipped++
 			summary.Skip++
-		default: // 미준수, NOT_MET, NEEDS_REVIEW
+		default: // 미준수, NOT_MET
 			result.Failed++
 			summary.Fail++
 			summary.BySeverity[sev].Fail++
@@ -173,10 +201,10 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 	}
 	result.Summary = summary
 
-	// Persist to DB
+	// Persist to DB (NA는 skipped 버킷에 합산 — 스키마 호환: total = passed+failed+skipped)
 	id, err := s.repo.SavePodGraphEvaluation(ctx,
 		req.CompanyID, req.ClusterName, podName, namespace,
-		result.OverallVerdict, result.TotalRules, result.Passed, result.Failed, result.Skipped,
+		result.OverallVerdict, result.TotalRules, result.Passed, result.Failed, result.Skipped+result.NotApplicable,
 		result.RuleResults, result.Summary,
 	)
 	if err != nil {
@@ -207,19 +235,15 @@ type ruleFailInfo struct {
 }
 
 // podRuleFailInfo maps canonical rule IDs (without -POD-) to their fail/remediation messages.
+//
+// NOTE: 자기증명(self-attestation) 라벨/annotation 룰 11개 제거됨 —
+// R-1.2.1-01/02, R-1.2.2-01/02, R-2.1.3-01/02, R-2.5.1-02, R-2.8.3-01,
+// R-2.9.1-01, R-2.10.3-03/05. 라벨 부착 여부는 클러스터 동작·보안과 무관하고
+// ISMS-P 증적 효력도 없음. 해당 항목(1.2.1, 1.2.2, 2.1.3)은 GL룰(정책 문서 점검)과
+// REPORT형 인벤토리로 커버한다.
 var podRuleFailInfo = map[string]ruleFailInfo{
-	// 1.2.1 정보자산 식별
-	"R-1.2.1-01": {"Namespace에 필수 자산 분류 라벨(data-classification, isms-p/owner, isms-p/criticality) 누락", "Namespace에 data-classification, isms-p/owner, isms-p/criticality 라벨을 추가하세요"},
-	"R-1.2.1-02": {"자산 분류 정책 ConfigMap이 없거나 1년 이내 갱신되지 않음", "자산 분류 기준서 ConfigMap을 생성하고 policy-version, approved-by, approved-at annotation과 함께 1년 이내 갱신 상태를 유지하세요"},
-	// 1.2.2 현황 및 흐름분석
-	"R-1.2.2-01": {"ExternalName Service에 외부 의존성 라벨(isms-p/external-dep) 미부여", "ExternalName Service에 isms-p/external-dep 라벨을 추가하여 외부 의존성을 명시하세요"},
-	"R-1.2.2-02": {"Ingress에 흐름도 등록 annotation(isms-p/flow-registered) 부재", "Ingress에 isms-p/flow-registered annotation을 추가하여 데이터 흐름을 문서화하세요"},
-	// 2.1.3 정보자산 관리
-	"R-2.1.3-01": {"Workload에 소유자 annotation(isms-p/owner) 미부여", "Workload에 isms-p/owner annotation을 추가하여 자산 책임자를 명시하세요"},
-	"R-2.1.3-02": {"Pod에 보안 등급 라벨(isms-p/security-class) 미부여", "Pod에 isms-p/security-class 라벨을 추가하여 보안 등급을 명시하세요"},
 	// 2.5.1 사용자 계정 관리
 	"R-2.5.1-01": {"Pod이 default ServiceAccount를 사용 중", "Pod에 전용 ServiceAccount를 생성하여 할당하고 automountServiceAccountToken을 필요한 경우에만 활성화하세요"},
-	"R-2.5.1-02": {"ServiceAccount에 소유자 라벨(isms-p/owner) 미부여", "ServiceAccount에 isms-p/owner 라벨을 추가하여 관리 책임자를 명시하세요"},
 	"R-2.5.1-03": {"여러 팀/네임스페이스에서 동일 ServiceAccount를 공유하여 사용 중", "팀별·용도별 전용 ServiceAccount를 분리하여 사용하세요"},
 	// 2.5.2 사용자 식별
 	"R-2.5.2-01": {"예측 가능한 ServiceAccount 이름 사용(default, admin 등)", "ServiceAccount 이름에 팀/용도를 포함하여 고유하게 지정하세요"},
@@ -243,20 +267,16 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	"R-2.7.1-03": {"Ingress에 TLS 설정 미적용", "Ingress에 TLS 인증서를 설정하여 HTTPS 통신을 보장하세요"},
 	"R-2.7.1-04": {"Ingress에 TLS 설정 미적용", "Ingress에 TLS 인증서를 설정하여 HTTPS 통신을 보장하세요"},
 	// 2.8.3 시험과 운영 환경 분리
-	"R-2.8.3-01": {"Workload에 환경 구분 라벨(isms-p/env) 미부여", "Workload에 isms-p/env 라벨(production, staging, development)을 추가하여 환경을 구분하세요"},
 	"R-2.8.3-02": {"하나의 네임스페이스에 서로 다른 환경의 워크로드가 혼합 배치됨", "production과 staging/development 워크로드를 별도 네임스페이스로 분리하세요"},
 	"R-2.8.3-03": {"다른 환경의 Secret을 교차 참조하고 있음", "환경별 Secret을 분리하여 교차 환경 참조를 제거하세요"},
 	// 2.9.1 변경관리
-	"R-2.9.1-01": {"Deployment에 변경 사유 annotation(kubernetes.io/change-cause) 부재", "Deployment에 kubernetes.io/change-cause annotation을 추가하여 변경 이력을 관리하세요"},
 	"R-2.9.1-02": {"revisionHistoryLimit이 미설정이거나 부적절한 값", "Deployment의 revisionHistoryLimit을 적정 수준(5~10)으로 설정하여 롤백 이력을 관리하세요"},
 	// 2.10.2 클라우드 보안
 	"R-2.10.2-08": {"Namespace에 Pod Security Admission(PSA) 라벨 미설정", "Namespace에 pod-security.kubernetes.io/enforce 라벨을 추가하여 Pod 보안 기준을 적용하세요"},
 	// 2.10.3 공개서버 보안
 	"R-2.10.3-01": {"LoadBalancer Service에 sourceRanges 미설정으로 모든 IP에서 접근 가능", "LoadBalancer Service에 spec.loadBalancerSourceRanges를 설정하여 접근 IP를 제한하세요"},
 	"R-2.10.3-02": {"Ingress에 WAF(Web Application Firewall) annotation 미설정", "Ingress에 WAF annotation을 추가하여 웹 공격으로부터 보호하세요"},
-	"R-2.10.3-03": {"NodePort Service에 노출 검토 라벨(isms-p/exposure-reviewed) 미부여", "NodePort Service에 isms-p/exposure-reviewed 라벨을 추가하여 보안 검토 완료를 명시하세요"},
 	"R-2.10.3-04": {"Ingress에 Rate Limit 설정 미적용", "Ingress에 rate-limiting annotation을 추가하여 요청 빈도를 제한하세요"},
-	"R-2.10.3-05": {"LoadBalancer Service에 노출 검토 라벨(isms-p/exposure-reviewed) 미부여", "LoadBalancer Service에 isms-p/exposure-reviewed 라벨을 추가하여 보안 검토 완료를 명시하세요"},
 	// 2.10.5 정보전송 보안
 	"R-2.10.5-01": {"외부 노출 Ingress에 TLS 미설정으로 평문 통신 위험", "외부 노출 Ingress에 TLS 인증서를 설정하여 전송 구간 암호화를 보장하세요"},
 	"R-2.10.5-03": {"ExternalName Service가 평문(HTTP) 프로토콜 사용", "ExternalName Service의 대상을 HTTPS 엔드포인트로 변경하세요"},
@@ -324,6 +344,132 @@ func checkIndicatorDataAvailability(indicators []Indicator) (evaluable int, noDa
 	return
 }
 
+// implementedPodRules is the set of canonical rule IDs (without -POD-) that have
+// a pod-level evaluator in evaluatePodRule's dispatch switch. Rules declared in
+// ruleset JSON with judgment_source=k8s_api but missing here are excluded from
+// pod evaluation up-front (P1-8: "알 수 없는 Pod 룰" skip 노이즈 제거).
+var implementedPodRules = map[string]bool{
+	"R-2.5.1-01": true, "R-2.5.1-03": true,
+	"R-2.5.2-01": true, "R-2.5.2-02": true,
+	"R-2.5.5-01": true, "R-2.5.5-02": true,
+	"R-2.6.1-01": true, "R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true,
+	"R-2.6.3-01": true, "R-2.6.3-02": true,
+	"R-2.6.7-01": true,
+	"R-2.7.1-01": true, "R-2.7.1-02": true, "R-2.7.1-03": true, "R-2.7.1-04": true,
+	"R-2.8.3-02": true, "R-2.8.3-03": true,
+	"R-2.9.1-02": true,
+	"R-2.10.2-08": true,
+	"R-2.10.3-01": true, "R-2.10.3-02": true, "R-2.10.3-04": true,
+	"R-2.10.5-01": true, "R-2.10.5-03": true,
+	"R-2.10.8-01": true, "R-2.10.8-02": true, "R-2.10.8-03": true,
+	"R-2.11.3-01": true,
+}
+
+// podRuleImplemented reports whether a pod-level evaluator exists for the rule.
+func podRuleImplemented(ruleID string) bool {
+	return implementedPodRules[strings.Replace(ruleID, "-POD-", "-", 1)]
+}
+
+// ─────────────────────────────────────────────
+// 미측정 룰 외부 확인처 가이드
+// ─────────────────────────────────────────────
+
+// ruleOffClusterHints maps canonical rule IDs to "K8s 밖에서 어디를 확인해야
+// 하는지" guidance, used when the rule result is 미측정 (NO_DATA/skip/판정불가).
+// 룰셋 JSON의 offcluster_satisfaction_conditions가 있으면 그것이 우선한다.
+var ruleOffClusterHints = map[string]string{
+	"R-1.2.1-01":  "자산관리대장/CMDB의 K8s 자산 등재·분류등급·중요도 산정 현황",
+	"R-1.2.2-01":  "정보서비스 흐름도·외부 연계 시스템 목록(외부 의존성 등록 여부)",
+	"R-1.2.2-02":  "정보서비스 흐름도(Ingress 진입 경로 반영 여부)",
+	"R-2.1.3-02":  "CMDB의 자산별 보안등급 분류",
+	"R-2.5.1-02":  "사내 CMDB/IAM의 SA-소유팀 매핑, SA 발급 신청·승인 기록",
+	"R-2.8.3-01":  "별도 클러스터/VPC 환경 분리 현황, namespace 네이밍 컨벤션, 배포 파이프라인의 환경 정의",
+	"R-2.8.3-03":  "별도 클러스터/VPC 환경 분리 현황, namespace 네이밍 컨벤션(환경 식별 수단)",
+	"R-2.9.1-01":  "ITSM 변경관리 신청·승인 결재 기록, 배포 파이프라인 이력",
+	"R-2.10.2-08": "EKS 콘솔의 namespace Pod Security 설정, CSPM/클라우드 보안 점검 보고서",
+	"R-2.10.8-01": "EKS 콘솔/노드그룹의 kubelet 버전·지원 종료일(EOL) 현황",
+	"R-2.11.3-01": "K8s Audit Log(CloudWatch Logs), Falco/Tetragon 등 런타임 탐지 도구, SIEM 보관 로그",
+}
+
+// itemOffClusterHints is the per-item fallback when no rule-level hint exists.
+var itemOffClusterHints = map[string]string{
+	"1.2.1":  "자산관리대장/CMDB",
+	"1.2.2":  "정보서비스·개인정보 흐름도, 외부 위탁 계약 목록",
+	"2.1.3":  "CMDB·ITSM(자산/변경 결재 기록)",
+	"2.5.1":  "계정 관리 대장, 계정 정기 점검 기록",
+	"2.5.2":  "IAM/계정 발급 기록",
+	"2.5.4":  "OS·AD·IAM 비밀번호 정책 설정 증적, 비밀번호 관리 지침",
+	"2.5.5":  "특수 계정 목록, 권한 부여 승인 결재 기록",
+	"2.6.1":  "VPC 서브넷/Security Group 설계서, 네트워크 구성도",
+	"2.6.3":  "API 게이트웨이/IdP의 인증 설정, 응용 접근통제 정책",
+	"2.6.7":  "NAT Gateway 화이트리스트, 프록시·외부 방화벽 정책",
+	"2.7.1":  "EKS Secret 암호화(KMS) 설정, ALB TLS 정책, 암호정책 문서",
+	"2.8.3":  "클러스터/VPC 환경 분리 현황, 배포 파이프라인 환경 정의",
+	"2.9.1":  "ITSM 변경 신청·승인 기록",
+	"2.10.2": "클라우드 보안 설정 점검(CSPM), EKS 콘솔",
+	"2.10.3": "VPC SG/WAF 콘솔, 공개 자산(LB/도메인) 목록",
+	"2.10.5": "ALB/CloudFront TLS 설정, 조직 간 전송 협약",
+	"2.10.8": "패치 적용 기록, 이미지 스캔(Trivy 등) 리포트",
+	"2.11.3": "Audit Log/SIEM, 이상행위 탐지 도구 운영 기록",
+}
+
+// offClusterCheckHint resolves the external check guidance for a rule:
+// ruleset JSON metadata first, then rule-level map, then item-level fallback.
+func offClusterCheckHint(rule Rule, itemID string) string {
+	if rule.ManualCheckOutput != nil && len(rule.ManualCheckOutput.OffclusterSatisfactionConditions) > 0 {
+		return strings.Join(rule.ManualCheckOutput.OffclusterSatisfactionConditions, " / ")
+	}
+	if rule.ManualMeta != nil && len(rule.ManualMeta.OffclusterSatisfactionConditions) > 0 {
+		return strings.Join(rule.ManualMeta.OffclusterSatisfactionConditions, " / ")
+	}
+	canonical := strings.Replace(rule.RuleID, "-POD-", "-", 1)
+	if h, ok := ruleOffClusterHints[canonical]; ok {
+		return h
+	}
+	if h, ok := itemOffClusterHints[itemID]; ok {
+		return h
+	}
+	return "외부 통제(클라우드 콘솔·CMDB·ITSM·정책 문서)에서 충족 여부 확인"
+}
+
+// attachOffClusterGuidance appends "K8s 측정 범위 외 — 확인처" guidance to every
+// 미측정 result (NO_DATA / SKIPPED / INDETERMINATE). 미측정 ≠ 미준수: K8s 밖에서
+// 충족 중일 수 있으므로, 어디를 확인해야 하는지를 결과 텍스트에 직접 싣는다.
+// N_A(대상 리소스 부재)와 REPORT(정보 제공)는 미측정이 아니므로 제외한다.
+func attachOffClusterGuidance(rr PodRuleResult, rule Rule, itemID string) PodRuleResult {
+	switch grc.NormalizeVerdict(rr.Verdict) {
+	case grc.VerdictNO_DATA, grc.VerdictSKIPPED, grc.VerdictINDETERMINATE:
+		// fall through to attach
+	default:
+		return rr
+	}
+	hint := fmt.Sprintf("K8s 측정 범위 외 — 확인처: %s", offClusterCheckHint(rule, itemID))
+	switch {
+	case rr.SkipReason != "":
+		rr.SkipReason += " ▸ " + hint
+	case rr.Reason != "":
+		rr.Reason += " ▸ " + hint
+	default:
+		// 빈 메시지로 렌더링되던 미측정 결과도 확인처가 본문이 된다.
+		rr.Reason = hint
+	}
+	return rr
+}
+
+// allIndicatorsNA reports whether every matched indicator marks the rule as
+// "해당 없음" (점검 대상 리소스 부재 — vacuous pass).
+func allIndicatorsNA(indicators []string) bool {
+	if len(indicators) == 0 {
+		return false
+	}
+	for _, mi := range indicators {
+		if !strings.Contains(mi, "해당 없음") {
+			return false
+		}
+	}
+	return true
+}
+
 // evaluatePodRule dispatches to the appropriate rule evaluator by rule_id.
 func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphRequest) PodRuleResult {
 	base := PodRuleResult{
@@ -338,7 +484,7 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		evaluable, noData, missingFields := checkIndicatorDataAvailability(rule.ComplianceIndicators)
 		if noData > 0 && evaluable == 0 {
 			base.Verdict = grc.VerdictNO_DATA
-			base.Reason = fmt.Sprintf("데이터 소스 부재: DB 테이블에 해당 필드 컬럼 없음 (%d개 인디케이터)", noData)
+			base.Reason = fmt.Sprintf("수집 범위 외 — 자동점검 불가 (해당 필드 미수집, %d개 인디케이터)", noData)
 			base.Layer = grc.LayerR
 			if mj, err := json.Marshal(missingFields); err == nil {
 				base.MissingInputs = mj
@@ -349,26 +495,9 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 
 	var result PodRuleResult
 	switch rule.RuleID {
-	// 1.2.1 정보자산 식별
-	case "R-1.2.1-POD-01", "R-1.2.1-01":
-		result = evalNamespaceLabels(rule, req, base)
-	case "R-1.2.1-POD-02", "R-1.2.1-02":
-		result = evalAssetClassificationPolicy(rule, req, base)
-	// 1.2.2 현황 및 흐름분석
-	case "R-1.2.2-POD-01", "R-1.2.2-01":
-		result = evalExternalDepLabel(rule, req, base)
-	case "R-1.2.2-POD-02", "R-1.2.2-02":
-		result = evalIngressFlowRegistered(rule, req, base)
-	// 2.1.3 정보자산 관리
-	case "R-2.1.3-POD-01", "R-2.1.3-01":
-		result = evalWorkloadOwnerAnnotation(rule, req, base)
-	case "R-2.1.3-POD-02", "R-2.1.3-02":
-		result = evalSecurityClassLabel(rule, req, base)
 	// 2.5.1 사용자 계정 관리
 	case "R-2.5.1-POD-01", "R-2.5.1-01":
 		result = evalDefaultServiceAccount(rule, req, base)
-	case "R-2.5.1-POD-02", "R-2.5.1-02":
-		result = evalSAOwnerLabel(rule, req, base)
 	case "R-2.5.1-POD-03", "R-2.5.1-03":
 		result = evalCrossTeamSASharing(rule, req, base)
 	// 2.5.2 사용자 식별
@@ -408,15 +537,11 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	case "R-2.7.1-04":
 		result = evalIngressTLS(rule, req, base) // TLS 관련 추가 룰
 	// 2.8.3 시험과 운영 환경 분리
-	case "R-2.8.3-POD-01", "R-2.8.3-01":
-		result = evalWorkloadEnvLabel(rule, req, base)
 	case "R-2.8.3-POD-02", "R-2.8.3-02":
 		result = evalNSEnvMixing(rule, req, base)
 	case "R-2.8.3-POD-03", "R-2.8.3-03":
 		result = evalCrossEnvSecretRef(rule, req, base)
 	// 2.9.1 변경관리
-	case "R-2.9.1-POD-01", "R-2.9.1-01":
-		result = evalChangeCause(rule, req, base)
 	case "R-2.9.1-POD-02", "R-2.9.1-02":
 		result = evalRevisionHistoryLimit(rule, req, base)
 	// 2.10.2 클라우드 보안
@@ -427,12 +552,8 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		result = evalLBSourceRange(rule, req, base)
 	case "R-2.10.3-POD-02", "R-2.10.3-02":
 		result = evalIngressWAF(rule, req, base)
-	case "R-2.10.3-POD-03", "R-2.10.3-03":
-		result = evalNodePortExposureLabel(rule, req, base)
 	case "R-2.10.3-POD-04", "R-2.10.3-04":
 		result = evalIngressRateLimit(rule, req, base)
-	case "R-2.10.3-POD-05", "R-2.10.3-05":
-		result = evalLBExposureLabel(rule, req, base)
 	// 2.10.5 정보전송 보안
 	case "R-2.10.5-POD-01", "R-2.10.5-01":
 		result = evalExternalIngressTLS(rule, req, base)
@@ -459,6 +580,21 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		result.Layer = grc.LayerR
 	}
 
+	// 점검 대상 리소스 부재("해당 없음")로 통과한 vacuous pass는 자동 N_A로 두지 않는다.
+	// K8s에서 대상을 못 찾았다는 것이 곧 "해당없음(적용 제외)"을 의미하지 않으며
+	// (암호화는 서비스메시/DB, 외부전송은 클러스터 외부, 공개노출은 다른 경로로 가능),
+	// 인증범위 문서로 대상 부재가 확인되기 전까지는 적용성·대체통제 재확인 대상이다.
+	// → 준수로 부풀리지도, 해당없음으로 단정하지도 않고 NEEDS_REVIEW(검토필요)로 둔다.
+	if result.Verdict == "준수" && allIndicatorsNA(result.MatchedIndicators) {
+		result.Verdict = grc.VerdictNEEDS_REVIEW
+		var naDetails []string
+		for _, mi := range result.MatchedIndicators {
+			naDetails = append(naDetails, mi)
+		}
+		detail := strings.Join(naDetails, "; ")
+		result.Reason = fmt.Sprintf("점검 대상 리소스 부재: %s. 인증범위 문서에서 대상 부재가 확인되면 N/A 처리 가능합니다.", detail)
+	}
+
 	// 미준수 판정 시 FailMessage/Remediation 자동 부여
 	if result.Verdict == "미준수" {
 		nid := strings.Replace(rule.RuleID, "-POD-", "-", 1)
@@ -468,75 +604,6 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		}
 	}
 	return result
-}
-
-// ─────────────────────────────────────────────
-// R-1.2.1-POD: Namespace 자산 분류 라벨 점검
-// ─────────────────────────────────────────────
-
-func evalNamespaceLabels(rule Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	ns := req.RelatedResources.Namespace
-	labels := jsonMap(ns, "metadata", "labels")
-	nsName := jsonStr(ns, "metadata", "name")
-
-	var violations []grc.Violation
-	var matched []string
-
-	for _, ind := range rule.ComplianceIndicators {
-		if ind.Field == "" {
-			continue
-		}
-
-		// Extract the label key from the field path: "namespace.metadata.labels.isms-p/scope" → "isms-p/scope"
-		labelKey := extractLabelKey(ind.Field)
-		if labelKey == "" {
-			continue
-		}
-
-		val, exists := labels[labelKey]
-		if !exists || val == nil {
-			violations = append(violations, grc.Violation{
-				Field:       ind.Field,
-				Expected:    fmt.Sprintf("%s %v", ind.Op, ind.Value),
-				Actual:      nil,
-				Description: ind.Description,
-				Severity:    "high",
-				K8sSource: grc.K8sSource{
-					Namespace:    nsName,
-					ResourceKind: "Namespace",
-					ResourceName: nsName,
-				},
-			})
-			continue
-		}
-
-		valStr := fmt.Sprintf("%v", val)
-		if !checkIndicatorMatch(valStr, ind) {
-			violations = append(violations, grc.Violation{
-				Field:       ind.Field,
-				Expected:    fmt.Sprintf("%s %v", ind.Op, ind.Value),
-				Actual:      valStr,
-				Description: ind.Description,
-				Severity:    "high",
-				K8sSource: grc.K8sSource{
-					Namespace:    nsName,
-					ResourceKind: "Namespace",
-					ResourceName: nsName,
-				},
-			})
-		} else {
-			matched = append(matched, fmt.Sprintf("%s=%s", labelKey, valStr))
-		}
-	}
-
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = matched
-	}
-	return base
 }
 
 // ─────────────────────────────────────────────
@@ -965,98 +1032,6 @@ func evalIngressAuth(rule Rule, req PodGraphRequest, base PodRuleResult) PodRule
 }
 
 // ─────────────────────────────────────────────
-// R-1.2.1-POD-02: 자산 분류 기준서 정책 ConfigMap 점검
-// ─────────────────────────────────────────────
-
-func evalAssetClassificationPolicy(rule Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	podNS := jsonStr(req.Pod, "metadata", "namespace")
-
-	// Look for asset-classification-policy ConfigMap in the config_maps
-	var policyCM map[string]any
-	for _, cm := range req.RelatedResources.ConfigMaps {
-		cmName := jsonStr(cm, "metadata", "name")
-		if cmName == "asset-classification-policy" {
-			policyCM = cm
-			break
-		}
-	}
-
-	if policyCM == nil {
-		base.Verdict = "미준수"
-		base.Violations = []grc.Violation{{
-			Field:       "policy_configmap_exists",
-			Expected:    "== true",
-			Actual:      false,
-			Description: "자산 분류 정책 ConfigMap 'asset-classification-policy' 부재",
-			Severity:    "high",
-			K8sSource: grc.K8sSource{
-				Namespace:    podNS,
-				ResourceKind: "Namespace",
-				ResourceName: podNS,
-			},
-		}}
-		return base
-	}
-
-	var violations []grc.Violation
-	var matched []string
-
-	// Check required data keys
-	data := jsonMap(policyCM, "data")
-	requiredKeys := []string{"classification-criteria", "criticality-criteria"}
-	for _, key := range requiredKeys {
-		if _, ok := data[key]; !ok || strVal(data[key]) == "" {
-			violations = append(violations, grc.Violation{
-				Field:       "has_all_required_keys",
-				Expected:    "== true",
-				Actual:      false,
-				Description: fmt.Sprintf("분류 정책 ConfigMap에 필수 키 '%s' 누락", key),
-				Severity:    "high",
-				K8sSource: grc.K8sSource{
-					Namespace:    jsonStr(policyCM, "metadata", "namespace"),
-					ResourceKind: "ConfigMap",
-					ResourceName: "asset-classification-policy",
-				},
-			})
-		} else {
-			matched = append(matched, fmt.Sprintf("키 '%s' 존재", key))
-		}
-	}
-
-	// Check required annotations
-	annotations := jsonMap(policyCM, "metadata", "annotations")
-	requiredAnnotations := []string{"policy-version", "approved-by", "approved-at"}
-	for _, ann := range requiredAnnotations {
-		if _, ok := annotations[ann]; !ok || strVal(annotations[ann]) == "" {
-			violations = append(violations, grc.Violation{
-				Field:       "has_all_required_annotations",
-				Expected:    "== true",
-				Actual:      false,
-				Description: fmt.Sprintf("정책 ConfigMap에 필수 annotation '%s' 누락", ann),
-				Severity:    "medium",
-				K8sSource: grc.K8sSource{
-					Namespace:    jsonStr(policyCM, "metadata", "namespace"),
-					ResourceKind: "ConfigMap",
-					ResourceName: "asset-classification-policy",
-				},
-			})
-		} else {
-			matched = append(matched, fmt.Sprintf("annotation '%s'=%s", ann, strVal(annotations[ann])))
-		}
-	}
-
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else {
-		base.Verdict = "준수"
-		matched = append([]string{"정책 ConfigMap 존재"}, matched...)
-		base.MatchedIndicators = matched
-	}
-	return base
-}
-
-// ─────────────────────────────────────────────
 // R-2.5.5-POD-02: 위험 RBAC verb 조합 점검
 // ─────────────────────────────────────────────
 
@@ -1222,6 +1197,14 @@ func evalDangerousVerbCombos(rule Rule, req PodGraphRequest, base PodRuleResult)
 func evalMTLS(rule Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
 	podNS := jsonStr(req.Pod, "metadata", "namespace")
 	ns := req.RelatedResources.Namespace
+
+	// 시스템 네임스페이스 예외: kube-system 등 시스템 컴포넌트에 sidecar injection을
+	// 요구하는 것은 비현실적 (Istio 공식 문서도 kube-system 제외 권장).
+	if isSystemNamespace(podNS) {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("시스템 네임스페이스 '%s' — mTLS 예외 적용", podNS)}
+		return base
+	}
 
 	// Check istio-injection label on namespace
 	nsLabels := jsonMap(ns, "metadata", "labels")
@@ -1513,37 +1496,6 @@ func extractPodMeta(pod map[string]any) (name, namespace string) {
 	name = jsonStr(pod, "metadata", "name")
 	namespace = jsonStr(pod, "metadata", "namespace")
 	return
-}
-
-// extractLabelKey extracts the label key from a dotted field path.
-// e.g. "namespace.metadata.labels.isms-p/scope" → "isms-p/scope"
-func extractLabelKey(field string) string {
-	const prefix = "namespace.metadata.labels."
-	if strings.HasPrefix(field, prefix) {
-		return field[len(prefix):]
-	}
-	return ""
-}
-
-// checkIndicatorMatch checks if a value satisfies a compliance indicator.
-func checkIndicatorMatch(val string, ind Indicator) bool {
-	switch ind.Op {
-	case "in":
-		if allowed, ok := ind.Value.([]any); ok {
-			for _, a := range allowed {
-				if strings.EqualFold(val, strVal(a)) {
-					return true
-				}
-			}
-		}
-		return false
-	case "!=":
-		return val != strVal(ind.Value) && val != ""
-	case "==":
-		return strings.EqualFold(val, strVal(ind.Value))
-	default:
-		return val != ""
-	}
 }
 
 // subjectsMatchSA checks if any RBAC subject matches the given ServiceAccount.

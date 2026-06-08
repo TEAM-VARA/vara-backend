@@ -150,6 +150,70 @@
       }
     },
     {
+      "rule_id": "R-2.8.3-SG01",
+      "name": "Security Group 환경 간(운영↔개발) 인바운드 허용 (환경 분리)",
+      "judgment_source": "aws_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "AWS::EC2::SecurityGroup",
+        "required_data": [
+          "aws_security_groups.ingress_rules",
+          "aws_security_groups.group_name",
+          "aws_security_groups.vpc_id"
+        ],
+        "condition": {
+          "operator": "sg_cross_env_ingress",
+          "env_tag_key": "env",
+          "env_name_patterns": {
+            "prod": ["prod", "production", "prd"],
+            "nonprod": ["dev", "develop", "test", "stg", "staging", "qa"]
+          },
+          "no_data_when_env_undeterminable": true
+        },
+        "compliance_mappings": [
+          { "framework": "ISMS-P", "item": "2.8.3", "match_strength": "indirect" }
+        ],
+        "kisa_defect_case_refs": [
+          { "case_number": null, "description": "운영·개발 환경 간 네트워크 미분리", "match": "partial" }
+        ],
+        "additional_review_items": [
+          "운영 SG가 개발/시험 SG·서브넷으로부터의 인바운드를 허용하는지",
+          "환경 구분이 SG/VPC가 아니라 별도 계정·클러스터로 분리됐는지",
+          "SG에 env 태그·명명 규칙이 부여돼 환경 식별이 가능한지"
+        ],
+        "manual_check_areas": [
+          "운영·개발 환경 분리 설계 문서",
+          "VPC/SG 환경 태깅·명명 규칙"
+        ],
+        "automation_coverage": {
+          "percentage": 60,
+          "covered": "SG 간 cross-env 인바운드 참조 자동 탐지(환경 식별 가능 시)",
+          "not_covered": "환경 태그/명명이 없으면 판별 불가, 계정·클러스터 단위 분리"
+        },
+        "offcluster_satisfaction_conditions": [
+          "운영·개발이 별도 클러스터/별도 VPC/별도 계정으로 분리되어 SG 단위 cross-env 허용이 무의미하거나, env 태깅·명명 규칙으로 환경이 식별·분리됨"
+        ],
+        "k8s_only_check": false,
+        "deferred": false
+      },
+      "promoted_from": "SG-2.8.3-01",
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "SG-2.8.3-01",
+        "additional_review_items": [
+          "운영↔개발 SG 인바운드 허용이 의도된 것인지",
+          "계정/VPC/클러스터 단위 분리 여부"
+        ],
+        "compliance_mappings": [
+          { "framework": "ISMS-P", "item": "2.8.3", "match_strength": "indirect" }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "운영·개발이 별도 VPC/계정으로 분리됨"
+        ]
+      }
+    },
+    {
       "rule_id": "R-2.8.3-GL01",
       "name": "개발·시험과 운영 환경 분리 원칙",
       "judgment_source": "text_extraction",

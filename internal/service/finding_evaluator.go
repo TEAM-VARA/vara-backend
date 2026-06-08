@@ -175,6 +175,14 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 		result = evalCVEVulnerabilityCheck(base, snap, cond)
 	case "prod_shell_exec_detection":
 		result = findingProdShellExec(base, snap, cond)
+	case "sg_world_open_ingress":
+		result = evalSGWorldOpenIngress(base, snap, cond)
+	case "sg_sensitive_port_world_open":
+		result = evalSGSensitivePortWorldOpen(base, snap, cond)
+	case "sg_unrestricted_egress":
+		result = evalSGUnrestrictedEgress(base, snap, cond)
+	case "sg_cross_env_ingress":
+		result = evalSGCrossEnvIngress(base, snap, cond)
 	default:
 		base.Observation = fmt.Sprintf("미지원 operator: %s", op)
 		base.Verdict = grc.VerdictINDETERMINATE
@@ -185,6 +193,20 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 	// potential_finding 출신이지만 자동화 가능하므로 Matched=true → NOT_MET (확정 위반).
 	// deriveManualVerdict를 거치지 않는다 (그쪽은 NEEDS_REVIEW를 돌려줌).
 	if rule.PromotedFrom != "" {
+		// 입력 데이터 자체가 미제공이면 "위반 미탐지 = MET"가 아니라 NO_DATA.
+		// (탐지 불가 ≠ 위반 없음 — 증거 부재를 준수로 승격하던 버그 수정, 예: R-2.10.8-04 CVE 스캔 미연동)
+		if evidenceDataUnavailable(result) {
+			result.Verdict = grc.VerdictNO_DATA
+			detail := rule.Name
+			if detail == "" {
+				detail = rule.RuleID
+			}
+			if obs := strings.TrimSpace(result.Observation); obs != "" {
+				detail += " (" + obs + ")"
+			}
+			result.Reason = fmt.Sprintf("평가 데이터 미수집으로 '%s' 자동점검이 불가합니다. 해당 데이터 소스를 연동하면 자동 판정됩니다.", detail)
+			return result
+		}
 		if result.Matched {
 			result.Verdict = grc.VerdictNOT_MET
 			result.Reason = "자동화 R룰(승격): 위반 탐지"
@@ -196,12 +218,30 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 	}
 
 	if reportOperators[op] {
-		result.Verdict = grc.VerdictMET
+		// 보고서형 룰은 준수 증거가 아니라 관측 보고 — MET으로 집계되지 않도록
+		// 별도 verdict(REPORT)를 부여한다 (Layer로도 합격률 분모에서 제외됨).
+		result.Verdict = grc.VerdictREPORT
 		result.Reason = "보고서형 결과 (정보 제공)"
 		// Layer는 base에서 이미 설정됨 (ReclassifiedFrom != "" → LayerReport)
 		return result
 	}
 	return deriveManualVerdict(result)
+}
+
+// evidenceDataUnavailable reports whether an evaluator flagged its input data as
+// not provided (Evidence["data_provided"]==false 또는 "cve_data_provided"==false).
+func evidenceDataUnavailable(rr grc.RuleResult) bool {
+	if rr.Evidence == nil {
+		return false
+	}
+	for _, key := range []string{"data_provided", "cve_data_provided"} {
+		if v, exists := rr.Evidence[key]; exists {
+			if b, isBool := v.(bool); isBool && !b {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // deriveManualVerdict maps verdict_type + matched → verdict for manual rules.
@@ -510,6 +550,16 @@ func evalOrphanServiceAccount(base grc.RuleResult, snap *ClusterSnapshot) grc.Ru
 	}
 
 	saTotal := len(snap.Related.ServiceAccounts)
+
+	// 수집 누락 가드: 모든 네임스페이스에는 최소 default SA가 존재하므로
+	// SA 0개 = 데이터 미수집. "0개 중 0개 orphan → MET" 승격을 막는다.
+	if saTotal == 0 {
+		base.Matched = false
+		base.Observation = "ServiceAccount 데이터 미수집 (정상 클러스터는 네임스페이스당 최소 default SA 존재) — 판단 불가"
+		base.Evidence = map[string]any{"sa_total": 0, "data_provided": false}
+		return base
+	}
+
 	orphanCount := 0
 	var orphanList []string
 	for _, sa := range snap.Related.ServiceAccounts {
@@ -1456,7 +1506,7 @@ func evalCVEVulnerabilityCheck(base grc.RuleResult, snap *ClusterSnapshot, cond 
 		}
 		base.Matched = false
 		base.Observation = fmt.Sprintf("CVE 스캔 데이터 미제공. image_digest 보유 컨테이너 %d개 (스캔 연동 시 점검 가능)", digestCount)
-		base.Evidence = map[string]any{"digest_count": digestCount, "cve_data_provided": false}
+		base.Evidence = map[string]any{"digest_count": digestCount, "cve_data_provided": false, "data_provided": false}
 		return base
 	}
 
