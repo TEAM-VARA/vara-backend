@@ -58,6 +58,7 @@ type SAReportRow struct {
 	FinalPermCount      int
 	DeltaCount          int
 	AppliedTransitions  []byte // JSONB ["R-INDIRECT-04", ...]
+	TransitionTriggers  []byte // JSONB [{transition, triggered_by:[perm...]}, ...]
 	UsedByPods          []byte // JSONB [{name, namespace, ...}]
 	DirectBindings      []byte // JSONB [{kind, name, ...}]
 }
@@ -146,11 +147,12 @@ func (r *RBACChainRepo) Save(ctx context.Context, res RBACChainResult) error {
 			INSERT INTO rbac_sa_reports
 			    (cluster_name, sa_namespace, sa_name, snapshot_at, reaches_cluster_admin,
 			     initial_perm_count, final_perm_count, delta_count,
-			     applied_transitions, used_by_pods, direct_bindings)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+			     applied_transitions, transition_triggers, used_by_pods, direct_bindings)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
 			res.Cluster, s.SANamespace, s.SAName, res.SnapshotAt, s.ReachesClusterAdmin,
 			s.InitialPermCount, s.FinalPermCount, s.DeltaCount,
 			jsonbOrEmpty(s.AppliedTransitions, "[]"),
+			jsonbOrEmpty(s.TransitionTriggers, "[]"),
 			jsonbOrEmpty(s.UsedByPods, "[]"),
 			jsonbOrEmpty(s.DirectBindings, "[]"),
 		)

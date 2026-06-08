@@ -38,6 +38,7 @@ type SAReportOut struct {
 	FinalPermCount      int             `json:"final_perm_count"`
 	DeltaCount          int             `json:"delta_count"`
 	AppliedTransitions  json.RawMessage `json:"applied_transitions"`
+	TransitionTriggers  json.RawMessage `json:"transition_triggers"`
 	UsedByPods          json.RawMessage `json:"used_by_pods"`
 	DirectBindings      json.RawMessage `json:"direct_bindings"`
 }
@@ -123,7 +124,7 @@ func (r *RBACChainRepo) ListSAReports(ctx context.Context, cluster string) ([]SA
 	rows, err := r.pool.Query(ctx, `
 		SELECT sa_namespace, sa_name, reaches_cluster_admin,
 		       initial_perm_count, final_perm_count, delta_count,
-		       applied_transitions, used_by_pods, direct_bindings
+		       applied_transitions, transition_triggers, used_by_pods, direct_bindings
 		FROM rbac_sa_reports
 		WHERE cluster_name = $1
 		ORDER BY reaches_cluster_admin DESC, delta_count DESC, sa_namespace, sa_name`, cluster)
@@ -137,7 +138,7 @@ func (r *RBACChainRepo) ListSAReports(ctx context.Context, cluster string) ([]SA
 		var s SAReportOut
 		if err := rows.Scan(&s.SANamespace, &s.SAName, &s.ReachesClusterAdmin,
 			&s.InitialPermCount, &s.FinalPermCount, &s.DeltaCount,
-			&s.AppliedTransitions, &s.UsedByPods, &s.DirectBindings); err != nil {
+			&s.AppliedTransitions, &s.TransitionTriggers, &s.UsedByPods, &s.DirectBindings); err != nil {
 			return nil, fmt.Errorf("rbac_chain: scan sa report: %w", err)
 		}
 		out = append(out, s)
@@ -151,12 +152,12 @@ func (r *RBACChainRepo) GetSADetail(ctx context.Context, cluster, ns, name strin
 	err := r.pool.QueryRow(ctx, `
 		SELECT sa_namespace, sa_name, reaches_cluster_admin,
 		       initial_perm_count, final_perm_count, delta_count,
-		       applied_transitions, used_by_pods, direct_bindings
+		       applied_transitions, transition_triggers, used_by_pods, direct_bindings
 		FROM rbac_sa_reports
 		WHERE cluster_name = $1 AND sa_namespace = $2 AND sa_name = $3`, cluster, ns, name,
 	).Scan(&s.SANamespace, &s.SAName, &s.ReachesClusterAdmin,
 		&s.InitialPermCount, &s.FinalPermCount, &s.DeltaCount,
-		&s.AppliedTransitions, &s.UsedByPods, &s.DirectBindings)
+		&s.AppliedTransitions, &s.TransitionTriggers, &s.UsedByPods, &s.DirectBindings)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

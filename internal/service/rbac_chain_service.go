@@ -90,6 +90,7 @@ func (s *RBACChainService) Compute(ctx context.Context, cluster string) (postgre
 	res.SAReports = make([]postgres.SAReportRow, 0, len(report.SAs))
 	for _, sa := range report.SAs {
 		at, _ := json.Marshal(sa.AppliedTransitions)
+		trig, _ := json.Marshal(sa.TransitionTriggers)
 		pods, _ := json.Marshal(sa.UsedByPods)
 		binds, _ := json.Marshal(sa.DirectBindings)
 		res.SAReports = append(res.SAReports, postgres.SAReportRow{
@@ -100,6 +101,7 @@ func (s *RBACChainService) Compute(ctx context.Context, cluster string) (postgre
 			FinalPermCount:      sa.FinalPermCount,
 			DeltaCount:          sa.FinalPermCount - sa.InitialPermCount,
 			AppliedTransitions:  at,
+			TransitionTriggers:  trig,
 			UsedByPods:          pods,
 			DirectBindings:      binds,
 		})
