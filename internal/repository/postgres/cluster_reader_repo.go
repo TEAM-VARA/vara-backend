@@ -822,6 +822,7 @@ type ClusterRelatedRows struct {
 	NamespacesInCluster  []map[string]any // Full namespace objects with metadata (for finding evaluator)
 	EBPFProcessEvents    []map[string]any
 	ImageVulnerabilities []map[string]any
+	SecurityGroups       []map[string]any // AWS Security Groups (account/region-global, 최신 SG 스냅샷)
 }
 
 // GetRelatedResources loads all related K8s resources for a cluster/snapshot/namespace.
@@ -1111,6 +1112,23 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 		}
 	}
 
+	// ── AWS Security Groups (account/region-global; 최신 SG 스냅샷) ──
+	// SG는 cluster_name이 아니라 account/region 키라 클러스터 스냅샷과 별개로
+	// 가장 최근 SG 스냅샷을 적재한다. (단일 계정 가정; 다계정이면 account_id 필터 추가)
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT group_id, group_name, vpc_id, description, ingress_rules, egress_rules
+			 FROM aws_security_groups
+			 WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM aws_security_groups)`)
+		if err != nil {
+			return nil, fmt.Errorf("query security_groups: %w", err)
+		}
+		res.SecurityGroups, err = scanSecurityGroupRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// ── Workloads (all namespaces, nearest snapshot) ──
 	{
 		rows, err := r.pg.Query(ctx,
@@ -1393,6 +1411,37 @@ func scanNetworkPolicyRows(rows pgx.Rows) ([]map[string]any, error) {
 			"spec":     spec,
 		}
 		result = append(result, m)
+	}
+	return result, nil
+}
+
+func scanSecurityGroupRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	deref := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	var result []map[string]any
+	for rows.Next() {
+		var groupID string
+		var groupName, vpcID, description *string
+		var ingressRules, egressRules json.RawMessage
+		if err := rows.Scan(&groupID, &groupName, &vpcID, &description, &ingressRules, &egressRules); err != nil {
+			return nil, fmt.Errorf("scan security_group: %w", err)
+		}
+		var ir, er []any
+		_ = json.Unmarshal(ingressRules, &ir)
+		_ = json.Unmarshal(egressRules, &er)
+		result = append(result, map[string]any{
+			"group_id":      groupID,
+			"group_name":    deref(groupName),
+			"vpc_id":        deref(vpcID),
+			"description":   deref(description),
+			"ingress_rules": ir,
+			"egress_rules":  er,
+		})
 	}
 	return result, nil
 }

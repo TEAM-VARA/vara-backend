@@ -175,6 +175,14 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 		result = evalCVEVulnerabilityCheck(base, snap, cond)
 	case "prod_shell_exec_detection":
 		result = findingProdShellExec(base, snap, cond)
+	case "sg_world_open_ingress":
+		result = evalSGWorldOpenIngress(base, snap, cond)
+	case "sg_sensitive_port_world_open":
+		result = evalSGSensitivePortWorldOpen(base, snap, cond)
+	case "sg_unrestricted_egress":
+		result = evalSGUnrestrictedEgress(base, snap, cond)
+	case "sg_cross_env_ingress":
+		result = evalSGCrossEnvIngress(base, snap, cond)
 	default:
 		base.Observation = fmt.Sprintf("미지원 operator: %s", op)
 		base.Verdict = grc.VerdictINDETERMINATE
