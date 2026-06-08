@@ -48,176 +48,9 @@ func noDataWorkloadResult(base PodRuleResult) PodRuleResult {
 	return base
 }
 
-// ─────────────────────────────────────────────
-// 1.2.2 현황 및 흐름분석
-// ─────────────────────────────────────────────
-
-// R-1.2.2-POD-01: ExternalName Service에 외부 의존성 라벨 부재
-func evalExternalDepLabel(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "medium"
-	var violations []grc.Violation
-	var matched []string
-	found := false
-
-	for _, svc := range req.RelatedResources.Services {
-		specType := jsonStr(svc, "spec", "type")
-		if specType != "ExternalName" {
-			continue
-		}
-		found = true
-		svcName := jsonStr(svc, "metadata", "name")
-		labels := jsonMap(svc, "metadata", "labels")
-		if _, ok := labels["isms-p/external-dep"]; !ok {
-			violations = append(violations, grc.Violation{
-				Field:       "metadata.labels.isms-p/external-dep",
-				Expected:    "exists",
-				Actual:      nil,
-				Description: fmt.Sprintf("ExternalName Service '%s'에 외부 의존성 라벨 부재", svcName),
-				Severity:    "medium",
-				K8sSource:   grc.K8sSource{Namespace: jsonStr(svc, "metadata", "namespace"), ResourceKind: "Service", ResourceName: svcName},
-			})
-		} else {
-			matched = append(matched, fmt.Sprintf("Service '%s': isms-p/external-dep 존재", svcName))
-		}
-	}
-
-	if !found {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"ExternalName Service 없음 — 해당 없음"}
-		return base
-	}
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = matched
-	}
-	return base
-}
-
-// R-1.2.2-POD-02: Ingress 흐름도 등록 annotation 부재
-func evalIngressFlowRegistered(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "low"
-	if len(req.RelatedResources.Ingresses) == 0 {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"Ingress 미사용 — 해당 없음"}
-		return base
-	}
-
-	var violations []grc.Violation
-	var matched []string
-	for _, ing := range req.RelatedResources.Ingresses {
-		ingName := jsonStr(ing, "metadata", "name")
-		annotations := jsonMap(ing, "metadata", "annotations")
-		if _, ok := annotations["isms-p/flow-registered"]; !ok {
-			violations = append(violations, grc.Violation{
-				Field:       "metadata.annotations.isms-p/flow-registered",
-				Expected:    "exists",
-				Actual:      nil,
-				Description: fmt.Sprintf("Ingress '%s'이 흐름도에 미등록", ingName),
-				Severity:    "low",
-				K8sSource:   grc.K8sSource{Namespace: jsonStr(ing, "metadata", "namespace"), ResourceKind: "Ingress", ResourceName: ingName},
-			})
-		} else {
-			matched = append(matched, fmt.Sprintf("Ingress '%s': flow-registered 존재", ingName))
-		}
-	}
-
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = matched
-	}
-	return base
-}
-
-// ─────────────────────────────────────────────
-// 2.1.3 정보자산 관리
-// ─────────────────────────────────────────────
-
-// R-2.1.3-POD-01: 워크로드 owner/contact annotation 부재
-func evalWorkloadOwnerAnnotation(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "high"
-	podName := jsonStr(req.Pod, "metadata", "name")
-	podNS := jsonStr(req.Pod, "metadata", "namespace")
-
-	// 시스템 네임스페이스 예외: 플랫폼 관리 컴포넌트(coredns, kube-proxy 등)에
-	// 회사 자산 책임자 annotation을 요구하는 것은 과도 — 2.5.1과 동일 예외 정책.
-	if isSystemNamespace(podNS) {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{fmt.Sprintf("시스템 네임스페이스 '%s' — 예외 적용", podNS)}
-		return base
-	}
-
-	annotations := jsonMap(req.Pod, "metadata", "annotations")
-
-	// 룰 인디케이터(R-2.1.3-01): pod.metadata.annotations.isms-p/owner, .../isms-p/owner-team.
-	// 기존 데이터 호환을 위해 owner/contact, owner-team을 fallback 키로 허용.
-	hasAnno := func(keys ...string) bool {
-		for _, key := range keys {
-			if v, ok := annotations[key]; ok && strVal(v) != "" {
-				return true
-			}
-		}
-		return false
-	}
-	hasOwner := hasAnno("isms-p/owner", "owner", "contact")
-	hasTeam := hasAnno("isms-p/owner-team", "owner-team")
-
-	var missing []string
-	if !hasOwner {
-		missing = append(missing, "isms-p/owner")
-	}
-	if !hasTeam {
-		missing = append(missing, "isms-p/owner-team")
-	}
-
-	if len(missing) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = []grc.Violation{{
-			Field:       "metadata.annotations." + strings.Join(missing, "|"),
-			Expected:    "exists",
-			Actual:      nil,
-			Description: fmt.Sprintf("Pod '%s'에 자산 책임자 annotation 부재(%s)", podName, strings.Join(missing, ", ")),
-			Severity:    "high",
-			K8sSource:   grc.K8sSource{Namespace: podNS, ResourceKind: "Pod", ResourceName: podName},
-		}}
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"isms-p/owner + isms-p/owner-team annotation 존재"}
-	}
-	return base
-}
-
-// R-2.1.3-POD-02: security-class 라벨 부재
-func evalSecurityClassLabel(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "high"
-	podName := jsonStr(req.Pod, "metadata", "name")
-	podNS := jsonStr(req.Pod, "metadata", "namespace")
-	labels := jsonMap(req.Pod, "metadata", "labels")
-
-	val := strVal(labels["security-class"])
-	allowed := map[string]bool{"high": true, "medium": true, "low": true}
-
-	if !allowed[val] {
-		base.Verdict = "미준수"
-		base.Violations = []grc.Violation{{
-			Field:       "metadata.labels.security-class",
-			Expected:    "in [high, medium, low]",
-			Actual:      val,
-			Description: fmt.Sprintf("워크로드 '%s'에 security-class 라벨 부재 또는 허용 외 값", podName),
-			Severity:    "high",
-			K8sSource:   grc.K8sSource{Namespace: podNS, ResourceKind: "Pod", ResourceName: podName},
-		}}
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{fmt.Sprintf("security-class=%s", val)}
-	}
-	return base
-}
+// NOTE: 자기증명(self-attestation) 라벨/annotation 평가기 제거됨
+// (R-1.2.2-01/02, R-2.1.3-01/02 등 — pod_graph_evaluator.go의 podRuleFailInfo NOTE 참조).
+// 1.2.1/1.2.2/2.1.3 항목은 GL룰(정책 문서 점검) + REPORT형 인벤토리로 커버한다.
 
 // ─────────────────────────────────────────────
 // 2.5.1 사용자 계정 관리
@@ -251,57 +84,6 @@ func evalDefaultServiceAccount(_ Rule, req PodGraphRequest, base PodRuleResult) 
 	} else {
 		base.Verdict = "준수"
 		base.MatchedIndicators = []string{fmt.Sprintf("SA=%s (default 아님)", saName)}
-	}
-	return base
-}
-
-// R-2.5.1-POD-02: ServiceAccount owner/team 라벨 부재
-func evalSAOwnerLabel(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "medium"
-	saName := jsonStr(req.Pod, "spec", "serviceAccountName")
-	if saName == "" || saName == "default" {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"default SA — 별도 점검 불필요"}
-		return base
-	}
-
-	podNS := jsonStr(req.Pod, "metadata", "namespace")
-	var targetSA map[string]any
-	for _, sa := range req.RelatedResources.ServiceAccounts {
-		if jsonStr(sa, "metadata", "name") == saName && jsonStr(sa, "metadata", "namespace") == podNS {
-			targetSA = sa
-			break
-		}
-	}
-
-	if targetSA == nil {
-		base.Verdict = "skip"
-		base.SkipReason = fmt.Sprintf("SA '%s' 데이터 미제공", saName)
-		return base
-	}
-
-	labels := jsonMap(targetSA, "metadata", "labels")
-	hasLabel := false
-	for _, key := range []string{"owner", "team"} {
-		if v, ok := labels[key]; ok && strVal(v) != "" {
-			hasLabel = true
-			break
-		}
-	}
-
-	if !hasLabel {
-		base.Verdict = "미준수"
-		base.Violations = []grc.Violation{{
-			Field:       "metadata.labels.owner|team",
-			Expected:    "exists",
-			Actual:      nil,
-			Description: fmt.Sprintf("SA '%s/%s'에 owner/team 라벨 부재", podNS, saName),
-			Severity:    "medium",
-			K8sSource:   grc.K8sSource{Namespace: podNS, ResourceKind: "ServiceAccount", ResourceName: saName},
-		}}
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{fmt.Sprintf("SA '%s' owner/team 라벨 존재", saName)}
 	}
 	return base
 }
@@ -617,38 +399,6 @@ func evalIngressTLS(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResu
 // 2.8.3 시험과 운영 환경 분리
 // ─────────────────────────────────────────────
 
-// R-2.8.3-POD-01: 워크로드 env 라벨 부재
-func evalWorkloadEnvLabel(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "high"
-	podName := jsonStr(req.Pod, "metadata", "name")
-	podNS := jsonStr(req.Pod, "metadata", "namespace")
-	labels := jsonMap(req.Pod, "metadata", "labels")
-
-	val := strVal(labels["env"])
-	allowed := map[string]bool{
-		"prod": true, "production": true,
-		"stg": true, "staging": true,
-		"dev": true, "development": true,
-		"test": true,
-	}
-
-	if !allowed[val] {
-		base.Verdict = "미준수"
-		base.Violations = []grc.Violation{{
-			Field:       "metadata.labels.env",
-			Expected:    "in [prod, production, stg, staging, dev, development, test]",
-			Actual:      val,
-			Description: fmt.Sprintf("워크로드 '%s'에 env 라벨 부재 또는 허용 외 값", podName),
-			Severity:    "high",
-			K8sSource:   grc.K8sSource{Namespace: podNS, ResourceKind: "Pod", ResourceName: podName},
-		}}
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{fmt.Sprintf("env=%s", val)}
-	}
-	return base
-}
-
 // R-2.8.3-POD-02: namespace 내 prod/dev 워크로드 혼재
 func evalNSEnvMixing(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
 	base.Severity = "high"
@@ -761,64 +511,12 @@ func evalCrossEnvSecretRef(_ Rule, req PodGraphRequest, base PodRuleResult) PodR
 // 2.9.1 변경관리
 // ─────────────────────────────────────────────
 
-// R-2.9.1-POD-01: change-cause annotation 부재
-func evalChangeCause(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "medium"
-
-	// 수집 누락 가드: Pod에 컨트롤러 흔적이 있는데 workload 스냅샷이 비어 있으면
-	// "Deployment 없음 — 해당 없음"(준수)이 아니라 NO_DATA (데이터 오류 기반 통과 방지).
-	if workloadDataMissing(req) {
-		return noDataWorkloadResult(base)
-	}
-
-	var violations []grc.Violation
-	var matched []string
-	found := false
-
-	for _, wl := range req.RelatedResources.Workloads {
-		kind := jsonStr(wl, "kind")
-		if kind != "" && kind != "Deployment" {
-			continue
-		}
-		found = true
-		wlName := jsonStr(wl, "metadata", "name")
-		wlNS := jsonStr(wl, "metadata", "namespace")
-		annotations := jsonMap(wl, "metadata", "annotations")
-		changeCause := strVal(annotations["kubernetes.io/change-cause"])
-		if changeCause == "" {
-			violations = append(violations, grc.Violation{
-				Field:       "metadata.annotations.kubernetes.io/change-cause",
-				Expected:    "non-empty",
-				Actual:      nil,
-				Description: fmt.Sprintf("Deployment '%s'에 변경 사유(change-cause) 미기록", wlName),
-				Severity:    "medium",
-				K8sSource:   grc.K8sSource{Namespace: wlNS, ResourceKind: "Deployment", ResourceName: wlName},
-			})
-		} else {
-			matched = append(matched, fmt.Sprintf("Deployment '%s': change-cause 존재", wlName))
-		}
-	}
-
-	if !found {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"Deployment 워크로드 없음 — 해당 없음"}
-		return base
-	}
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = matched
-	}
-	return base
-}
-
 // R-2.9.1-POD-02: revisionHistoryLimit=0 (롤백 불가)
 func evalRevisionHistoryLimit(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
 	base.Severity = "high"
 
-	// 수집 누락 가드 (evalChangeCause와 동일)
+	// 수집 누락 가드: Pod에 컨트롤러 흔적이 있는데 workload 스냅샷이 비어 있으면
+	// "워크로드 없음 — 해당 없음"(준수)이 아니라 NO_DATA (데이터 오류 기반 통과 방지).
 	if workloadDataMissing(req) {
 		return noDataWorkloadResult(base)
 	}
@@ -1015,50 +713,6 @@ func evalIngressWAF(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResu
 	return base
 }
 
-// R-2.10.3-POD-03: NodePort Service 공개 의도 라벨 부재
-func evalNodePortExposureLabel(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "medium"
-	var violations []grc.Violation
-	var matched []string
-	found := false
-
-	for _, svc := range req.RelatedResources.Services {
-		if jsonStr(svc, "spec", "type") != "NodePort" {
-			continue
-		}
-		found = true
-		svcName := jsonStr(svc, "metadata", "name")
-		svcNS := jsonStr(svc, "metadata", "namespace")
-		labels := jsonMap(svc, "metadata", "labels")
-		if strVal(labels["isms-p/exposure"]) != "public" {
-			violations = append(violations, grc.Violation{
-				Field:       "metadata.labels.isms-p/exposure",
-				Expected:    "== public",
-				Actual:      strVal(labels["isms-p/exposure"]),
-				Description: fmt.Sprintf("NodePort Service '%s'에 공개 의도 라벨 부재", svcName),
-				Severity:    "medium",
-				K8sSource:   grc.K8sSource{Namespace: svcNS, ResourceKind: "Service", ResourceName: svcName},
-			})
-		} else {
-			matched = append(matched, fmt.Sprintf("NodePort '%s': exposure=public", svcName))
-		}
-	}
-
-	if !found {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"NodePort Service 없음 — 해당 없음"}
-		return base
-	}
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = matched
-	}
-	return base
-}
-
 // R-2.10.3-POD-04: 공개 Ingress rate limit 미설정
 func evalIngressRateLimit(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
 	base.Severity = "medium"
@@ -1100,50 +754,6 @@ func evalIngressRateLimit(_ Rule, req PodGraphRequest, base PodRuleResult) PodRu
 		}
 	}
 
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = matched
-	}
-	return base
-}
-
-// R-2.10.3-POD-05: LoadBalancer 공개 의도 라벨 부재
-func evalLBExposureLabel(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "medium"
-	var violations []grc.Violation
-	var matched []string
-	found := false
-
-	for _, svc := range req.RelatedResources.Services {
-		if jsonStr(svc, "spec", "type") != "LoadBalancer" {
-			continue
-		}
-		found = true
-		svcName := jsonStr(svc, "metadata", "name")
-		svcNS := jsonStr(svc, "metadata", "namespace")
-		labels := jsonMap(svc, "metadata", "labels")
-		if strVal(labels["isms-p/exposure"]) != "public" {
-			violations = append(violations, grc.Violation{
-				Field:       "metadata.labels.isms-p/exposure",
-				Expected:    "== public",
-				Actual:      strVal(labels["isms-p/exposure"]),
-				Description: fmt.Sprintf("LoadBalancer Service '%s'에 공개 의도 라벨 부재", svcName),
-				Severity:    "medium",
-				K8sSource:   grc.K8sSource{Namespace: svcNS, ResourceKind: "Service", ResourceName: svcName},
-			})
-		} else {
-			matched = append(matched, fmt.Sprintf("LB '%s': exposure=public", svcName))
-		}
-	}
-
-	if !found {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"LoadBalancer Service 없음 — 해당 없음"}
-		return base
-	}
 	if len(violations) > 0 {
 		base.Verdict = "미준수"
 		base.Violations = violations
