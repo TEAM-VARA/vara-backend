@@ -2038,10 +2038,13 @@ func (s *GRCService) processCheck(ctx context.Context, checkID string) (*grc.Com
 		if len(matched) == 0 && !isGuidelineRAG {
 			// 증적 미제출은 위반(NOT_MET)이 아니라 평가불가(NO_DATA) —
 			// 증거 부재 ≠ 위반 (P0-3과 동일 원칙). 항목 verdict는 검토필요로 집계된다.
+			// 빈 줄로 렌더링되지 않도록 룰 이름·필요 증적 힌트를 표시 텍스트에 채운다
+			// (예: 2.5.4 R-03~15 evidence_upload 룰이 GL 점검 출력에 빈 메시지로 섞이던 문제).
 			result = grc.RuleResult{
 				RuleID:        rule.RuleID,
 				Verdict:       grc.VerdictNO_DATA,
-				Reason:        "증적 미제출 — 해당 룰에 대한 증적 파일이 제출되지 않아 판단 불가",
+				Reason:        noEvidenceReason(rule),
+				MatchedIndicators: []string{noEvidenceReason(rule)},
 				EvidenceFiles: []string{},
 			}
 		} else if len(matched) == 0 && isGuidelineRAG {
@@ -2610,6 +2613,26 @@ func readTextFile(path string) (string, error) {
 // ─────────────────────────────────────────────
 // Evidence-to-Rule Matching
 // ─────────────────────────────────────────────
+
+// noEvidenceReason builds a human-readable NO_DATA message for a rule whose
+// evidence file was not submitted: which rule it is, and what to upload.
+// evidence_upload 룰(예: 2.5.4 R-03~15 OS/AD/IAM 설정 점검)이 빈 메시지로
+// 렌더링되지 않도록 룰 이름과 증적 힌트(keywords 일부)를 포함한다.
+func noEvidenceReason(rule Rule) string {
+	name := strings.TrimSpace(rule.Name)
+	if name == "" {
+		name = rule.RuleID
+	}
+	msg := fmt.Sprintf("증적 미제출 — '%s' 자동점검 불가", name)
+	if len(rule.Keywords) > 0 {
+		n := len(rule.Keywords)
+		if n > 3 {
+			n = 3
+		}
+		msg += fmt.Sprintf(" (필요 증적 예: %s)", strings.Join(rule.Keywords[:n], ", "))
+	}
+	return msg
+}
 
 func matchEvidenceToRule(files []grc.EvidenceFile, rule Rule, evidenceStore map[string]any) []grc.EvidenceFile {
 	var matched []grc.EvidenceFile

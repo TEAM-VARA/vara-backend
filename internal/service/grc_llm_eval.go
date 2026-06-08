@@ -407,8 +407,24 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 
 	default: // 판정불가
 		base.Verdict = grc.VerdictINDETERMINATE
-		base.Reason = "LLM 판정불가 (수동 검토)"
-		base.MatchedIndicators = []string{"LLM 판정: 판정불가 (수동 검토 필요)"}
+		reason := strings.TrimSpace(resp.Reason)
+		if reason == "" {
+			reason = "사유 미제공 — 검색 문장만으로 충족 여부 판단 불가"
+		}
+		base.Reason = fmt.Sprintf("LLM 판정불가: %s", reason)
+		indicators := []string{fmt.Sprintf("LLM 판정: 판정불가 (수동 검토 필요) / 사유: %s", reason)}
+		// 판정불가여도 LLM이 검토한 문장을 함께 보여줘 수동 검토의 출발점을 제공한다.
+		for _, idx := range resp.BasisIdx {
+			if idx >= 1 && idx <= len(topHits) {
+				hit := topHits[idx-1]
+				if hit.score >= 0 {
+					indicators = append(indicators, fmt.Sprintf("검토 문장[%d]: %s (cos=%.3f)", idx, ragTruncate(hit.text, 80), hit.score))
+				} else {
+					indicators = append(indicators, fmt.Sprintf("검토 문장[%d]: %s", idx, ragTruncate(hit.text, 80)))
+				}
+			}
+		}
+		base.MatchedIndicators = indicators
 		attachGLPolicyGuidance(rule, &base, "")
 	}
 
@@ -566,16 +582,17 @@ func ragTruncate(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "..."
 }
 
-// ensureVerdictDisplay guarantees a renderable indicator for INDETERMINATE
-// results. Several early-return paths (VLM/임베딩 비가동, 증적·지침 문장 없음 등)
-// set only Reason/SkipReason and leave MatchedIndicators empty, which renders as
-// a blank line after the "[INDETERMINATE]" tag. Fill it from the reason text so
-// the verdict always carries a human-readable explanation.
+// ensureVerdictDisplay guarantees a renderable indicator for INDETERMINATE and
+// NO_DATA results. Several early-return paths (VLM/임베딩 비가동, 증적·지침 문장
+// 없음, 증적 미제출 등) set only Reason/SkipReason and leave MatchedIndicators
+// empty, which renders as a blank line after the "[INDETERMINATE]"/"[NO_DATA]"
+// tag. Fill it from the reason text so the verdict always carries a
+// human-readable explanation.
 func ensureVerdictDisplay(rr grc.RuleResult) grc.RuleResult {
 	if len(rr.MatchedIndicators) > 0 {
 		return rr
 	}
-	if grc.NormalizeVerdict(rr.Verdict) != grc.VerdictINDETERMINATE {
+	if nv := grc.NormalizeVerdict(rr.Verdict); nv != grc.VerdictINDETERMINATE && nv != grc.VerdictNO_DATA {
 		return rr
 	}
 	msg := strings.TrimSpace(rr.Reason)
