@@ -674,10 +674,10 @@ func (h *GRCHandler) EvaluateClusterCompliance(c *gin.Context) {
 	for i := range result.Items {
 		result.Items[i].RuleResults = deduplicateRuleResults(result.Items[i].RuleResults)
 		if result.Items[i].Layers != nil {
-			result.Items[i].Layers.R = deduplicateRuleResults(result.Items[i].Layers.R)
-			result.Items[i].Layers.GL = deduplicateRuleResults(result.Items[i].Layers.GL)
-			result.Items[i].Layers.F = deduplicateRuleResults(result.Items[i].Layers.F)
-			result.Items[i].Layers.Report = deduplicateRuleResults(result.Items[i].Layers.Report)
+			result.Items[i].Layers.R = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.R))
+			result.Items[i].Layers.GL = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.GL))
+			result.Items[i].Layers.F = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.F))
+			result.Items[i].Layers.Report = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.Report))
 		}
 	}
 
@@ -706,16 +706,16 @@ func (h *GRCHandler) GetComplianceOverview(c *gin.Context) {
 	// Overview 페이로드 축소: rule_results를 룰 단위로 중복 제거,
 	// violated_assets에서 violated_rules 상세 제거 (name/namespace만 보존).
 	for i := range result.Items {
-		result.Items[i].RuleResults = deduplicateRuleResults(result.Items[i].RuleResults)
+		result.Items[i].RuleResults = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].RuleResults))
 		result.Items[i].ViolatedAssetCount = len(result.Items[i].ViolatedAssets)
 		for j := range result.Items[i].ViolatedAssets {
 			result.Items[i].ViolatedAssets[j].ViolatedRules = nil
 		}
 		if result.Items[i].Layers != nil {
-			result.Items[i].Layers.R = deduplicateRuleResults(result.Items[i].Layers.R)
-			result.Items[i].Layers.GL = deduplicateRuleResults(result.Items[i].Layers.GL)
-			result.Items[i].Layers.F = deduplicateRuleResults(result.Items[i].Layers.F)
-			result.Items[i].Layers.Report = deduplicateRuleResults(result.Items[i].Layers.Report)
+			result.Items[i].Layers.R = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.R))
+			result.Items[i].Layers.GL = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.GL))
+			result.Items[i].Layers.F = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.F))
+			result.Items[i].Layers.Report = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.Report))
 		}
 	}
 	c.JSON(http.StatusOK, result)
@@ -766,6 +766,56 @@ func deduplicateRuleResults(results []grc.RuleResult) []grc.RuleResult {
 		}
 	}
 	return deduped
+}
+
+// humanizeRuleGuidance rewrites short keyword-style guidance fields into
+// complete Korean sentences for human-readable API output.
+func humanizeRuleGuidance(results []grc.RuleResult) []grc.RuleResult {
+	for i := range results {
+		results[i].AlternativeControls = humanizeJSONArray(results[i].AlternativeControls,
+			"대안 통제 수단으로 %s을(를) 적용하여 보완할 수 있습니다.")
+		results[i].AdditionalReviewItems = humanizeJSONArray(results[i].AdditionalReviewItems,
+			"%s 확인이 필요합니다.")
+	}
+	return results
+}
+
+func humanizeJSONArray(raw json.RawMessage, tmpl string) json.RawMessage {
+	if raw == nil {
+		return nil
+	}
+	var items []any
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return raw
+	}
+	var result []string
+	for _, item := range items {
+		var text string
+		switch v := item.(type) {
+		case string:
+			text = v
+		case map[string]any:
+			if n, ok := v["name"].(string); ok {
+				text = n
+			} else if d, ok := v["description"].(string); ok {
+				text = d
+			}
+		}
+		if text == "" {
+			continue
+		}
+		last := []rune(text)
+		lastChar := last[len(last)-1]
+		if lastChar == '.' || lastChar == '다' || lastChar == '요' || lastChar == '까' || lastChar == '?' {
+			result = append(result, text)
+		} else {
+			result = append(result, fmt.Sprintf(tmpl, text))
+		}
+	}
+	if out, err := json.Marshal(result); err == nil {
+		return out
+	}
+	return raw
 }
 
 // GET /compliance/findings/summary
