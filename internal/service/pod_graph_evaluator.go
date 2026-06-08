@@ -186,11 +186,13 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 		case "skip", grc.VerdictSKIPPED:
 			result.Skipped++
 			summary.Skip++
-		case grc.VerdictNO_DATA, grc.VerdictINDETERMINATE:
-			// Data unavailable — count as skipped for backward compat
+		case grc.VerdictNO_DATA, grc.VerdictINDETERMINATE, grc.VerdictNEEDS_REVIEW:
+			// 판단 불가(데이터 부재/확인불가/검토필요) — 확정 미준수가 아니므로
+			// pod 단위 OverallVerdict를 미준수로 만들지 않고 skip 버킷으로 집계한다.
+			// (항목 단위 집계에서는 NEEDS_REVIEW를 '검토필요'로 별도 분리한다.)
 			result.Skipped++
 			summary.Skip++
-		default: // 미준수, NOT_MET, NEEDS_REVIEW
+		default: // 미준수, NOT_MET
 			result.Failed++
 			summary.Fail++
 			summary.BySeverity[sev].Fail++
@@ -578,11 +580,14 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		result.Layer = grc.LayerR
 	}
 
-	// 해당없음(N/A) 분리: 점검 대상 리소스 부재로 통과한 vacuous pass는
-	// "준수"가 아니라 "해당없음"으로 집계한다 (준수 항목 수 부풀림 방지).
+	// 점검 대상 리소스 부재("해당 없음")로 통과한 vacuous pass는 자동 N_A로 두지 않는다.
+	// K8s에서 대상을 못 찾았다는 것이 곧 "해당없음(적용 제외)"을 의미하지 않으며
+	// (암호화는 서비스메시/DB, 외부전송은 클러스터 외부, 공개노출은 다른 경로로 가능),
+	// 인증범위 문서로 대상 부재가 확인되기 전까지는 적용성·대체통제 재확인 대상이다.
+	// → 준수로 부풀리지도, 해당없음으로 단정하지도 않고 NEEDS_REVIEW(검토필요)로 둔다.
 	if result.Verdict == "준수" && allIndicatorsNA(result.MatchedIndicators) {
-		result.Verdict = grc.VerdictNA
-		result.Reason = "점검 대상 리소스 부재 — 해당없음 (준수 아님)"
+		result.Verdict = grc.VerdictNEEDS_REVIEW
+		result.Reason = "점검 대상 리소스 부재 — 적용성·대체통제 재확인 필요 (자동 해당없음 처리 안 함; 인증범위 문서로 대상 부재 확인 시에만 N/A)"
 	}
 
 	// 미준수 판정 시 FailMessage/Remediation 자동 부여

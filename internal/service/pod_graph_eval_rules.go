@@ -427,6 +427,14 @@ func evalNSEnvMixing(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleRes
 		}
 	}
 
+	if len(envs) == 0 {
+		// env 라벨이 전무 → 운영/개발 환경 자체를 판별할 수 없다.
+		// 단일 네임스페이스라는 사실만으로 "환경 동질성 = 분리 충족"이라 단정하면 안 되며
+		// (오히려 운영/비운영 혼재 가능성), 자동 충족(준수) 처리를 금지하고 수동 검토로 넘긴다.
+		base.Verdict = grc.VerdictNEEDS_REVIEW
+		base.Reason = "env 라벨 부재로 운영/개발 환경 판별 불가 — 단일 네임스페이스 동질성만으로 시험·운영 분리 충족을 단정할 수 없음. 별도 클러스터/VPC/계정 분리 또는 네임스페이스·RBAC·NetworkPolicy 분리 증적으로 수동 확인 필요"
+		return base
+	}
 	if len(envs) >= 2 {
 		envList := make([]string, 0, len(envs))
 		for e := range envs {
@@ -513,65 +521,45 @@ func evalCrossEnvSecretRef(_ Rule, req PodGraphRequest, base PodRuleResult) PodR
 
 // R-2.9.1-POD-02: revisionHistoryLimit=0 (롤백 불가)
 func evalRevisionHistoryLimit(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "high"
+	base.Severity = "info"
 
-	// 수집 누락 가드: Pod에 컨트롤러 흔적이 있는데 workload 스냅샷이 비어 있으면
-	// "워크로드 없음 — 해당 없음"(준수)이 아니라 NO_DATA (데이터 오류 기반 통과 방지).
+	// 수집 누락 가드 유지: 컨트롤러 흔적이 있는데 workload 스냅샷이 비어 있으면 NO_DATA.
 	if workloadDataMissing(req) {
 		return noDataWorkloadResult(base)
 	}
 
-	var violations []grc.Violation
-	var matched []string
-	found := false
-
+	// revisionHistoryLimit은 Deployment 롤백 이력 보존 개수일 뿐,
+	// 변경관리(2.9.1)의 본질인 변경 신청·영향분석·승인·시험 절차와 무관하다.
+	// 따라서 이 값으로 충족/미충족을 자동 판정하지 않고, 관측값만 부기한 뒤
+	// NEEDS_REVIEW로 두어 ITSM/GitOps 변경 결재 등 절차 증적을 수동 확인하도록 한다.
+	var observed []string
 	for _, wl := range req.RelatedResources.Workloads {
-		found = true
 		wlName := jsonStr(wl, "metadata", "name")
-		wlNS := jsonStr(wl, "metadata", "namespace")
 		spec := jsonMap(wl, "spec")
 		if spec == nil {
 			continue
 		}
-		rhl, ok := spec["revisionHistoryLimit"]
-		if !ok {
-			// Default is 10, which is fine
-			matched = append(matched, fmt.Sprintf("'%s': revisionHistoryLimit 기본값 (10)", wlName))
-			continue
-		}
-		rhlVal := 0
-		switch v := rhl.(type) {
-		case float64:
-			rhlVal = int(v)
-		case int:
-			rhlVal = v
-		}
-		if rhlVal == 0 {
-			violations = append(violations, grc.Violation{
-				Field:       "spec.revisionHistoryLimit",
-				Expected:    "> 0",
-				Actual:      0,
-				Description: fmt.Sprintf("워크로드 '%s'의 revisionHistoryLimit=0 (롤백 불가)", wlName),
-				Severity:    "high",
-				K8sSource:   grc.K8sSource{Namespace: wlNS, ResourceKind: "Deployment", ResourceName: wlName},
-			})
+		if rhl, ok := spec["revisionHistoryLimit"]; ok {
+			rhlVal := 0
+			switch v := rhl.(type) {
+			case float64:
+				rhlVal = int(v)
+			case int:
+				rhlVal = v
+			}
+			observed = append(observed, fmt.Sprintf("%s=%d", wlName, rhlVal))
 		} else {
-			matched = append(matched, fmt.Sprintf("'%s': revisionHistoryLimit=%d", wlName, rhlVal))
+			observed = append(observed, fmt.Sprintf("%s=기본값(10)", wlName))
 		}
 	}
 
-	if !found {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"워크로드 없음 — 해당 없음"}
-		return base
+	base.Verdict = grc.VerdictNEEDS_REVIEW
+	reason := "revisionHistoryLimit은 롤백 이력 보존 설정일 뿐 변경관리 절차(신청·영향분석·승인·시험) 증적이 아님 — 변경관리 충족 여부는 ITSM/그룹웨어 변경 결재 또는 GitOps PR·파이프라인 승인 기록으로 수동 확인 필요"
+	if len(observed) > 0 {
+		reason += " [관측 revisionHistoryLimit: " + strings.Join(observed, ", ") + "]"
 	}
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = matched
-	}
+	base.Reason = reason
+	base.Layer = grc.LayerR
 	return base
 }
 
