@@ -108,6 +108,29 @@ func (r *SBOMRepo) ExistsByDigest(ctx context.Context, digest string) (bool, err
 	return true, nil
 }
 
+// ListDistinctDigests는 sboms에 등록된 중복 없는 image_digest 전체를 반환합니다.
+// 글로벌 점수 자동 갱신(Phase 0)에서 만료 캐시 재계산 대상을 산출하는 데 사용합니다.
+func (r *SBOMRepo) ListDistinctDigests(ctx context.Context) ([]string, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT DISTINCT image_digest FROM sboms
+		 WHERE image_digest IS NOT NULL AND image_digest != ''`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list distinct digests: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return nil, fmt.Errorf("scan digest: %w", err)
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // GetByDigest는 digest로 SBOM을 조회합니다.
 // 없으면 (nil, nil) 반환.
 func (r *SBOMRepo) GetByDigest(ctx context.Context, digest string) (*SBOM, error) {
