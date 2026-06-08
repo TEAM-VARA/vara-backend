@@ -58,26 +58,26 @@ type Edge struct {
 
 	// 통신 메타
 	Weight        int     `json:"weight"`
-	TrafficWeight float64 `json:"trafficWeight"`
+	TrafficWeight float64 `json:"traffic_weight"`
 
 	// 표시용
-	SourceName      string `json:"sourceName,omitempty"`
-	SourceNamespace string `json:"sourceNamespace,omitempty"`
-	TargetName      string `json:"targetName,omitempty"`
-	TargetNamespace string `json:"targetNamespace,omitempty"`
+	SourceName      string `json:"source_name,omitempty"`
+	SourceNamespace string `json:"source_namespace,omitempty"`
+	TargetName      string `json:"target_name,omitempty"`
+	TargetNamespace string `json:"target_namespace,omitempty"`
 
 	// Migration 017로 추가된 새 필드들
-	SourceKind        string `json:"sourceKind,omitempty"` // pod / service_account / role / cluster_role
-	TargetKind        string `json:"targetKind,omitempty"`
-	TargetType        string `json:"targetType,omitempty"`        // pod / external_ip / service / service_account
-	TargetServiceName string `json:"targetServiceName,omitempty"` // 가상 ID (sa:..., crole:..., role:...)
-	EdgeType          string `json:"edgeType,omitempty"`          // can_reach / assumes / binds / shares_image 등
+	SourceKind        string `json:"source_kind,omitempty"` // pod / service_account / role / cluster_role
+	TargetKind        string `json:"target_kind,omitempty"`
+	TargetType        string `json:"target_type,omitempty"`        // pod / external_ip / service / service_account
+	TargetServiceName string `json:"target_service_name,omitempty"` // 가상 ID (sa:..., crole:..., role:...)
+	EdgeType          string `json:"edge_type,omitempty"`          // can_reach / assumes / binds / shares_image 등
 	Mode              string `json:"mode,omitempty"`              // declared / observed / anomaly
-	TotalBytes        int64  `json:"totalBytes,omitempty"`        // 트래픽 양 (network observed 전용)
+	TotalBytes        int64  `json:"total_bytes,omitempty"`        // 트래픽 양 (network observed 전용)
 
 	// 시점
-	FirstSeenAt *time.Time `json:"firstSeenAt,omitempty"`
-	LastSeenAt  *time.Time `json:"lastSeenAt,omitempty"`
+	FirstSeenAt *time.Time `json:"first_seen_at,omitempty"`
+	LastSeenAt  *time.Time `json:"last_seen_at,omitempty"`
 	SnapshotAt  time.Time  `json:"-"`
 	ComputedAt  time.Time  `json:"-"`
 }
@@ -136,20 +136,20 @@ type NodeView struct {
 	Type           string  `json:"type"` // "Pod" (v1.0은 Pod만)
 	Name           string  `json:"name"`
 	Namespace      string  `json:"namespace"`
-	RiskScore      float64 `json:"riskScore"` // final_scores.final_score
-	RiskLevel      string  `json:"riskLevel"` // safe / caution / warning / emergency
-	IsExposed      bool    `json:"isExposed"` // exposure_scores.exposed
-	ServiceAccount string  `json:"serviceAccount"`
+	RiskScore      float64 `json:"risk_score"` // final_scores.final_score
+	RiskLevel      string  `json:"risk_level"` // safe / caution / warning / emergency
+	IsExposed      bool    `json:"is_exposed"` // exposure_scores.exposed
+	ServiceAccount string  `json:"service_account"`
 }
 
 // EdgesMeta — 응답 메타데이터 [P0 5.2]
 type EdgesMeta struct {
 	Cluster         string    `json:"cluster"`
-	SnapshotAt      time.Time `json:"snapshotAt"`
-	ComputedAt      time.Time `json:"computedAt"`
-	BuildDurationMs int64     `json:"buildDurationMs"`
-	NodeCount       int       `json:"nodeCount"`
-	EdgeCount       int       `json:"edgeCount"`
+	SnapshotAt      time.Time `json:"snapshot_at"`
+	ComputedAt      time.Time `json:"computed_at"`
+	BuildDurationMs int64     `json:"build_duration_ms"`
+	NodeCount       int       `json:"node_count"`
+	EdgeCount       int       `json:"edge_count"`
 }
 
 // EdgesSummary — 4단계 risk_level 카운트 [P0 5.3]
@@ -165,9 +165,9 @@ type EdgesSummary struct {
 // PM 정의: 여러 layer가 조합된 위험 시나리오 (단일 Pod의 시그널이 아님)
 type ToxicCombination struct {
 	ID       string   `json:"id"`       // 예: "tc_toxic_001"
-	RuleID   string   `json:"ruleId"`   // 예: "TOXIC-001"
+	RuleID   string   `json:"rule_id"`   // 예: "TOXIC-001"
 	Title    string   `json:"title"`    // toxic_rules.name (한국어 제목)
-	PodIDs   []string `json:"podIds"`   // 매칭된 Pod uid 배열
+	PodIDs   []string `json:"pod_ids"`   // 매칭된 Pod uid 배열
 	Severity string   `json:"severity"` // emergency/warning/caution
 	Reason   string   `json:"reason"`   // toxic_rules.description
 	Layers   []string `json:"layers"`   // ["network", "identity"] 등 자동 추출
@@ -180,18 +180,18 @@ type EdgeListResponse struct {
 	Nodes             []NodeView         `json:"nodes"`             // [P0 5.1]
 	Meta              *EdgesMeta         `json:"meta"`              // [P0 5.2]
 	Summary           *EdgesSummary      `json:"summary"`           // [P0 5.3]
-	ToxicCombinations []ToxicCombination `json:"toxicCombinations"` // [P1 5.4]
+	ToxicCombinations []ToxicCombination `json:"toxic_combinations"` // [P1 5.4]
 }
 
 type IdentityComputeResult struct {
-	ClusterName string    `json:"clusterName"`
+	ClusterName string    `json:"cluster_name"`
 	Assumes     int       `json:"assumes"`    // Pod → SA edges 수
-	BindsRole   int       `json:"bindsRole"`  // SA → Role edges 수
-	BindsCRole  int       `json:"bindsCRole"` // SA → ClusterRole edges 수
+	BindsRole   int       `json:"binds_role"`  // SA → Role edges 수
+	BindsCRole  int       `json:"binds_cluster_role"` // SA → ClusterRole edges 수
 	Total       int       `json:"total"`
-	SnapshotAt  time.Time `json:"snapshotAt"`
-	ComputedAt  time.Time `json:"computedAt"`
-	DurationMs  int64     `json:"durationMs"`
+	SnapshotAt  time.Time `json:"snapshot_at"`
+	ComputedAt  time.Time `json:"computed_at"`
+	DurationMs  int64     `json:"duration_ms"`
 }
 
 // ────────────────────────────────────────────────────
@@ -199,13 +199,13 @@ type IdentityComputeResult struct {
 // ────────────────────────────────────────────────────
 
 type SupplyChainComputeResult struct {
-	ClusterName string    `json:"clusterName"`
-	SharesImage int       `json:"sharesImage"` // 같은 image_digest edges
-	SharesCVE   int       `json:"sharesCve"`   // 같은 CVE (KEV, cross-image) edges
+	ClusterName string    `json:"cluster_name"`
+	SharesImage int       `json:"shares_image"` // 같은 image_digest edges
+	SharesCVE   int       `json:"shares_cve"`   // 같은 CVE (KEV, cross-image) edges
 	Total       int       `json:"total"`
-	SnapshotAt  time.Time `json:"snapshotAt"`
-	ComputedAt  time.Time `json:"computedAt"`
-	DurationMs  int64     `json:"durationMs"`
+	SnapshotAt  time.Time `json:"snapshot_at"`
+	ComputedAt  time.Time `json:"computed_at"`
+	DurationMs  int64     `json:"duration_ms"`
 }
 
 // ────────────────────────────────────────────────────
@@ -213,25 +213,25 @@ type SupplyChainComputeResult struct {
 // ────────────────────────────────────────────────────
 
 type NetworkComputeResult struct {
-	ClusterName string    `json:"clusterName"`
-	SelectedBy  int       `json:"selectedBy"`
+	ClusterName string    `json:"cluster_name"`
+	SelectedBy  int       `json:"selected_by"`
 	Allows      int       `json:"allows"`
-	RoutedBy    int       `json:"routedBy"`
-	ConnectsTo  int       `json:"connectsTo"`
+	RoutedBy    int       `json:"routed_by"`
+	ConnectsTo  int       `json:"connects_to"`
 	Total       int       `json:"total"`
-	SnapshotAt  time.Time `json:"snapshotAt"`
-	ComputedAt  time.Time `json:"computedAt"`
-	DurationMs  int64     `json:"durationMs"`
+	SnapshotAt  time.Time `json:"snapshot_at"`
+	ComputedAt  time.Time `json:"computed_at"`
+	DurationMs  int64     `json:"duration_ms"`
 }
 
 type HostComputeResult struct {
-	ClusterName string    `json:"clusterName"`
-	RunsOn      int       `json:"runsOn"`
-	EscapePath  int       `json:"escapePath"`
+	ClusterName string    `json:"cluster_name"`
+	RunsOn      int       `json:"runs_on"`
+	EscapePath  int       `json:"escape_path"`
 	Total       int       `json:"total"`
-	SnapshotAt  time.Time `json:"snapshotAt"`
-	ComputedAt  time.Time `json:"computedAt"`
-	DurationMs  int64     `json:"durationMs"`
+	SnapshotAt  time.Time `json:"snapshot_at"`
+	ComputedAt  time.Time `json:"computed_at"`
+	DurationMs  int64     `json:"duration_ms"`
 }
 
 // ────────────────────────────────────────────────────
@@ -248,18 +248,18 @@ type TopologyResponse struct {
 type TopologyNode struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
-	NodeType  string `json:"nodeType"`
+	NodeType  string `json:"node_type"`
 	Label     string `json:"label"`
 	Namespace string `json:"namespace,omitempty"`
 
 	// Pod 전용
-	ServiceAccount string  `json:"serviceAccount,omitempty"`
-	ImageTag       string  `json:"imageTag,omitempty"`
-	ImageDigest    string  `json:"imageDigest,omitempty"`
-	RiskScore      float64 `json:"riskScore"`
-	RiskLevel      string  `json:"riskLevel,omitempty"`
-	TopCVE         string  `json:"topCve,omitempty"`
-	IsExposed      bool    `json:"isExposed,omitempty"`
+	ServiceAccount string  `json:"service_account,omitempty"`
+	ImageTag       string  `json:"image_tag,omitempty"`
+	ImageDigest    string  `json:"image_digest,omitempty"`
+	RiskScore      float64 `json:"risk_score"`
+	RiskLevel      string  `json:"risk_level,omitempty"`
+	TopCVE         string  `json:"top_cve,omitempty"`
+	IsExposed      bool    `json:"is_exposed,omitempty"`
 }
 
 type TopologyEdge struct {
@@ -267,17 +267,17 @@ type TopologyEdge struct {
 	Source        string  `json:"source"`
 	Target        string  `json:"target"`
 	Layer         string  `json:"layer"`
-	EdgeType      string  `json:"edgeType"`
+	EdgeType      string  `json:"edge_type"`
 	Mode          string  `json:"mode"`
 	Weight        float64 `json:"weight"`
-	TrafficWeight float64 `json:"trafficWeight,omitempty"`
+	TrafficWeight float64 `json:"traffic_weight,omitempty"`
 }
 
 type TopologyMeta struct {
-	NodeCount  int       `json:"nodeCount"`
-	EdgeCount  int       `json:"edgeCount"`
-	SnapshotAt time.Time `json:"snapshotAt,omitempty"`
-	BuildMs    int64     `json:"buildMs"`
+	NodeCount  int       `json:"node_count"`
+	EdgeCount  int       `json:"edge_count"`
+	SnapshotAt time.Time `json:"snapshot_at,omitempty"`
+	BuildMs    int64     `json:"build_ms"`
 }
 
 // ────────────────────────────────────────────────────
@@ -287,18 +287,18 @@ type TopologyMeta struct {
 type BlastRadiusResponse struct {
 	Source     string          `json:"source"`
 	Hops       int             `json:"hops"`
-	BlastScore float64         `json:"blastScore"`
-	OutOf      float64         `json:"outOf"`
+	BlastScore float64         `json:"blast_score"`
+	OutOf      float64         `json:"out_of"`
 	Reachable  []ReachableNode `json:"reachable"`
-	TotalCount int             `json:"totalCount"`
-	ByLayer    map[string]int  `json:"byLayer"`
-	BuildMs    int64           `json:"buildMs"`
+	TotalCount int             `json:"total_count"`
+	ByLayer    map[string]int  `json:"by_layer"`
+	BuildMs    int64           `json:"build_ms"`
 }
 
 type ReachableNode struct {
-	NodeID   string `json:"nodeId"`
-	NodeKind string `json:"nodeKind"`
-	NodeName string `json:"nodeName"`
+	NodeID   string `json:"node_id"`
+	NodeKind string `json:"node_kind"`
+	NodeName string `json:"node_name"`
 	Hop      int    `json:"hop"`
 	Layer    string `json:"layer"`
 }
@@ -309,16 +309,16 @@ type ReachableNode struct {
 
 type CriticalityResponse struct {
 	Cluster   string            `json:"cluster"`
-	TopN      int               `json:"topN"`
+	TopN      int               `json:"top_n"`
 	Nodes     []NodeCriticality `json:"nodes"`
 	Algorithm string            `json:"algorithm"`
-	BuildMs   int64             `json:"buildMs"`
+	BuildMs   int64             `json:"build_ms"`
 }
 
 type NodeCriticality struct {
-	NodeID    string  `json:"nodeId"`
-	NodeKind  string  `json:"nodeKind"`
-	NodeName  string  `json:"nodeName"`
+	NodeID    string  `json:"node_id"`
+	NodeKind  string  `json:"node_kind"`
+	NodeName  string  `json:"node_name"`
 	Namespace string  `json:"namespace,omitempty"`
 	Score     float64 `json:"score"`
 	Rank      int     `json:"rank"`
@@ -330,19 +330,19 @@ type NodeCriticality struct {
 
 type ClustersResponse struct {
 	Cluster        string     `json:"cluster"`
-	GroupBy        string     `json:"groupBy"` // "image" 또는 "cve"
-	TotalGroups    int        `json:"totalGroups"`
-	TotalPods      int        `json:"totalPods"`
-	LargestGroup   int        `json:"largestGroup"`
-	SingletonCount int        `json:"singletonCount"`
+	GroupBy        string     `json:"group_by"` // "image" 또는 "cve"
+	TotalGroups    int        `json:"total_groups"`
+	TotalPods      int        `json:"total_pods"`
+	LargestGroup   int        `json:"largest_group"`
+	SingletonCount int        `json:"singleton_count"`
 	Groups         []PodGroup `json:"groups"`
-	BuildMs        int64      `json:"buildMs"`
+	BuildMs        int64      `json:"build_ms"`
 }
 
 type PodGroup struct {
-	GroupID   int      `json:"groupId"`
+	GroupID   int      `json:"group_id"`
 	Size      int      `json:"size"`
-	PodIDs    []string `json:"podIds"`
-	PodLabels []string `json:"podLabels"`
-	SharedKey string   `json:"sharedKey,omitempty"` // 공유 이미지 digest 또는 CVE ID
+	PodIDs    []string `json:"pod_ids"`
+	PodLabels []string `json:"pod_labels"`
+	SharedKey string   `json:"shared_key,omitempty"` // 공유 이미지 digest 또는 CVE ID
 }
