@@ -144,6 +144,8 @@ func (s *GRCService) EvaluatePodGraph(ctx context.Context, req PodGraphRequest) 
 				continue
 			}
 			rr := evaluatePodRule(rule, rs.Item.ID, rs.Item.Name, req)
+			// 미측정(NO_DATA/skip/판정불가) 결과에 K8s 외부 확인처 가이드 부착
+			rr = attachOffClusterGuidance(rr, rule, rs.Item.ID)
 			result.RuleResults = append(result.RuleResults, rr)
 			log.Printf("[pod-graph] rule=%s verdict=%s", rule.RuleID, rr.Verdict)
 		}
@@ -364,6 +366,92 @@ var implementedPodRules = map[string]bool{
 // podRuleImplemented reports whether a pod-level evaluator exists for the rule.
 func podRuleImplemented(ruleID string) bool {
 	return implementedPodRules[strings.Replace(ruleID, "-POD-", "-", 1)]
+}
+
+// ─────────────────────────────────────────────
+// 미측정 룰 외부 확인처 가이드
+// ─────────────────────────────────────────────
+
+// ruleOffClusterHints maps canonical rule IDs to "K8s 밖에서 어디를 확인해야
+// 하는지" guidance, used when the rule result is 미측정 (NO_DATA/skip/판정불가).
+// 룰셋 JSON의 offcluster_satisfaction_conditions가 있으면 그것이 우선한다.
+var ruleOffClusterHints = map[string]string{
+	"R-1.2.1-01":  "자산관리대장/CMDB의 K8s 자산 등재·분류등급·중요도 산정 현황",
+	"R-1.2.2-01":  "정보서비스 흐름도·외부 연계 시스템 목록(외부 의존성 등록 여부)",
+	"R-1.2.2-02":  "정보서비스 흐름도(Ingress 진입 경로 반영 여부)",
+	"R-2.1.3-02":  "CMDB의 자산별 보안등급 분류",
+	"R-2.5.1-02":  "사내 CMDB/IAM의 SA-소유팀 매핑, SA 발급 신청·승인 기록",
+	"R-2.8.3-01":  "별도 클러스터/VPC 환경 분리 현황, namespace 네이밍 컨벤션, 배포 파이프라인의 환경 정의",
+	"R-2.8.3-03":  "별도 클러스터/VPC 환경 분리 현황, namespace 네이밍 컨벤션(환경 식별 수단)",
+	"R-2.9.1-01":  "ITSM 변경관리 신청·승인 결재 기록, 배포 파이프라인 이력",
+	"R-2.10.2-08": "EKS 콘솔의 namespace Pod Security 설정, CSPM/클라우드 보안 점검 보고서",
+	"R-2.10.8-01": "EKS 콘솔/노드그룹의 kubelet 버전·지원 종료일(EOL) 현황",
+	"R-2.11.3-01": "K8s Audit Log(CloudWatch Logs), Falco/Tetragon 등 런타임 탐지 도구, SIEM 보관 로그",
+}
+
+// itemOffClusterHints is the per-item fallback when no rule-level hint exists.
+var itemOffClusterHints = map[string]string{
+	"1.2.1":  "자산관리대장/CMDB",
+	"1.2.2":  "정보서비스·개인정보 흐름도, 외부 위탁 계약 목록",
+	"2.1.3":  "CMDB·ITSM(자산/변경 결재 기록)",
+	"2.5.1":  "계정 관리 대장, 계정 정기 점검 기록",
+	"2.5.2":  "IAM/계정 발급 기록",
+	"2.5.4":  "OS·AD·IAM 비밀번호 정책 설정 증적, 비밀번호 관리 지침",
+	"2.5.5":  "특수 계정 목록, 권한 부여 승인 결재 기록",
+	"2.6.1":  "VPC 서브넷/Security Group 설계서, 네트워크 구성도",
+	"2.6.3":  "API 게이트웨이/IdP의 인증 설정, 응용 접근통제 정책",
+	"2.6.7":  "NAT Gateway 화이트리스트, 프록시·외부 방화벽 정책",
+	"2.7.1":  "EKS Secret 암호화(KMS) 설정, ALB TLS 정책, 암호정책 문서",
+	"2.8.3":  "클러스터/VPC 환경 분리 현황, 배포 파이프라인 환경 정의",
+	"2.9.1":  "ITSM 변경 신청·승인 기록",
+	"2.10.2": "클라우드 보안 설정 점검(CSPM), EKS 콘솔",
+	"2.10.3": "VPC SG/WAF 콘솔, 공개 자산(LB/도메인) 목록",
+	"2.10.5": "ALB/CloudFront TLS 설정, 조직 간 전송 협약",
+	"2.10.8": "패치 적용 기록, 이미지 스캔(Trivy 등) 리포트",
+	"2.11.3": "Audit Log/SIEM, 이상행위 탐지 도구 운영 기록",
+}
+
+// offClusterCheckHint resolves the external check guidance for a rule:
+// ruleset JSON metadata first, then rule-level map, then item-level fallback.
+func offClusterCheckHint(rule Rule, itemID string) string {
+	if rule.ManualCheckOutput != nil && len(rule.ManualCheckOutput.OffclusterSatisfactionConditions) > 0 {
+		return strings.Join(rule.ManualCheckOutput.OffclusterSatisfactionConditions, " / ")
+	}
+	if rule.ManualMeta != nil && len(rule.ManualMeta.OffclusterSatisfactionConditions) > 0 {
+		return strings.Join(rule.ManualMeta.OffclusterSatisfactionConditions, " / ")
+	}
+	canonical := strings.Replace(rule.RuleID, "-POD-", "-", 1)
+	if h, ok := ruleOffClusterHints[canonical]; ok {
+		return h
+	}
+	if h, ok := itemOffClusterHints[itemID]; ok {
+		return h
+	}
+	return "외부 통제(클라우드 콘솔·CMDB·ITSM·정책 문서)에서 충족 여부 확인"
+}
+
+// attachOffClusterGuidance appends "K8s 측정 범위 외 — 확인처" guidance to every
+// 미측정 result (NO_DATA / SKIPPED / INDETERMINATE). 미측정 ≠ 미준수: K8s 밖에서
+// 충족 중일 수 있으므로, 어디를 확인해야 하는지를 결과 텍스트에 직접 싣는다.
+// N_A(대상 리소스 부재)와 REPORT(정보 제공)는 미측정이 아니므로 제외한다.
+func attachOffClusterGuidance(rr PodRuleResult, rule Rule, itemID string) PodRuleResult {
+	switch grc.NormalizeVerdict(rr.Verdict) {
+	case grc.VerdictNO_DATA, grc.VerdictSKIPPED, grc.VerdictINDETERMINATE:
+		// fall through to attach
+	default:
+		return rr
+	}
+	hint := fmt.Sprintf("K8s 측정 범위 외 — 확인처: %s", offClusterCheckHint(rule, itemID))
+	switch {
+	case rr.SkipReason != "":
+		rr.SkipReason += " ▸ " + hint
+	case rr.Reason != "":
+		rr.Reason += " ▸ " + hint
+	default:
+		// 빈 메시지로 렌더링되던 미측정 결과도 확인처가 본문이 된다.
+		rr.Reason = hint
+	}
+	return rr
 }
 
 // allIndicatorsNA reports whether every matched indicator marks the rule as
