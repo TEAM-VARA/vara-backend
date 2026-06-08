@@ -169,6 +169,11 @@ func (s *PackageVulnService) SearchByVulnID(ctx context.Context, vulnID string) 
 	return s.repo.SearchByVulnID(ctx, vulnID)
 }
 
+// SearchPodsByVulnID는 vuln_id가 영향을 주는 Pod 목록을 역추적합니다 (cluster_pods 최신 스냅샷 기준).
+func (s *PackageVulnService) SearchPodsByVulnID(ctx context.Context, clusterName, vulnID string) ([]sbom.AffectedPod, error) {
+	return s.repo.SearchPodsByVulnID(ctx, clusterName, vulnID)
+}
+
 func (s *PackageVulnService) ListByPURL(ctx context.Context, purl string) ([]sbom.PackageVulnerability, error) {
 	return s.repo.ListByPURL(ctx, purl)
 }

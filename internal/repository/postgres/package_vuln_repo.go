@@ -201,6 +201,58 @@ func (r *PackageVulnerabilityRepo) SearchByVulnID(ctx context.Context, vulnID st
 	return scanVulns(rows)
 }
 
+// SearchPodsByVulnID는 vuln_id가 실제로 영향을 주는 Pod 목록을 역추적합니다.
+//
+// 경로: vuln_id → package_vulnerabilities.purl → sbom_packages.image_digest
+//   → sboms.image → cluster_pods.containers[].image (cluster의 최신 snapshot)
+//
+// 대상은 (A) cluster_pods 최신 스냅샷 기준이며, 시스템 Pod(tetragon/ebs-csi-node)은 제외합니다.
+func (r *PackageVulnerabilityRepo) SearchPodsByVulnID(ctx context.Context, clusterName, vulnID string) ([]sbom.AffectedPod, error) {
+	rows, err := r.pool.Query(ctx,
+		`WITH affected_digests AS (
+			SELECT DISTINCT sp.image_digest, pv.name AS pkg_name, pv.version AS pkg_version
+			FROM package_vulnerabilities pv
+			JOIN sbom_packages sp ON sp.purl = pv.purl
+			WHERE pv.vuln_id = $2 OR $2 = ANY(pv.aliases)
+		),
+		affected_images AS (
+			SELECT ad.image_digest, ad.pkg_name, ad.pkg_version, s.image
+			FROM affected_digests ad
+			JOIN sboms s ON s.image_digest = ad.image_digest
+		),
+		latest_pods AS (
+			SELECT pod_uid, name AS pod_name, namespace,
+			       jsonb_array_elements(containers)->>'image' AS pod_image
+			FROM cluster_pods
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+			  AND name NOT LIKE 'tetragon%'
+			  AND name NOT LIKE 'ebs-csi-node%'
+		)
+		SELECT DISTINCT lp.pod_uid, lp.pod_name, lp.namespace,
+		       ai.image_digest, ai.pkg_name, ai.pkg_version
+		FROM latest_pods lp
+		JOIN affected_images ai ON ai.image = lp.pod_image
+		ORDER BY lp.namespace, lp.pod_name`,
+		clusterName, vulnID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("search pods by vuln id: %w", err)
+	}
+	defer rows.Close()
+
+	var out []sbom.AffectedPod
+	for rows.Next() {
+		var p sbom.AffectedPod
+		if err := rows.Scan(&p.PodUID, &p.PodName, &p.Namespace,
+			&p.ImageDigest, &p.PackageName, &p.Version); err != nil {
+			return nil, fmt.Errorf("scan affected pod: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // DeleteByPURL은 한 PURL의 모든 취약점 기록을 삭제합니다 (재스캔 전 정리).
 func (r *PackageVulnerabilityRepo) DeleteByPURL(ctx context.Context, purl string) error {
 	_, err := r.pool.Exec(ctx,

@@ -90,15 +90,25 @@ type CountResponse struct {
 // Metadata 구조체 (카테고리별)
 // ─────────────────────────────────────────
 
+// AffectedPodRef는 new_cve 알림에 담기는 영향 Pod 한 건입니다.
+type AffectedPodRef struct {
+	PodUID      string `json:"pod_uid"`
+	PodName     string `json:"pod_name"`
+	Namespace   string `json:"namespace"`
+	PackageName string `json:"package_name"` // 어떤 패키지 때문에 취약한지
+	Version     string `json:"version"`
+}
+
 // NewCVEMetadata는 new_cve 카테고리의 metadata 구조입니다.
 type NewCVEMetadata struct {
-	VulnID        string   `json:"vuln_id"`
-	SeverityScore float64  `json:"severity_score"`
-	SeverityLabel string   `json:"severity_label"`
-	AffectedPods  []string `json:"affected_pods"`
-	AffectedCount int      `json:"affected_count"`
-	TopCVE        string   `json:"top_cve,omitempty"`
-	ImageDigests  []string `json:"image_digests,omitempty"`
+	VulnID        string           `json:"vuln_id"`
+	SeverityScore float64          `json:"severity_score"`
+	SeverityLabel string           `json:"severity_label"`
+	AffectedPods  []string         `json:"affected_pods"`             // "namespace/pod_name" 표시용
+	AffectedPodList []AffectedPodRef `json:"affected_pod_list,omitempty"` // 구조화된 Pod 정보 (역추적 결과)
+	AffectedCount int              `json:"affected_count"`            // 영향받는 고유 Pod 수
+	TopCVE        string           `json:"top_cve,omitempty"`
+	ImageDigests  []string         `json:"image_digests,omitempty"`
 }
 
 // RiskChangeMetadata는 risk_change 카테고리의 metadata 구조입니다.
