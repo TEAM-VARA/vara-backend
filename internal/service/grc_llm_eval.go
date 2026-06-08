@@ -22,9 +22,10 @@ const scoreUnknown = -1.0
 
 // scoredSentence holds a guideline sentence with its cosine similarity score.
 type scoredSentence struct {
-	index int
-	text  string
-	score float64
+	index  int
+	text   string
+	score  float64
+	source string // 출처 문서 파일명 (예: "정보보호정책서.pdf")
 }
 
 // evaluateLLMRAGEntailment performs RAG + LLM entailment judgment:
@@ -277,33 +278,56 @@ func splitEvidenceSentences(evidenceData []any) []string {
 // splitGuidelineSentences breaks DB guideline extracted_text into individual sentences.
 // Falls back to buildGuidelineText(rule) if no DB guidelines exist.
 func splitGuidelineSentences(dbGuidelines []grc.Guideline, rule Rule) []string {
-	var allText string
-	for _, g := range dbGuidelines {
-		if g.ExtractedText != "" {
-			allText += g.ExtractedText + "\n"
-		}
-	}
-
-	if allText == "" {
-		allText = buildGuidelineText(rule)
-	}
-
-	if strings.TrimSpace(allText) == "" {
-		return nil
-	}
-
-	// Split by newlines, filter empty/trivial fragments.
-	var sentences []string
-	for _, line := range strings.Split(allText, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || line == "---" {
-			continue
-		}
-		if len([]rune(line)) > 5 {
-			sentences = append(sentences, line)
-		}
+	pairs := splitGuidelineSentencesWithSource(dbGuidelines, rule)
+	sentences := make([]string, len(pairs))
+	for i, p := range pairs {
+		sentences[i] = p.text
 	}
 	return sentences
+}
+
+type sourcedSentence struct {
+	text   string
+	source string
+}
+
+// sentenceSourceMap maps sentence text → source filename for later attribution.
+var sentenceSourceMap = map[string]string{}
+
+func splitGuidelineSentencesWithSource(dbGuidelines []grc.Guideline, rule Rule) []sourcedSentence {
+	var pairs []sourcedSentence
+
+	for _, g := range dbGuidelines {
+		if g.ExtractedText == "" {
+			continue
+		}
+		for _, line := range strings.Split(g.ExtractedText, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || line == "---" {
+				continue
+			}
+			if len([]rune(line)) > 5 {
+				pairs = append(pairs, sourcedSentence{text: line, source: g.Filename})
+				sentenceSourceMap[line] = g.Filename
+			}
+		}
+	}
+
+	if len(pairs) == 0 {
+		fallback := buildGuidelineText(rule)
+		if strings.TrimSpace(fallback) != "" {
+			for _, line := range strings.Split(fallback, "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" || line == "---" {
+					continue
+				}
+				if len([]rune(line)) > 5 {
+					pairs = append(pairs, sourcedSentence{text: line, source: "ruleset"})
+				}
+			}
+		}
+	}
+	return pairs
 }
 
 // buildRuleQuery constructs the query text from rule fields for embedding retrieval.
@@ -356,19 +380,27 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 			SentenceIndex int      `json:"sentence_index"`
 			Text          string   `json:"text"`
 			CosineScore   *float64 `json:"cosine_score,omitempty"`
+			Source        string   `json:"source,omitempty"`
 		}
 		var evidenceEntries []evidenceEntry
 		for _, idx := range resp.BasisIdx {
 			if idx >= 1 && idx <= len(topHits) {
 				hit := topHits[idx-1]
-				entry := evidenceEntry{SentenceIndex: hit.index, Text: hit.text}
-				// score가 미상(캐시 경로)이면 cos 표기를 생략한다 (거짓 1.000 방지).
+				src := hit.source
+				if src == "" {
+					src = sentenceSourceMap[hit.text]
+				}
+				entry := evidenceEntry{SentenceIndex: hit.index, Text: hit.text, Source: src}
+				srcTag := ""
+				if src != "" {
+					srcTag = fmt.Sprintf(" [%s]", src)
+				}
 				if hit.score >= 0 {
-					indicators = append(indicators, fmt.Sprintf("근거[%d]: %s (cos=%.3f)", idx, ragTruncate(hit.text, 80), hit.score))
+					indicators = append(indicators, fmt.Sprintf("근거[%d]: %s (cos=%.3f)%s", idx, ragTruncate(hit.text, 80), hit.score, srcTag))
 					sc := hit.score
 					entry.CosineScore = &sc
 				} else {
-					indicators = append(indicators, fmt.Sprintf("근거[%d]: %s", idx, ragTruncate(hit.text, 80)))
+					indicators = append(indicators, fmt.Sprintf("근거[%d]: %s%s", idx, ragTruncate(hit.text, 80), srcTag))
 				}
 				evidenceEntries = append(evidenceEntries, entry)
 			}
