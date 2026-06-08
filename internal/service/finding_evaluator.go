@@ -197,7 +197,14 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 		// (탐지 불가 ≠ 위반 없음 — 증거 부재를 준수로 승격하던 버그 수정, 예: R-2.10.8-04 CVE 스캔 미연동)
 		if evidenceDataUnavailable(result) {
 			result.Verdict = grc.VerdictNO_DATA
-			result.Reason = "자동화 R룰(승격): 평가 데이터 미수집 — 판단 불가"
+			detail := rule.Name
+			if detail == "" {
+				detail = rule.RuleID
+			}
+			if obs := strings.TrimSpace(result.Observation); obs != "" {
+				detail += " (" + obs + ")"
+			}
+			result.Reason = fmt.Sprintf("평가 데이터 미수집으로 '%s' 자동점검이 불가합니다. 해당 데이터 소스를 연동하면 자동 판정됩니다.", detail)
 			return result
 		}
 		if result.Matched {

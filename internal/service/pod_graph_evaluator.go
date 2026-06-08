@@ -587,7 +587,12 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	// → 준수로 부풀리지도, 해당없음으로 단정하지도 않고 NEEDS_REVIEW(검토필요)로 둔다.
 	if result.Verdict == "준수" && allIndicatorsNA(result.MatchedIndicators) {
 		result.Verdict = grc.VerdictNEEDS_REVIEW
-		result.Reason = "점검 대상 리소스 부재 — 적용성·대체통제 재확인 필요 (자동 해당없음 처리 안 함; 인증범위 문서로 대상 부재 확인 시에만 N/A)"
+		var naDetails []string
+		for _, mi := range result.MatchedIndicators {
+			naDetails = append(naDetails, mi)
+		}
+		detail := strings.Join(naDetails, "; ")
+		result.Reason = fmt.Sprintf("점검 대상 리소스 부재: %s. 인증범위 문서에서 대상 부재가 확인되면 N/A 처리 가능합니다.", detail)
 	}
 
 	// 미준수 판정 시 FailMessage/Remediation 자동 부여
