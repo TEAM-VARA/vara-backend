@@ -47,7 +47,7 @@ VALUES
 -- ---- R-DIRECT (3) -------------------------------------------------------
 ('R-DIRECT-01', 'direct', '0.1',
  'escalate verb on roles/clusterroles -> arbitrary self-grant',
- 'roles/clusterroles 에 escalate 권한. 본인에게 임의 권한을 직접 자가부여(self-grant).',
+ '자기 권한을 스스로 더 높게 부여할 수 있음.',
  'any_of',
  '[{"api_group":"rbac.authorization.k8s.io","resource":"roles","verb":"escalate"},
    {"api_group":"rbac.authorization.k8s.io","resource":"clusterroles","verb":"escalate"}]'::jsonb,
@@ -59,7 +59,7 @@ VALUES
 
 ('R-DIRECT-02', 'direct', '0.1',
  'bind verb on roles/clusterroles -> 자기/타인에게 임의 (Cluster)Role 부착 가능',
- 'roles/clusterroles 에 bind 권한. 자신이나 타인에게 임의의 (Cluster)Role 을 붙일 수 있음.',
+ '임의의 권한 묶음을 자기나 남에게 붙일 수 있음.',
  'any_of',
  '[{"api_group":"rbac.authorization.k8s.io","resource":"roles","verb":"bind"},
    {"api_group":"rbac.authorization.k8s.io","resource":"clusterroles","verb":"bind"}]'::jsonb,
@@ -72,7 +72,7 @@ VALUES
 
 ('R-DIRECT-03', 'direct', '0.1',
  'impersonate verb on users/groups/serviceaccounts/uids -> 다른 신원으로 가장하여 그 권한 전체 사용 가능',
- 'users/groups/serviceaccounts/uids 에 impersonate 권한. 다른 신원으로 가장해 그 권한을 전부 사용.',
+ '다른 계정으로 위장해 그 권한을 그대로 사용.',
  'any_of',
  '[{"api_group":"","resource":"users","verb":"impersonate"},
    {"api_group":"","resource":"groups","verb":"impersonate"},
@@ -88,7 +88,7 @@ VALUES
 -- ---- R-INDIRECT (16) ----------------------------------------------------
 ('R-INDIRECT-01', 'indirect', '0.1',
  'create on pods -> spec.serviceAccountName으로 같은 NS 임의 SA를 마운트한 Pod 생성 가능',
- 'pods create 로 같은 NS 의 강한 SA 를 마운트한 Pod 를 생성해 그 SA 토큰을 흡수.',
+ '강한 계정을 단 Pod를 새로 띄워 그 토큰을 빼냄.',
  'any_of',
  '[{"api_group":"","resource":"pods","verb":"create"}]'::jsonb,
  'default', 'B', NULL,
@@ -101,7 +101,7 @@ VALUES
 
 ('R-INDIRECT-02', 'indirect', '0.1',
  'create/get on pods/exec|attach|portforward -> 실행 중 Pod 컨테이너에서 그 Pod SA 토큰 또는 동등 효과 획득',
- 'pods/exec, attach, portforward 로 실행 중 Pod 에 들어가 그 Pod 의 SA 토큰을 탈취.',
+ '실행 중인 Pod에 접속(exec 등)해 그 안의 토큰을 탈취.',
  'any_of',
  '[{"api_group":"","resource":"pods/exec","verb":"create"},
    {"api_group":"","resource":"pods/exec","verb":"get"},
@@ -119,7 +119,7 @@ VALUES
 
 ('R-INDIRECT-03', 'indirect', '0.1',
  'update/patch on pods/ephemeralcontainers -> 실행 중 Pod에 디버그 컨테이너 주입, 그 Pod SA 토큰 획득',
- 'pods/ephemeralcontainers update/patch 로 실행 중 Pod 에 디버그 컨테이너를 주입해 토큰 획득.',
+ '실행 중 Pod에 디버그 컨테이너를 끼워넣어 토큰을 빼냄.',
  'any_of',
  '[{"api_group":"","resource":"pods/ephemeralcontainers","verb":"update"},
    {"api_group":"","resource":"pods/ephemeralcontainers","verb":"patch"}]'::jsonb,
@@ -131,7 +131,7 @@ VALUES
 
 ('R-INDIRECT-04', 'indirect', '0.1',
  'create/update/patch on workload controllers (7종) -> PodTemplateSpec으로 임의 SA 마운트 Pod 간접 생성',
- '워크로드 컨트롤러 7종(deployments/replicasets/statefulsets/daemonsets/jobs/cronjobs/replicationcontrollers)의 PodTemplateSpec 변조로 R-INDIRECT-01 을 간접 우회.',
+ 'Pod를 직접 안 만들어도 Deployment 등 워크로드 설정을 바꿔 강한 계정 Pod가 생성되게 함.',
  'any_of',
  '[{"api_group":"apps","resource":"deployments","verb":"create"},
    {"api_group":"apps","resource":"deployments","verb":"update"},
@@ -165,7 +165,7 @@ VALUES
 
 ('R-INDIRECT-05', 'indirect', '0.1',
  'get/list/watch on secrets -> 수동 또는 1.23 이하 자동 SA token Secret 직접 읽기 가능',
- 'secrets get/list/watch 로 SA 토큰 Secret 이나 민감 데이터를 직접 읽음. (현재 엔진 미연결)',
+ 'Secret을 읽어 토큰·민감정보를 직접 획득.',
  'any_of',
  '[{"api_group":"","resource":"secrets","verb":"get"},
    {"api_group":"","resource":"secrets","verb":"list"},
@@ -180,7 +180,7 @@ VALUES
 
 ('R-INDIRECT-06', 'indirect', '0.1',
  'create on serviceaccounts/token -> 임의 SA 토큰 즉석 발급 (TokenRequest API, K8s 1.24+ 정식 경로)',
- 'serviceaccounts/token create 로 TokenRequest API 를 호출해 임의 SA 토큰을 즉석 발급.',
+ '임의 계정의 토큰을 즉석에서 발급받음.',
  'any_of',
  '[{"api_group":"","resource":"serviceaccounts/token","verb":"create"}]'::jsonb,
  'default', 'B', NULL,
@@ -190,7 +190,7 @@ VALUES
 
 ('R-INDIRECT-07', 'indirect', '1.0',
  'csr/approval (update|patch) AND signers/kube-apiserver-client approve -> cluster-admin 인증서 발급',
- 'csr/approval update|patch 와 kube-apiserver-client signer approve 를 함께 가지면 system:masters 인증서를 발급해 cluster-admin 도달.',
+ '인증서 승인 권한으로 관리자급 인증서를 직접 발급해 클러스터 관리자에 도달.',
  'all_of',
  '[{"any_of":[{"api_group":"certificates.k8s.io","resource":"certificatesigningrequests/approval","verb":"update"},
                {"api_group":"certificates.k8s.io","resource":"certificatesigningrequests/approval","verb":"patch"}]},
@@ -202,7 +202,7 @@ VALUES
 
 ('R-INDIRECT-08', 'indirect', '0.1',
  'create/update/patch on validating/mutating webhook configurations -> admission 가로채기로 token 훔침 또는 강제 SA 마운트',
- 'validating/mutating webhook configuration 등록/수정으로 admission 을 가로채 토큰을 훔치거나 강제 SA 마운트.',
+ 'Admission 웹훅을 등록해 오가는 요청에서 토큰을 가로채거나 강한 계정을 강제 주입.',
  'any_of',
  '[{"api_group":"admissionregistration.k8s.io","resource":"validatingwebhookconfigurations","verb":"create"},
    {"api_group":"admissionregistration.k8s.io","resource":"validatingwebhookconfigurations","verb":"update"},
@@ -218,7 +218,7 @@ VALUES
 
 ('R-INDIRECT-09', 'indirect', '0.1',
  'create/update/patch on apiservices -> aggregated API hijack (token/response tampering)',
- 'apiservices 등록/수정으로 aggregated API 를 하이재킹해 토큰/응답을 변조. VARA 자체 룰(외부 도구 미커버).',
+ 'APIService를 조작해 집계 API를 가로채 토큰·응답을 변조.',
  'any_of',
  '[{"api_group":"apiregistration.k8s.io","resource":"apiservices","verb":"create"},
    {"api_group":"apiregistration.k8s.io","resource":"apiservices","verb":"update"},
@@ -229,7 +229,7 @@ VALUES
 
 ('R-INDIRECT-11', 'indirect', '0.1',
  'get/create on nodes/proxy -> kubelet API 직접 호출로 임의 Pod exec, 토큰 추출',
- 'nodes/proxy get/create 로 kubelet API 를 직접 호출(RBAC 우회)해 임의 Pod exec, 토큰 추출.',
+ '노드 kubelet API에 직접 접근(RBAC 우회)해 Pod 안의 토큰을 빼냄.',
  'any_of',
  '[{"api_group":"","resource":"nodes/proxy","verb":"get"},
    {"api_group":"","resource":"nodes/proxy","verb":"create"}]'::jsonb,
@@ -242,7 +242,7 @@ VALUES
 
 ('R-INDIRECT-12', 'indirect', '0.1',
  'patch on namespaces -> label modification (PodSecurity bypass, NetworkPolicy bypass)',
- 'namespaces patch 로 라벨을 변경해 PodSecurity/NetworkPolicy 를 우회. (현재 엔진 미연결)',
+ '네임스페이스 라벨을 바꿔 PodSecurity·NetworkPolicy를 우회.',
  'any_of',
  '[{"api_group":"","resource":"namespaces","verb":"patch"}]'::jsonb,
  'unwired', NULL, NULL,
@@ -251,7 +251,7 @@ VALUES
 
 ('R-INDIRECT-15', 'indirect', '0.1',
  'create on persistentvolumes -> hostPath PV로 host 파일시스템 마운트, 같은 노드 토큰 탈취',
- 'persistentvolumes create 로 hostPath PV 를 만들어 호스트 파일시스템을 마운트, 같은 노드의 토큰 탈취.',
+ 'hostPath 볼륨으로 노드 파일시스템을 마운트해 같은 노드의 토큰을 탈취.',
  'any_of',
  '[{"api_group":"","resource":"persistentvolumes","verb":"create"}]'::jsonb,
  'default', 'D', NULL,
@@ -260,7 +260,7 @@ VALUES
 
 ('R-INDIRECT-16', 'indirect', '1.0',
  'EKS kube-system/aws-auth ConfigMap update/patch -> system:masters mapping 추가 가능 -> cluster-admin',
- 'EKS 전용. kube-system/aws-auth ConfigMap 의 mapRoles/mapUsers 에 system:masters 를 추가해 cluster-admin. opt-in 플래그 필요.',
+ 'EKS 전용. aws-auth 설정에 자기 계정을 관리자로 추가. opt-in 플래그 필요.',
  'all_of',
  '[{"any_of":[{"api_group":"","resource":"configmaps","verb":"update","resource_names":["aws-auth"],"within_namespaces":["kube-system"]},
                {"api_group":"","resource":"configmaps","verb":"patch","resource_names":["aws-auth"],"within_namespaces":["kube-system"]}]}]'::jsonb,
@@ -271,7 +271,7 @@ VALUES
 
 ('R-INDIRECT-17', 'indirect', '1.0',
  'secrets (create|update|patch) AND secrets get -> type=service-account-token Secret 발급 + 토큰 탈취 (1.24+ 우회)',
- 'secrets create/update/patch 와 get 을 함께 가지면 service-account-token 타입 Secret 을 발급하고 그 토큰을 읽어 탈취.',
+ 'Secret을 만들고 읽을 수 있어 계정 토큰 Secret을 발급해 탈취.',
  'all_of',
  '[{"any_of":[{"api_group":"","resource":"secrets","verb":"create"},
                {"api_group":"","resource":"secrets","verb":"update"},
@@ -284,7 +284,7 @@ VALUES
 
 ('R-INDIRECT-18', 'indirect', '0.1',
  'create/update/patch on validating admission policies/bindings -> CEL admission 정책 조작 (K8s 1.30+)',
- 'validatingadmissionpolicies/bindings 조작으로 CEL 기반 admission 정책을 변조. K8s 1.30+ 메커니즘.',
+ 'Validating Admission Policy를 조작해 보안 검사 규칙을 변조.',
  'any_of',
  '[{"api_group":"admissionregistration.k8s.io","resource":"validatingadmissionpolicies","verb":"create"},
    {"api_group":"admissionregistration.k8s.io","resource":"validatingadmissionpolicies","verb":"update"},
@@ -298,7 +298,7 @@ VALUES
 
 ('R-INDIRECT-19', 'indirect', '1.0',
  'delete/eviction pods + nodes update/patch -> Pod 이주로 다른 SA 토큰 흡수',
- 'pods delete/eviction 와 nodes update/patch 를 함께 가지면 노드를 unschedulable 로 만들어 강한 Pod 을 본인 노드로 이주시켜 토큰 흡수.',
+ 'Pod 삭제와 노드 조작 권한으로 강한 Pod를 자기 노드로 옮겨 토큰을 흡수.',
  'all_of',
  '[{"any_of":[{"api_group":"","resource":"pods","verb":"delete"},
                {"api_group":"","resource":"pods","verb":"deletecollection"},
@@ -311,7 +311,7 @@ VALUES
 -- ---- R-LATERAL (3) ------------------------------------------------------
 ('R-LATERAL-01', 'lateral', '0.1',
  'update/patch on nodes or nodes/status -> taints/labels 조작으로 스케줄링 변경, 보안 DaemonSet 회피',
- 'nodes/nodes-status update/patch 로 taint/label 을 조작해 스케줄링을 바꾸고 보안 DaemonSet 을 회피. 권한상승 아님. (현재 엔진 미연결)',
+ '노드 taint/label을 조작해 스케줄링을 바꾸고 보안 DaemonSet을 회피. 권한상승 아님.',
  'any_of',
  '[{"api_group":"","resource":"nodes","verb":"update"},
    {"api_group":"","resource":"nodes","verb":"patch"},
@@ -323,7 +323,7 @@ VALUES
 
 ('R-LATERAL-02', 'lateral', '0.1',
  'delete on nodes -> 보안 모니터링 노드 삭제, 회피 워크로드 운영',
- 'nodes delete 로 보안 모니터링 노드를 삭제해 사각지대를 만듦. 권한상승 아님. VARA 자체 룰. (현재 엔진 미연결)',
+ '노드를 삭제해 보안 감시 사각지대를 만듦. 권한상승 아님.',
  'any_of',
  '[{"api_group":"","resource":"nodes","verb":"delete"}]'::jsonb,
  'unwired', NULL, NULL,
@@ -332,7 +332,7 @@ VALUES
 
 ('R-LATERAL-03', 'lateral', '0.1',
  'delete on namespaces -> security-tool NS wipe (kube-system, falco-system, etc.)',
- 'namespaces delete 로 보안 도구 네임스페이스(kube-system, falco-system 등)를 통째로 삭제. 권한상승 아님. VARA 자체 룰. (현재 엔진 미연결)',
+ '보안 도구가 든 네임스페이스를 통째로 삭제. 권한상승 아님.',
  'any_of',
  '[{"api_group":"","resource":"namespaces","verb":"delete"}]'::jsonb,
  'unwired', NULL, NULL,
