@@ -162,7 +162,11 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		return
 	}
 
+	log.Printf("VARADBG: processNewVulns entered, scanStart=%s, ListRecentlyAdded=%d rows",
+		scanStart.Format(time.RFC3339), len(newVulns))
+
 	if len(newVulns) == 0 {
+		log.Printf("VARADBG: ListRecentlyAdded returned 0 → early return")
 		return
 	}
 
@@ -179,8 +183,12 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		// 하이브리드 severity 결정 (4단계 fallback)
 		score, label := s.resolveSeverity(ctx, repVuln)
 
+		log.Printf("VARADBG: vuln=%s resolved label=%q score=%.1f (db_label=%q db_score=%.1f aliases=%v)",
+			vulnID, label, score, repVuln.SeverityLabel, repVuln.SeverityScore, repVuln.Aliases)
+
 		// Critical/High만 알림 생성
 		if label != "Critical" && label != "High" {
+			log.Printf("VARADBG: vuln=%s SKIPPED by severity gate (label=%q)", vulnID, label)
 			continue
 		}
 
@@ -191,7 +199,10 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 			continue
 		}
 
+		log.Printf("VARADBG: vuln=%s SearchByVulnID=%d packages", vulnID, len(affected))
+
 		if len(affected) == 0 {
+			log.Printf("VARADBG: vuln=%s SKIPPED (0 affected packages)", vulnID)
 			continue
 		}
 
@@ -223,8 +234,11 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		}
 
 		if notif == nil {
+			log.Printf("VARADBG: vuln=%s CreateNewCVE returned nil (24h dedup)", vulnID)
 			continue // 24h dedup
 		}
+
+		log.Printf("VARADBG: vuln=%s notification CREATED id=%d pods=%d", vulnID, notif.ID, podCount)
 
 		criticalHighCount++
 		log.Printf("scheduler: notification created for %s (id=%d, label=%s, score=%.1f, pods=%d, pkgs=%d)",
