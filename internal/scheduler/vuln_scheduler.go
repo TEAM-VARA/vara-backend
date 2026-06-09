@@ -2,8 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -164,7 +162,11 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		return
 	}
 
+	log.Printf("VARADBG: processNewVulns entered, scanStart=%s, ListRecentlyAdded=%d rows",
+		scanStart.Format(time.RFC3339), len(newVulns))
+
 	if len(newVulns) == 0 {
+		log.Printf("VARADBG: ListRecentlyAdded returned 0 → early return")
 		return
 	}
 
@@ -181,30 +183,48 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		// 하이브리드 severity 결정 (4단계 fallback)
 		score, label := s.resolveSeverity(ctx, repVuln)
 
+		log.Printf("VARADBG: vuln=%s resolved label=%q score=%.1f (db_label=%q db_score=%.1f aliases=%v)",
+			vulnID, label, score, repVuln.SeverityLabel, repVuln.SeverityScore, repVuln.Aliases)
+
 		// Critical/High만 알림 생성
 		if label != "Critical" && label != "High" {
+			log.Printf("VARADBG: vuln=%s SKIPPED by severity gate (label=%q)", vulnID, label)
 			continue
 		}
 
-		// 영향 자산 식별
+		// 영향 패키지 식별 (Risk Scoring 재계산용)
 		affected, err := s.vulnSvc.SearchByVulnID(ctx, vulnID)
 		if err != nil {
 			log.Printf("scheduler: search affected failed for %s: %v", vulnID, err)
 			continue
 		}
 
+		log.Printf("VARADBG: vuln=%s SearchByVulnID=%d packages", vulnID, len(affected))
+
 		if len(affected) == 0 {
+			log.Printf("VARADBG: vuln=%s SKIPPED (0 affected packages)", vulnID)
 			continue
 		}
 
+		// 영향 Pod 역추적 (cluster_pods 최신 스냅샷 기준)
+		// 실패해도 알림은 생성 — Pod 정보만 비워둠
+		affectedPods, err := s.vulnSvc.SearchPodsByVulnID(ctx, s.clusterName, vulnID)
+		if err != nil {
+			log.Printf("scheduler: search affected pods failed for %s: %v", vulnID, err)
+			affectedPods = nil
+		}
+		podRefs, podDisplay, podDigests, podCount := summarizeAffectedPods(affectedPods)
+
 		// 알림 생성 (24h dedup 자동 적용)
 		meta := notification.NewCVEMetadata{
-			VulnID:        vulnID,
-			SeverityScore: score,
-			SeverityLabel: label,
-			AffectedPods:  collectPodNames(affected),
-			AffectedCount: len(affected),
-			TopCVE:        vulnID,
+			VulnID:          vulnID,
+			SeverityScore:   score,
+			SeverityLabel:   label,
+			AffectedPods:    podDisplay,
+			AffectedPodList: podRefs,
+			AffectedCount:   podCount,
+			TopCVE:          vulnID,
+			ImageDigests:    podDigests,
 		}
 
 		notif, err := s.notifSvc.CreateNewCVE(ctx, s.clusterName, meta)
@@ -214,12 +234,15 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		}
 
 		if notif == nil {
+			log.Printf("VARADBG: vuln=%s CreateNewCVE returned nil (24h dedup)", vulnID)
 			continue // 24h dedup
 		}
 
+		log.Printf("VARADBG: vuln=%s notification CREATED id=%d pods=%d", vulnID, notif.ID, podCount)
+
 		criticalHighCount++
-		log.Printf("scheduler: notification created for %s (id=%d, label=%s, score=%.1f, affected=%d)",
-			vulnID, notif.ID, label, score, len(affected))
+		log.Printf("scheduler: notification created for %s (id=%d, label=%s, score=%.1f, pods=%d, pkgs=%d)",
+			vulnID, notif.ID, label, score, podCount, len(affected))
 
 		// Risk Scoring 자동 재계산
 		s.recalculateRiskScores(ctx, affected)
@@ -380,26 +403,41 @@ func selectTopVuln(vulns []sbom.PackageVulnerability) sbom.PackageVulnerability 
 	return vulns[0]
 }
 
-// collectPodNames는 영향받는 PURL 리스트를 사람이 읽을 수 있는 식별자로 변환합니다.
-// 정확한 pod_uid 매핑은 추가 쿼리 필요 (Phase 6에서 보강 가능).
-func collectPodNames(affected []sbom.PackageVulnerability) []string {
-	seen := make(map[string]bool)
-	var result []string
-	for _, v := range affected {
-		key := fmt.Sprintf("%s@%s", v.Name, v.Version)
-		if !seen[key] {
-			seen[key] = true
-			result = append(result, key)
+// summarizeAffectedPods는 역추적된 영향 Pod 목록을 알림 메타용으로 가공합니다.
+//
+// 반환:
+//   - refs:    구조화된 Pod 정보 (최대 50건, 표시 과다 방지)
+//   - display: "namespace/pod_name" 표시용 문자열 (고유 Pod, 최대 20건)
+//   - digests: 영향 이미지 digest (고유)
+//   - count:   영향받는 고유 Pod 수 (pod_uid 기준)
+func summarizeAffectedPods(pods []sbom.AffectedPod) (refs []notification.AffectedPodRef, display []string, digests []string, count int) {
+	seenPod := make(map[string]bool)
+	seenDisplay := make(map[string]bool)
+	seenDigest := make(map[string]bool)
+
+	for _, p := range pods {
+		if !seenPod[p.PodUID] {
+			seenPod[p.PodUID] = true
+			count++
+		}
+		if len(refs) < 50 {
+			refs = append(refs, notification.AffectedPodRef{
+				PodUID:      p.PodUID,
+				PodName:     p.PodName,
+				Namespace:   p.Namespace,
+				PackageName: p.PackageName,
+				Version:     p.Version,
+			})
+		}
+		key := p.Namespace + "/" + p.PodName
+		if !seenDisplay[key] && len(display) < 20 {
+			seenDisplay[key] = true
+			display = append(display, key)
+		}
+		if p.ImageDigest != "" && !seenDigest[p.ImageDigest] {
+			seenDigest[p.ImageDigest] = true
+			digests = append(digests, p.ImageDigest)
 		}
 	}
-	if len(result) > 20 {
-		result = result[:20] // 너무 길지 않게
-	}
-	return result
-}
-
-// jsonMarshal helper
-func jsonMarshal(v interface{}) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return b
+	return refs, display, digests, count
 }
