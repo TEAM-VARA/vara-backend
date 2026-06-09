@@ -97,6 +97,27 @@ func (h *RBACChainHandler) GetSAPermissions(c *gin.Context) {
 	})
 }
 
+// GetSAInitialPermissions — GET /scoring/rbac-chain/clusters/:cluster_name/sa/:namespace/:name/initial-permissions
+// SA 한 개의 직접(흡수 전) 권한 전체 목록 (RC-5c). rbac_sa_initial_permissions.
+// RC-5b(/permissions, 최종 권한)의 짝 — 같은 형식으로 "흡수 전" 집합을 준다.
+func (h *RBACChainHandler) GetSAInitialPermissions(c *gin.Context) {
+	cluster := c.Param("cluster_name")
+	ns := c.Param("namespace")
+	name := c.Param("name")
+	perms, err := h.svc.ListSAInitialPermissions(c.Request.Context(), cluster, ns, name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"cluster_name": cluster,
+		"sa_namespace": ns,
+		"sa_name":      name,
+		"total":        len(perms),
+		"permissions":  perms,
+	})
+}
+
 // FindSAsByPermission — GET /scoring/rbac-chain/clusters/:cluster_name/permissions?resource=&verb=
 // 특정 권한(resource/verb)을 가진 SA 역질의 (RC-5a). 와일드카드(*) 보유 SA도 포함.
 func (h *RBACChainHandler) FindSAsByPermission(c *gin.Context) {
