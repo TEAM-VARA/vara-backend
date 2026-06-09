@@ -140,3 +140,29 @@ func (h *PackageVulnHandler) ListByPURL(c *gin.Context) {
 		"vulnerabilities": vulns,
 	})
 }
+
+// CVETimelineByPod : GET /api/v1/sboms/packages/vulnerabilities/timeline/pods/:pod_uid?cluster=...
+//
+// 한 Pod의 CVE 발생 타임라인(published_at 월별 빈도)을 반환.
+func (h *PackageVulnHandler) CVETimelineByPod(c *gin.Context) {
+	podUID := c.Param("pod_uid")
+	clusterName := c.Query("cluster")
+	if podUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pod_uid is required"})
+		return
+	}
+	if clusterName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster query parameter is required"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	resp, err := h.service.GetCVETimelineByPod(ctx, clusterName, podUID)
+	if err != nil {
+		fmt.Printf("warn: cve timeline failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}

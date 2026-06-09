@@ -127,6 +127,8 @@ func (s *PackageVulnService) ScanImage(ctx context.Context, imageDigest string, 
 				SeverityScore:  score,
 				SeverityVector: vector,
 				SeverityLabel:  label,
+				PublishedAt:    parseOSVTime(v.Published),
+				ModifiedAt:     parseOSVTime(v.Modified),
 				FetchedAt:      now,
 				ExpiresAt:      expires,
 			})
@@ -178,6 +180,11 @@ func (s *PackageVulnService) ListByPURL(ctx context.Context, purl string) ([]sbo
 	return s.repo.ListByPURL(ctx, purl)
 }
 
+// GetCVETimelineByPod은 한 Pod의 CVE 발생 타임라인(월별 빈도)을 반환합니다.
+func (s *PackageVulnService) GetCVETimelineByPod(ctx context.Context, clusterName, podUID string) (*sbom.CVETimelineResponse, error) {
+	return s.repo.GetCVETimelineByPod(ctx, clusterName, podUID)
+}
+
 // ─────────────────────────────────────────
 // Scheduler 지원 메서드
 // ─────────────────────────────────────────
@@ -194,4 +201,17 @@ func (s *PackageVulnService) ListRecentlyAdded(
 	severities []string,
 ) ([]sbom.PackageVulnerability, error) {
 	return s.repo.ListRecentlyAdded(ctx, since, severities)
+}
+
+// parseOSVTime은 OSV의 RFC3339 시각 문자열을 *time.Time으로 파싱합니다.
+// 빈 문자열이거나 파싱 실패 시 nil (해당 필드 없음으로 처리).
+func parseOSVTime(s string) *time.Time {
+	if s == "" {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return nil
+	}
+	return &t
 }

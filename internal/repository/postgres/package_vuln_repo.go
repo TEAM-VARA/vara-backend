@@ -84,11 +84,13 @@ func (r *PackageVulnerabilityRepo) UpsertBatch(ctx context.Context, vulns []sbom
 			purl, name, version, ecosystem,
 			vuln_id, aliases, summary,
 			severity_score, severity_vector, severity_label,
+			published_at, modified_at,
 			fetched_at, expires_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, NULLIF($7, ''),
 			$8, NULLIF($9, ''), NULLIF($10, ''),
-			$11, $12
+			$11, $12,
+			$13, $14
 		)
 		ON CONFLICT (purl, vuln_id) DO UPDATE SET
 			name            = EXCLUDED.name,
@@ -99,6 +101,8 @@ func (r *PackageVulnerabilityRepo) UpsertBatch(ctx context.Context, vulns []sbom
 			severity_score  = EXCLUDED.severity_score,
 			severity_vector = EXCLUDED.severity_vector,
 			severity_label  = EXCLUDED.severity_label,
+			published_at    = EXCLUDED.published_at,
+			modified_at     = EXCLUDED.modified_at,
 			fetched_at      = EXCLUDED.fetched_at,
 			expires_at      = EXCLUDED.expires_at
 	`
@@ -112,6 +116,7 @@ func (r *PackageVulnerabilityRepo) UpsertBatch(ctx context.Context, vulns []sbom
 			v.PURL, v.Name, v.Version, v.Ecosystem,
 			v.VulnID, v.Aliases, v.Summary,
 			score, v.SeverityVector, v.SeverityLabel,
+			v.PublishedAt, v.ModifiedAt,
 			v.FetchedAt, v.ExpiresAt,
 		)
 		if err != nil {
@@ -131,13 +136,14 @@ func (r *PackageVulnerabilityRepo) UpsertBatch(ctx context.Context, vulns []sbom
 // sbom_packages → package_vulnerabilities JOIN
 func (r *PackageVulnerabilityRepo) ListByImageDigest(ctx context.Context, imageDigest string) ([]sbom.PackageVulnerability, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT 
+		`SELECT
 			pv.purl, pv.name, pv.version, pv.ecosystem,
 			pv.vuln_id, COALESCE(pv.aliases, '{}'::text[]),
 			COALESCE(pv.summary, ''),
 			COALESCE(pv.severity_score, 0),
 			COALESCE(pv.severity_vector, ''),
 			COALESCE(pv.severity_label, ''),
+			pv.published_at, pv.modified_at,
 			pv.fetched_at, pv.expires_at
 		 FROM package_vulnerabilities pv
 		 JOIN sbom_packages sp ON sp.purl = pv.purl
@@ -156,13 +162,14 @@ func (r *PackageVulnerabilityRepo) ListByImageDigest(ctx context.Context, imageD
 // ListByPURL은 단일 PURL의 모든 취약점을 반환합니다.
 func (r *PackageVulnerabilityRepo) ListByPURL(ctx context.Context, purl string) ([]sbom.PackageVulnerability, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT 
+		`SELECT
 			purl, name, version, ecosystem,
 			vuln_id, COALESCE(aliases, '{}'::text[]),
 			COALESCE(summary, ''),
 			COALESCE(severity_score, 0),
 			COALESCE(severity_vector, ''),
 			COALESCE(severity_label, ''),
+			published_at, modified_at,
 			fetched_at, expires_at
 		 FROM package_vulnerabilities
 		 WHERE purl = $1
@@ -180,13 +187,14 @@ func (r *PackageVulnerabilityRepo) ListByPURL(ctx context.Context, purl string) 
 // SearchByVulnID는 특정 CVE/GHSA ID로 모든 영향 PURL을 찾습니다.
 func (r *PackageVulnerabilityRepo) SearchByVulnID(ctx context.Context, vulnID string) ([]sbom.PackageVulnerability, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT 
+		`SELECT
 			purl, name, version, ecosystem,
 			vuln_id, COALESCE(aliases, '{}'::text[]),
 			COALESCE(summary, ''),
 			COALESCE(severity_score, 0),
 			COALESCE(severity_vector, ''),
 			COALESCE(severity_label, ''),
+			published_at, modified_at,
 			fetched_at, expires_at
 		 FROM package_vulnerabilities
 		 WHERE vuln_id = $1 OR $1 = ANY(aliases)
@@ -253,6 +261,97 @@ func (r *PackageVulnerabilityRepo) SearchPodsByVulnID(ctx context.Context, clust
 	return out, rows.Err()
 }
 
+// GetCVETimelineByPod은 한 Pod(최신 스냅샷의 이미지 기준)의 CVE를 published_at 월별로
+// 집계해 타임라인을 반환합니다.
+//
+// 경로: cluster_pods.containers[].image → sboms.image_digest
+//   → sbom_packages.purl → package_vulnerabilities (published_at 기준 월별 그룹핑)
+//
+// 같은 CVE가 여러 패키지에 걸쳐도 vuln_id 기준 1회만 집계합니다.
+func (r *PackageVulnerabilityRepo) GetCVETimelineByPod(ctx context.Context, clusterName, podUID string) (*sbom.CVETimelineResponse, error) {
+	const q = `
+		WITH pod_digests AS (
+			SELECT DISTINCT s.image_digest
+			FROM cluster_pods cp
+			CROSS JOIN LATERAL jsonb_array_elements(cp.containers) c
+			JOIN sboms s ON s.image = (c->>'image')
+			WHERE cp.cluster_name = $1
+			  AND cp.pod_uid = $2
+			  AND cp.snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+		),
+		pod_vulns AS (
+			-- vuln_id 기준 1회 (대표 published_at/score)
+			SELECT DISTINCT ON (pv.vuln_id)
+				pv.vuln_id, pv.published_at, COALESCE(pv.severity_score, 0) AS score
+			FROM pod_digests pd
+			JOIN sbom_packages sp ON sp.image_digest = pd.image_digest
+			JOIN package_vulnerabilities pv ON pv.purl = sp.purl
+			ORDER BY pv.vuln_id, pv.published_at NULLS LAST
+		)
+		SELECT
+			to_char(date_trunc('month', published_at), 'YYYY-MM') AS month,
+			COUNT(*) AS cnt,
+			COALESCE(MAX(score), 0) AS max_score,
+			COUNT(*) FILTER (WHERE score >= 9.0) AS critical_cnt,
+			COUNT(*) FILTER (WHERE score >= 7.0 AND score < 9.0) AS high_cnt
+		FROM pod_vulns
+		WHERE published_at IS NOT NULL
+		GROUP BY 1
+		ORDER BY 1
+	`
+	rows, err := r.pool.Query(ctx, q, clusterName, podUID)
+	if err != nil {
+		return nil, fmt.Errorf("cve timeline by pod: %w", err)
+	}
+	defer rows.Close()
+
+	resp := &sbom.CVETimelineResponse{ClusterName: clusterName, PodUID: podUID}
+	for rows.Next() {
+		var b sbom.CVETimelineBucket
+		if err := rows.Scan(&b.Month, &b.Count, &b.MaxScore, &b.CriticalCount, &b.HighCount); err != nil {
+			return nil, fmt.Errorf("scan timeline bucket: %w", err)
+		}
+		resp.Buckets = append(resp.Buckets, b)
+		resp.TotalCVEs += b.Count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// published_at 없는 CVE 수 + first/last 집계 (별도 쿼리, 동일 경로)
+	const aggQ = `
+		WITH pod_digests AS (
+			SELECT DISTINCT s.image_digest
+			FROM cluster_pods cp
+			CROSS JOIN LATERAL jsonb_array_elements(cp.containers) c
+			JOIN sboms s ON s.image = (c->>'image')
+			WHERE cp.cluster_name = $1
+			  AND cp.pod_uid = $2
+			  AND cp.snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+		),
+		pod_vulns AS (
+			SELECT DISTINCT ON (pv.vuln_id) pv.vuln_id, pv.published_at
+			FROM pod_digests pd
+			JOIN sbom_packages sp ON sp.image_digest = pd.image_digest
+			JOIN package_vulnerabilities pv ON pv.purl = sp.purl
+			ORDER BY pv.vuln_id, pv.published_at NULLS LAST
+		)
+		SELECT
+			COUNT(*) FILTER (WHERE published_at IS NULL) AS without_date,
+			MIN(published_at) AS first_seen,
+			MAX(published_at) AS last_seen
+		FROM pod_vulns
+	`
+	var firstSeen, lastSeen *time.Time
+	if err := r.pool.QueryRow(ctx, aggQ, clusterName, podUID).Scan(&resp.WithoutDate, &firstSeen, &lastSeen); err != nil {
+		return nil, fmt.Errorf("cve timeline agg: %w", err)
+	}
+	resp.FirstSeen = firstSeen
+	resp.LastSeen = lastSeen
+
+	return resp, nil
+}
+
 // DeleteByPURL은 한 PURL의 모든 취약점 기록을 삭제합니다 (재스캔 전 정리).
 func (r *PackageVulnerabilityRepo) DeleteByPURL(ctx context.Context, purl string) error {
 	_, err := r.pool.Exec(ctx,
@@ -280,6 +379,7 @@ func scanVulns(rows pgx.Rows) ([]sbom.PackageVulnerability, error) {
 			&v.SeverityScore,
 			&v.SeverityVector,
 			&v.SeverityLabel,
+			&v.PublishedAt, &v.ModifiedAt,
 			&v.FetchedAt, &v.ExpiresAt,
 		)
 		if err != nil {
@@ -333,6 +433,7 @@ func (r *PackageVulnerabilityRepo) ListRecentlyAdded(
 		SELECT purl, name, version, ecosystem,
 		       vuln_id, COALESCE(aliases, '{}'::text[]), COALESCE(summary, ''),
 		       COALESCE(severity_score, 0), COALESCE(severity_vector, ''), COALESCE(severity_label, ''),
+		       published_at, modified_at,
 		       fetched_at, expires_at
 		FROM package_vulnerabilities
 		WHERE fetched_at >= $1
