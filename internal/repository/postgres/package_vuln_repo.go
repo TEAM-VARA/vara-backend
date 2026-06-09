@@ -331,8 +331,8 @@ func (r *PackageVulnerabilityRepo) ListRecentlyAdded(
 ) ([]sbom.PackageVulnerability, error) {
 	query := `
 		SELECT purl, name, version, ecosystem,
-		       vuln_id, aliases, summary, 
-		       severity_score, severity_vector, severity_label,
+		       vuln_id, COALESCE(aliases, '{}'::text[]), COALESCE(summary, ''),
+		       COALESCE(severity_score, 0), COALESCE(severity_vector, ''), COALESCE(severity_label, ''),
 		       fetched_at, expires_at
 		FROM package_vulnerabilities
 		WHERE fetched_at >= $1
