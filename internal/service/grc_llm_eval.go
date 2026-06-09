@@ -57,11 +57,14 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	// ── Fast path: use pre-computed top sentences (skip embedding entirely) ──
 	if len(cachedGLSentences) > 0 {
 		log.Printf("[grc-rag] rule=%s: cache HIT, skipping embedding (%d sentences)", rule.RuleID, len(cachedGLSentences))
+		// 캐시에 source가 없으므로 guideline에서 역추적
+		if len(sentenceSourceMap) == 0 && len(dbGuidelines) > 0 {
+			splitGuidelineSentencesWithSource(dbGuidelines, rule)
+		}
 		var topHits []scoredSentence
 		for i, s := range cachedGLSentences {
-			// 캐시는 문장 텍스트만 보관하고 cosine score는 보존하지 않는다.
-			// 거짓 1.000 대신 '미상' 센티넬을 부여해 표기/프롬프트에서 생략한다.
-			topHits = append(topHits, scoredSentence{index: i, text: s, score: scoreUnknown})
+			src := sentenceSourceMap[s]
+			topHits = append(topHits, scoredSentence{index: i, text: s, score: scoreUnknown, source: src})
 		}
 		query := buildRuleQuery(rule)
 		polarity, params := extractRulePolarity(rule)
