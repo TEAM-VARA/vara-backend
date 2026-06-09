@@ -46,7 +46,7 @@ VALUES
 
 -- ---- R-DIRECT (3) -------------------------------------------------------
 ('R-DIRECT-01', 'direct', '0.1',
- 'escalate verb on roles/clusterroles -> arbitrary self-grant',
+ 'roles/clusterroles에 escalate → K8s는 보통 자기가 안 가진 권한은 Role에 못 넣게 막지만, escalate가 있으면 그 제한이 풀려 자기 Role에 cluster-admin급 권한을 적어 넣어 스스로 부여.',
  '자기 권한을 스스로 더 높게 부여할 수 있음.',
  'any_of',
  '[{"api_group":"rbac.authorization.k8s.io","resource":"roles","verb":"escalate"},
@@ -58,7 +58,7 @@ VALUES
    {"type":"tool","name":"rbac-police - escalate_roles.rego","url":"https://github.com/PaloAltoNetworks/rbac-police/blob/main/lib/escalate_roles.rego"}]'::jsonb),
 
 ('R-DIRECT-02', 'direct', '0.1',
- 'bind verb on roles/clusterroles -> 자기/타인에게 임의 (Cluster)Role 부착 가능',
+ 'roles/clusterroles에 bind → 권한 연결(RoleBinding)은 원래 자기가 가진 범위 안에서만 되지만, bind가 있으면 제한 없이 강한 Role을 자기나 남에게 그대로 붙임.',
  '임의의 권한 묶음을 자기나 남에게 붙일 수 있음.',
  'any_of',
  '[{"api_group":"rbac.authorization.k8s.io","resource":"roles","verb":"bind"},
@@ -71,7 +71,7 @@ VALUES
    {"type":"tool","name":"rbac-police - bind_verb","url":"https://github.com/PaloAltoNetworks/rbac-police"}]'::jsonb),
 
 ('R-DIRECT-03', 'direct', '0.1',
- 'impersonate verb on users/groups/serviceaccounts/uids -> 다른 신원으로 가장하여 그 권한 전체 사용 가능',
+ 'users/groups/serviceaccounts/uids에 impersonate → 요청을 보낼 때 다른 사람인 척 표시를 붙일 수 있음. 관리자 사용자·그룹으로 가장해 그 권한을 그대로 사용.',
  '다른 계정으로 위장해 그 권한을 그대로 사용.',
  'any_of',
  '[{"api_group":"","resource":"users","verb":"impersonate"},
@@ -87,7 +87,7 @@ VALUES
 
 -- ---- R-INDIRECT (16) ----------------------------------------------------
 ('R-INDIRECT-01', 'indirect', '0.1',
- 'create on pods -> spec.serviceAccountName으로 같은 NS 임의 SA를 마운트한 Pod 생성 가능',
+ 'pods에 create → Pod를 새로 만들 때 같은 네임스페이스의 권한 센 계정(SA)을 붙여 띄움. 그 Pod엔 계정 토큰이 자동으로 들어오니 안에서 꺼내 탈취.',
  '강한 계정을 단 Pod를 새로 띄워 그 토큰을 빼냄.',
  'any_of',
  '[{"api_group":"","resource":"pods","verb":"create"}]'::jsonb,
@@ -100,7 +100,7 @@ VALUES
    {"type":"writeup","name":"BishopFox - Bad Pods","url":"https://bishopfox.com/blog/kubernetes-pod-privilege-escalation"}]'::jsonb),
 
 ('R-INDIRECT-02', 'indirect', '0.1',
- 'create/get on pods/exec|attach|portforward -> 실행 중 Pod 컨테이너에서 그 Pod SA 토큰 또는 동등 효과 획득',
+ 'pods/exec·pods/attach·pods/portforward에 create/get → 권한 센 계정으로 돌아가는 Pod에 원격 접속(exec)하거나 포트를 연결해, 그 안의 토큰 파일(/var/run/secrets/...)을 읽어 탈취.',
  '실행 중인 Pod에 접속(exec 등)해 그 안의 토큰을 탈취.',
  'any_of',
  '[{"api_group":"","resource":"pods/exec","verb":"create"},
@@ -118,7 +118,7 @@ VALUES
    {"type":"writeup","name":"BishopFox - Bad Pods","url":"https://bishopfox.com/blog/kubernetes-pod-privilege-escalation"}]'::jsonb),
 
 ('R-INDIRECT-03', 'indirect', '0.1',
- 'update/patch on pods/ephemeralcontainers -> 실행 중 Pod에 디버그 컨테이너 주입, 그 Pod SA 토큰 획득',
+ 'pods/ephemeralcontainers에 update/patch → 돌아가는 Pod에 임시 디버그 컨테이너를 하나 더 끼워넣어 같은 Pod의 토큰을 꺼냄. exec가 막혀 있어도 이 길로 우회.',
  '실행 중 Pod에 디버그 컨테이너를 끼워넣어 토큰을 빼냄.',
  'any_of',
  '[{"api_group":"","resource":"pods/ephemeralcontainers","verb":"update"},
@@ -130,7 +130,7 @@ VALUES
    {"type":"tool","name":"rbac-police - inject_ephemeral_containers","url":"https://github.com/PaloAltoNetworks/rbac-police"}]'::jsonb),
 
 ('R-INDIRECT-04', 'indirect', '0.1',
- 'create/update/patch on workload controllers (7종) -> PodTemplateSpec으로 임의 SA 마운트 Pod 간접 생성',
+ '워크로드 컨트롤러 7종(deployments/replicasets/statefulsets/daemonsets/jobs/cronjobs/replicationcontrollers)에 create/update/patch → Pod를 직접 못 만들어도 컨트롤러가 Pod를 찍어낼 때 쓰는 설계도(PodTemplateSpec)에 권한 센 계정을 적어두면 대신 만들어줌. 결국 R-INDIRECT-01과 같은 토큰 탈취.',
  'Pod를 직접 안 만들어도 Deployment 등 워크로드 설정을 바꿔 강한 계정 Pod가 생성되게 함.',
  'any_of',
  '[{"api_group":"apps","resource":"deployments","verb":"create"},
@@ -164,7 +164,7 @@ VALUES
    {"type":"writeup","name":"BishopFox - Bad Pods","url":"https://bishopfox.com/blog/kubernetes-pod-privilege-escalation"}]'::jsonb),
 
 ('R-INDIRECT-05', 'indirect', '0.1',
- 'get/list/watch on secrets -> 수동 또는 1.23 이하 자동 SA token Secret 직접 읽기 가능',
+ 'secrets에 get/list/watch → 비밀 저장소(Secret)를 직접 열람해 계정 토큰이나 DB 비밀번호 같은 민감정보를 그대로 가져감. (1.23 이하는 토큰이 Secret에 자동 저장돼 더 쉬움)',
  'Secret을 읽어 토큰·민감정보를 직접 획득.',
  'any_of',
  '[{"api_group":"","resource":"secrets","verb":"get"},
@@ -179,7 +179,7 @@ VALUES
    {"type":"tool","name":"rbac-police - retrieve_token_secrets","url":"https://github.com/PaloAltoNetworks/rbac-police"}]'::jsonb),
 
 ('R-INDIRECT-06', 'indirect', '0.1',
- 'create on serviceaccounts/token -> 임의 SA 토큰 즉석 발급 (TokenRequest API, K8s 1.24+ 정식 경로)',
+ 'serviceaccounts/token에 create → 정식 발급 기능(TokenRequest, 1.24+)으로 원하는 계정의 토큰을 그 자리에서 새로 받아 그 권한 사용.',
  '임의 계정의 토큰을 즉석에서 발급받음.',
  'any_of',
  '[{"api_group":"","resource":"serviceaccounts/token","verb":"create"}]'::jsonb,
@@ -189,7 +189,7 @@ VALUES
    {"type":"tool","name":"rbac-police - request_token_for_sas","url":"https://github.com/PaloAltoNetworks/rbac-police"}]'::jsonb),
 
 ('R-INDIRECT-07', 'indirect', '1.0',
- 'csr/approval (update|patch) AND signers/kube-apiserver-client approve -> cluster-admin 인증서 발급',
+ 'certificatesigningrequests/approval에 update/patch 그리고 signers(kubernetes.io/kube-apiserver-client)에 approve — 둘 다 필요 → 인증서 발급 요청(CSR)을 자기가 올리고 자기가 승인해 최고 관리자 그룹(system:masters) 인증서를 발급받아 cluster-admin 도달.',
  '인증서 승인 권한으로 관리자급 인증서를 직접 발급해 클러스터 관리자에 도달.',
  'all_of',
  '[{"any_of":[{"api_group":"certificates.k8s.io","resource":"certificatesigningrequests/approval","verb":"update"},
@@ -201,7 +201,7 @@ VALUES
    {"type":"tool","name":"rbac-police - approve_csrs","url":"https://github.com/PaloAltoNetworks/rbac-police/blob/main/lib/approve_csrs.rego"}]'::jsonb),
 
 ('R-INDIRECT-08', 'indirect', '0.1',
- 'create/update/patch on validating/mutating webhook configurations -> admission 가로채기로 token 훔침 또는 강제 SA 마운트',
+ 'validatingwebhookconfigurations/mutatingwebhookconfigurations에 create/update/patch → 클러스터로 들어오는 요청을 중간에서 가로채는 검문소(웹훅)를 등록. 지나가는 데이터에서 토큰을 빼내거나, 새로 만들어지는 Pod에 권한 센 계정을 강제로 붙임.',
  'Admission 웹훅을 등록해 오가는 요청에서 토큰을 가로채거나 강한 계정을 강제 주입.',
  'any_of',
  '[{"api_group":"admissionregistration.k8s.io","resource":"validatingwebhookconfigurations","verb":"create"},
@@ -217,7 +217,7 @@ VALUES
    {"type":"tool","name":"rbac-police - manage_webhooks","url":"https://github.com/PaloAltoNetworks/rbac-police"}]'::jsonb),
 
 ('R-INDIRECT-09', 'indirect', '0.1',
- 'create/update/patch on apiservices -> aggregated API hijack (token/response tampering)',
+ 'apiservices(aggregation layer)에 create/update/patch → 특정 API 처리를 공격자 서버가 대신 받도록 등록·변조. 그 API로 오가는 요청의 토큰과 응답을 가로채 조작.',
  'APIService를 조작해 집계 API를 가로채 토큰·응답을 변조.',
  'any_of',
  '[{"api_group":"apiregistration.k8s.io","resource":"apiservices","verb":"create"},
@@ -228,7 +228,7 @@ VALUES
    {"type":"writeup","name":"VARA 5-source matrix analysis 2026-05-11","url":"https://www.notion.so/3593978ee48d81a4ad8dd3d77aaa095c"}]'::jsonb),
 
 ('R-INDIRECT-11', 'indirect', '0.1',
- 'get/create on nodes/proxy -> kubelet API 직접 호출로 임의 Pod exec, 토큰 추출',
+ 'nodes/proxy에 get/create → 권한을 검사하는 정문(API 서버)을 건너뛰고 노드의 관리 데몬(kubelet)에 바로 명령. 그 노드의 아무 Pod에나 들어가 토큰을 빼냄.',
  '노드 kubelet API에 직접 접근(RBAC 우회)해 Pod 안의 토큰을 빼냄.',
  'any_of',
  '[{"api_group":"","resource":"nodes/proxy","verb":"get"},
@@ -241,7 +241,7 @@ VALUES
    {"type":"tool","name":"rbac-police - kubelet API access","url":"https://github.com/PaloAltoNetworks/rbac-police"}]'::jsonb),
 
 ('R-INDIRECT-12', 'indirect', '0.1',
- 'patch on namespaces -> label modification (PodSecurity bypass, NetworkPolicy bypass)',
+ 'namespaces에 patch → 네임스페이스의 라벨(꼬리표)을 바꿈. 보안 등급(PodSecurity)을 낮춰 위험한 특권 Pod를 띄우거나, 통신 차단 규칙(NetworkPolicy)이 보는 라벨을 흔들어 격리를 빠져나감.',
  '네임스페이스 라벨을 바꿔 PodSecurity·NetworkPolicy를 우회.',
  'any_of',
  '[{"api_group":"","resource":"namespaces","verb":"patch"}]'::jsonb,
@@ -250,7 +250,7 @@ VALUES
    {"type":"writeup","name":"VARA 5-source matrix analysis 2026-05-11","url":"https://www.notion.so/3593978ee48d81a4ad8dd3d77aaa095c"}]'::jsonb),
 
 ('R-INDIRECT-15', 'indirect', '0.1',
- 'create on persistentvolumes -> hostPath PV로 host 파일시스템 마운트, 같은 노드 토큰 탈취',
+ 'persistentvolumes에 create → 노드의 실제 디스크(예: /)를 그대로 가리키는 저장소(hostPath PV)를 만듦. 그걸 연결한 Pod로 같은 노드에 있는 다른 Pod의 토큰·kubelet 인증서를 읽어 탈취.',
  'hostPath 볼륨으로 노드 파일시스템을 마운트해 같은 노드의 토큰을 탈취.',
  'any_of',
  '[{"api_group":"","resource":"persistentvolumes","verb":"create"}]'::jsonb,
@@ -259,7 +259,7 @@ VALUES
    {"type":"tool","name":"rbac-tool","url":"https://github.com/alcideio/rbac-tool"}]'::jsonb),
 
 ('R-INDIRECT-16', 'indirect', '1.0',
- 'EKS kube-system/aws-auth ConfigMap update/patch -> system:masters mapping 추가 가능 -> cluster-admin',
+ 'kube-system의 aws-auth ConfigMap에 update/patch (EKS 전용) → EKS의 접근 권한 명단(aws-auth)에 자기 AWS 신원(IAM)을 최고 관리자(system:masters)로 추가해 EKS cluster-admin 획득.',
  'EKS 전용. aws-auth 설정에 자기 계정을 관리자로 추가. opt-in 플래그 필요.',
  'all_of',
  '[{"any_of":[{"api_group":"","resource":"configmaps","verb":"update","resource_names":["aws-auth"],"within_namespaces":["kube-system"]},
@@ -270,7 +270,7 @@ VALUES
    {"type":"vendor","name":"AWS EKS - aws-auth ConfigMap","url":"https://docs.aws.amazon.com/eks/latest/userguide/auth-configmap.html"}]'::jsonb),
 
 ('R-INDIRECT-17', 'indirect', '1.0',
- 'secrets (create|update|patch) AND secrets get -> type=service-account-token Secret 발급 + 토큰 탈취 (1.24+ 우회)',
+ 'secrets에 create/update/patch 그리고 secrets에 get — 둘 다 필요 → 계정 토큰용 Secret(type=kubernetes.io/service-account-token)을 만들면 시스템이 진짜 토큰을 자동으로 채워줌. 그걸 get으로 읽어 탈취(최신 1.24+에서도 통하는 수동 경로).',
  'Secret을 만들고 읽을 수 있어 계정 토큰 Secret을 발급해 탈취.',
  'all_of',
  '[{"any_of":[{"api_group":"","resource":"secrets","verb":"create"},
@@ -283,7 +283,7 @@ VALUES
    {"type":"official","name":"K8s 1.24 - 수동 token Secret 메커니즘 유지","url":"https://kubernetes.io/blog/2022/04/13/bound-service-account-tokens/"}]'::jsonb),
 
 ('R-INDIRECT-18', 'indirect', '0.1',
- 'create/update/patch on validating admission policies/bindings -> CEL admission 정책 조작 (K8s 1.30+)',
+ 'validatingadmissionpolicies/validatingadmissionpolicybindings에 create/update/patch → 요청을 자동 검사하는 보안 규칙(1.30+ CEL 기반 admission 정책)을 직접 만들고 고쳐, 검사를 무력화하거나 자기 요청만 통과하게 조작.',
  'Validating Admission Policy를 조작해 보안 검사 규칙을 변조.',
  'any_of',
  '[{"api_group":"admissionregistration.k8s.io","resource":"validatingadmissionpolicies","verb":"create"},
@@ -297,7 +297,7 @@ VALUES
    {"type":"tool","name":"rbac-tool","url":"https://github.com/alcideio/rbac-tool"}]'::jsonb),
 
 ('R-INDIRECT-19', 'indirect', '1.0',
- 'delete/eviction pods + nodes update/patch -> Pod 이주로 다른 SA 토큰 흡수',
+ 'pods에 delete/deletecollection(또는 pods/eviction에 create) 그리고 nodes에 update/patch — 둘 다 필요 → 다른 노드를 Pod 배치 금지로 막고 권한 센 Pod를 쫓아냄. 그 Pod가 공격자 노드로 옮겨와 다시 뜨고, 거기서 토큰 흡수.',
  'Pod 삭제와 노드 조작 권한으로 강한 Pod를 자기 노드로 옮겨 토큰을 흡수.',
  'all_of',
  '[{"any_of":[{"api_group":"","resource":"pods","verb":"delete"},
@@ -310,7 +310,7 @@ VALUES
 
 -- ---- R-LATERAL (3) ------------------------------------------------------
 ('R-LATERAL-01', 'lateral', '0.1',
- 'update/patch on nodes or nodes/status -> taints/labels 조작으로 스케줄링 변경, 보안 DaemonSet 회피',
+ 'nodes/nodes-status에 update/patch → 노드 설정(taint/label)을 바꿔 어떤 Pod가 어디서 돌지 조정. 보안 감시 프로그램(DaemonSet)이 특정 노드를 피하게 만들어 감시를 회피. (권한상승 아님)',
  '노드 taint/label을 조작해 스케줄링을 바꾸고 보안 DaemonSet을 회피. 권한상승 아님.',
  'any_of',
  '[{"api_group":"","resource":"nodes","verb":"update"},
@@ -322,7 +322,7 @@ VALUES
    {"type":"tool","name":"rbac-police - modify_node_status (Low)","url":"https://github.com/PaloAltoNetworks/rbac-police"}]'::jsonb),
 
 ('R-LATERAL-02', 'lateral', '0.1',
- 'delete on nodes -> 보안 모니터링 노드 삭제, 회피 워크로드 운영',
+ 'nodes에 delete → 보안 감시가 돌던 노드(서버)를 통째로 삭제해 사각지대를 만든 뒤 그쪽에서 들키지 않고 작업. (권한상승 아님)',
  '노드를 삭제해 보안 감시 사각지대를 만듦. 권한상승 아님.',
  'any_of',
  '[{"api_group":"","resource":"nodes","verb":"delete"}]'::jsonb,
@@ -331,7 +331,7 @@ VALUES
    {"type":"writeup","name":"VARA 5-source matrix analysis 2026-05-09","url":"https://www.notion.so/3593978ee48d81a4ad8dd3d77aaa095c"}]'::jsonb),
 
 ('R-LATERAL-03', 'lateral', '0.1',
- 'delete on namespaces -> security-tool NS wipe (kube-system, falco-system, etc.)',
+ 'namespaces에 delete → 보안 도구가 들어있는 네임스페이스(kube-system, falco-system 등)를 통째로 삭제해 보안 장치 자체를 없앰. (권한상승 아님)',
  '보안 도구가 든 네임스페이스를 통째로 삭제. 권한상승 아님.',
  'any_of',
  '[{"api_group":"","resource":"namespaces","verb":"delete"}]'::jsonb,
