@@ -154,6 +154,7 @@ func newRouter(
 		// 정적 경로를 동적 경로보다 먼저 등록
 		api.GET("/sboms/packages/vulnerabilities/search", packageVuln.SearchByVulnID)
 		api.GET("/sboms/packages/vulnerabilities/by-purl", packageVuln.ListByPURL)
+		api.GET("/sboms/packages/vulnerabilities/timeline/pods/:pod_uid", packageVuln.CVETimelineByPod)
 		api.GET("/sboms/packages/search", sbomPackage.Search)
 		api.POST("/sboms/packages/backfill", sbomPackage.Backfill)
 		api.POST("/sboms/packages/extract/:digest", sbomPackage.Extract)
