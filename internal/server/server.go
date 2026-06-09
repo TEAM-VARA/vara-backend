@@ -264,6 +264,30 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		rbacChainScheduler.Start(context.Background())
 		log.Printf("server: rbac-chain scheduler started (cluster=%s, interval=%v)", clusterName, rbacChainInterval)
 	}
+	// ── Flow Retention Scheduler 시작 (ebpf_network_flows 자동 정리) ──
+	if os.Getenv("DISABLE_FLOW_RETENTION") != "true" {
+		retentionInterval := 1 * time.Hour
+		if v := os.Getenv("FLOW_RETENTION_INTERVAL_MINUTES"); v != "" {
+			if mins, err := strconv.Atoi(v); err == nil && mins > 0 {
+				retentionInterval = time.Duration(mins) * time.Minute
+			}
+		}
+		retentionMaxAge := 2 * 24 * time.Hour
+		if v := os.Getenv("FLOW_RETENTION_MAX_AGE_DAYS"); v != "" {
+			if days, err := strconv.Atoi(v); err == nil && days > 0 {
+				retentionMaxAge = time.Duration(days) * 24 * time.Hour
+			}
+		}
+		retentionMaxRows := int64(5_000_000)
+		if v := os.Getenv("FLOW_RETENTION_MAX_ROWS"); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+				retentionMaxRows = n
+			}
+		}
+		retentionScheduler := scheduler.NewRetentionScheduler(pg, retentionInterval, retentionMaxAge, retentionMaxRows)
+		retentionScheduler.Start(context.Background())
+		log.Printf("server: flow retention scheduler started (interval=%v, maxAge=%v, maxRows=%d)", retentionInterval, retentionMaxAge, retentionMaxRows)
+	}
 	return &Server{
 		cfg: cfg,
 		httpSrv: &http.Server{
