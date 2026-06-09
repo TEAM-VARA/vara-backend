@@ -74,7 +74,36 @@ type OSVVulnerability struct {
 	Severity         []OSVSeverity   `json:"severity"`
 	Published        string          `json:"published"`
 	Modified         string          `json:"modified"`
+	Affected         []OSVAffected   `json:"affected,omitempty"` // 영향 패키지 + 패치 버전 범위
 	DatabaseSpecific json.RawMessage `json:"database_specific,omitempty"` // GHSA/OSV가 종종 severity 라벨 제공
+}
+
+// OSVAffected는 한 취약점이 영향을 주는 패키지 + 버전 범위입니다.
+type OSVAffected struct {
+	Package OSVAffectedPackage `json:"package"`
+	Ranges  []OSVRange         `json:"ranges,omitempty"`
+}
+
+// OSVAffectedPackage는 영향 패키지 식별 정보입니다.
+type OSVAffectedPackage struct {
+	Ecosystem string `json:"ecosystem"`
+	Name      string `json:"name"`
+	PURL      string `json:"purl,omitempty"`
+}
+
+// OSVRange는 introduced/fixed/last_affected 이벤트로 표현되는 버전 범위입니다.
+//
+//	Type: "SEMVER" | "ECOSYSTEM" | "GIT"
+type OSVRange struct {
+	Type   string     `json:"type"`
+	Events []OSVEvent `json:"events"`
+}
+
+// OSVEvent는 버전 범위의 경계 이벤트입니다 (한 필드만 채워짐).
+type OSVEvent struct {
+	Introduced   string `json:"introduced,omitempty"`
+	Fixed        string `json:"fixed,omitempty"`
+	LastAffected string `json:"last_affected,omitempty"`
 }
 
 // OSVSeverity는 한 취약점의 한 severity 표기입니다.
@@ -149,6 +178,53 @@ func (c *Client) QueryByPURL(ctx context.Context, purl string) ([]OSVVulnerabili
 //   2. CVSS vector parsing (simple estimation)
 //
 // Returns 0.0 if no score found.
+// ExtractFixedVersion은 취약점이 고쳐진 버전(fixed)을 추출합니다.
+//
+// 우리가 조회한 패키지(pkgName, 예: "org.springframework:spring-beans")에 매칭되는
+// affected 항목을 우선하고, 그 ranges.events 중 마지막 fixed 값을 반환합니다.
+//   - 매칭되는 항목이 없으면 전체 affected에서 첫 fixed로 폴백.
+//   - fixed가 전혀 없으면(아직 패치 없음 / last_affected만 / GIT 커밋 범위) "" 반환.
+//
+// 반환값은 버전 문자열이며, 릴리스 "날짜"는 OSV가 주지 않음(3단계 deps.dev 필요).
+func ExtractFixedVersion(v OSVVulnerability, pkgName string) string {
+	pkgName = strings.TrimSpace(pkgName)
+
+	lastFixedOf := func(a OSVAffected) string {
+		fixed := ""
+		for _, r := range a.Ranges {
+			if r.Type == "GIT" {
+				continue // 커밋 해시는 버전 의미 없음
+			}
+			for _, e := range r.Events {
+				if e.Fixed != "" {
+					fixed = e.Fixed // 마지막 fixed 우선 (보통 최신)
+				}
+			}
+		}
+		return fixed
+	}
+
+	// 1) 패키지명 매칭 우선
+	if pkgName != "" {
+		for _, a := range v.Affected {
+			if strings.EqualFold(a.Package.Name, pkgName) ||
+				(a.Package.PURL != "" && strings.Contains(a.Package.PURL, pkgName)) {
+				if f := lastFixedOf(a); f != "" {
+					return f
+				}
+			}
+		}
+	}
+
+	// 2) 폴백: 전체 affected에서 첫 fixed
+	for _, a := range v.Affected {
+		if f := lastFixedOf(a); f != "" {
+			return f
+		}
+	}
+	return ""
+}
+
 func ExtractCVSSScore(v OSVVulnerability) (score float64, vector string) {
 	bestScore := 0.0
 	bestVector := ""

@@ -129,6 +129,7 @@ func (s *PackageVulnService) ScanImage(ctx context.Context, imageDigest string, 
 				SeverityLabel:  label,
 				PublishedAt:    parseOSVTime(v.Published),
 				ModifiedAt:     parseOSVTime(v.Modified),
+				FixedVersion:   osv.ExtractFixedVersion(v, pkg.Name),
 				FetchedAt:      now,
 				ExpiresAt:      expires,
 			})
