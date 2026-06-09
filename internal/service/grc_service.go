@@ -738,17 +738,27 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 	}
 
 	for _, gl := range glChecks {
+		// Load GL rule_results for layers.gl
+		var glRuleResults []grc.RuleResult
+		if gl.CheckID != "" {
+			if rr, err := s.repo.GetCheckRuleResults(ctx, gl.CheckID); err == nil {
+				glRuleResults = rr
+			}
+		}
+
 		idx, exists := itemMap[gl.ISMSPItemID]
 		if exists {
-			// Merge into existing item
 			item := &result.Items[idx]
 			item.TotalRules += gl.TotalRules
 			item.Passed += gl.Passed
 			item.Failed += gl.Failed
 			item.NeedsReview += gl.NeedsReview
 			result.TotalRules += gl.TotalRules
+			if item.Layers == nil {
+				item.Layers = &grc.ItemLayers{}
+			}
+			item.Layers.GL = glRuleResults
 		} else {
-			// New item (only has GL rules)
 			name := itemNameMap[gl.ISMSPItemID]
 			if name == "" {
 				if rs, loadErr := s.rulesetStore.Load(gl.ISMSPItemID); loadErr == nil {
@@ -756,7 +766,7 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 				}
 			}
 			if name == "" {
-				name = gl.ISMSPItemID // fallback: use item ID as name
+				name = gl.ISMSPItemID
 			}
 			item := grc.ItemComplianceResult{
 				ISMSPItemID: gl.ISMSPItemID,
@@ -765,6 +775,7 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 				Passed:      gl.Passed,
 				Failed:      gl.Failed,
 				NeedsReview: gl.NeedsReview,
+				Layers:      &grc.ItemLayers{GL: glRuleResults},
 			}
 			result.Items = append(result.Items, item)
 			itemMap[gl.ISMSPItemID] = len(result.Items) - 1
