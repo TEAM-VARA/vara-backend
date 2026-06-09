@@ -7,6 +7,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/vara/backend/internal/domain/grc"
 	"github.com/vara/backend/internal/platform/vlm"
@@ -58,13 +59,14 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	if len(cachedGLSentences) > 0 {
 		log.Printf("[grc-rag] rule=%s: cache HIT, skipping embedding (%d sentences)", rule.RuleID, len(cachedGLSentences))
 		// 캐시에 source가 없으므로 guideline에서 역추적
-		if len(sentenceSourceMap) == 0 && len(dbGuidelines) > 0 {
+		if _, loaded := sentenceSourceMap.Load(cachedGLSentences[0]); !loaded && len(dbGuidelines) > 0 {
 			splitGuidelineSentencesWithSource(dbGuidelines, rule)
 		}
 		var topHits []scoredSentence
 		for i, s := range cachedGLSentences {
-			src := sentenceSourceMap[s]
-			topHits = append(topHits, scoredSentence{index: i, text: s, score: scoreUnknown, source: src})
+			src, _ := sentenceSourceMap.Load(s)
+			srcStr, _ := src.(string)
+			topHits = append(topHits, scoredSentence{index: i, text: s, score: scoreUnknown, source: srcStr})
 		}
 		query := buildRuleQuery(rule)
 		polarity, params := extractRulePolarity(rule)
@@ -295,7 +297,8 @@ type sourcedSentence struct {
 }
 
 // sentenceSourceMap maps sentence text → source filename for later attribution.
-var sentenceSourceMap = map[string]string{}
+// sync.Map for concurrent safety across GL worker goroutines.
+var sentenceSourceMap sync.Map
 
 func splitGuidelineSentencesWithSource(dbGuidelines []grc.Guideline, rule Rule) []sourcedSentence {
 	var pairs []sourcedSentence
@@ -311,7 +314,7 @@ func splitGuidelineSentencesWithSource(dbGuidelines []grc.Guideline, rule Rule) 
 			}
 			if len([]rune(line)) > 5 {
 				pairs = append(pairs, sourcedSentence{text: line, source: g.Filename})
-				sentenceSourceMap[line] = g.Filename
+				sentenceSourceMap.Store(line, g.Filename)
 			}
 		}
 	}
@@ -391,7 +394,9 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 				hit := topHits[idx-1]
 				src := hit.source
 				if src == "" {
-					src = sentenceSourceMap[hit.text]
+					if v, ok := sentenceSourceMap.Load(hit.text); ok {
+					src, _ = v.(string)
+				}
 				}
 				entry := evidenceEntry{SentenceIndex: hit.index, Text: hit.text, Source: src}
 				srcTag := ""

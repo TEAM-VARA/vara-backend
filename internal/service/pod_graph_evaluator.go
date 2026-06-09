@@ -256,8 +256,9 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	"R-2.6.1-02": {"Pod에 적용되는 NetworkPolicy 없음", "Pod에 적용되는 Ingress/Egress NetworkPolicy를 생성하여 네트워크 접근을 통제하세요"},
 	"R-2.6.1-03": {"클러스터에 CNI 플러그인 DaemonSet 미감지", "클러스터에 CNI 플러그인(Calico, Cilium 등)이 설치되어 NetworkPolicy가 적용 가능한지 확인하세요"},
 	"R-2.6.1-04": {"다른 네임스페이스로의 네트워크 트래픽 감지", "NetworkPolicy로 교차 네임스페이스 트래픽을 제한하여 네트워크 분리를 강화하세요"},
+	// 2.6.2 정보시스템 접근 (Ingress 인증 — 2.6.3에서 이동)
+	"R-2.6.2-01": {"Ingress에 인증 설정(auth-url, auth-type 등) 부재", "Ingress에 인증 annotation(nginx.ingress.kubernetes.io/auth-url 등)을 추가하세요"},
 	// 2.6.3 응용프로그램 접근
-	"R-2.6.3-01": {"Ingress에 인증 설정(auth-url, auth-type 등) 부재", "Ingress에 인증 annotation(nginx.ingress.kubernetes.io/auth-url 등)을 추가하세요"},
 	"R-2.6.3-02": {"서비스 간 mTLS 미적용", "서비스 메시(Istio, Linkerd 등)를 통해 mTLS를 활성화하거나 sidecar injection을 설정하세요"},
 	// 2.6.7 인터넷 접속 통제
 	"R-2.6.7-01": {"Pod에 Egress NetworkPolicy 미적용", "Pod에 Egress NetworkPolicy를 적용하여 외부 인터넷 접속을 통제하세요"},
@@ -353,7 +354,7 @@ var implementedPodRules = map[string]bool{
 	"R-2.5.2-01": true, "R-2.5.2-02": true,
 	"R-2.5.5-01": true, "R-2.5.5-02": true,
 	"R-2.6.1-01": true, "R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true,
-	"R-2.6.3-01": true, "R-2.6.3-02": true,
+	"R-2.6.2-01": true, "R-2.6.3-02": true,
 	"R-2.6.7-01": true,
 	"R-2.7.1-01": true, "R-2.7.1-02": true, "R-2.7.1-03": true, "R-2.7.1-04": true,
 	"R-2.8.3-02": true, "R-2.8.3-03": true,
@@ -519,9 +520,10 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		result = evalCNIDaemonSet(rule, req, base)
 	case "R-2.6.1-POD-04", "R-2.6.1-04":
 		result = evalCrossNSTraffic(rule, req, base)
-	// 2.6.3 응용프로그램 접근
-	case "R-2.6.3-POD-01", "R-2.6.3-01":
+	// 2.6.2 정보시스템 접근 (Ingress 인증 — 2.6.3에서 이동)
+	case "R-2.6.2-POD-01", "R-2.6.2-01":
 		result = evalIngressAuth(rule, req, base)
+	// 2.6.3 응용프로그램 접근
 	case "R-2.6.3-POD-02", "R-2.6.3-02":
 		result = evalMTLS(rule, req, base)
 	// 2.6.7 인터넷 접속 통제
