@@ -1325,6 +1325,10 @@ func kindToNodeType(kind string) string {
 		return "ConfigMap"
 	case "sa":
 		return "RBAC"
+	case "role":
+		return "RBAC"
+	case "crole":
+		return "RBAC"
 	case "ingress":
 		return "Ingress"
 	case "networkpolicy":
@@ -1371,6 +1375,35 @@ func (r *EdgesRepo) BuildTopology(ctx context.Context, cluster string) (*edge.To
 	nodes = append(nodes, netpolNodes...)
 	nodes = append(nodes, namespaceNodes...)
 	nodes = append(nodes, nodeNodes...)
+
+	// orphan edge 보충: edges가 참조하지만 노드 집합에 없는 pod_uid를 cluster_pods에서
+	// 보충(전체 스냅샷, pod_uid별 최신). 재생성으로 UUID가 바뀐 Pod 등으로 인한
+	// orphan edge를 제거해 그래프가 끊기지 않게 한다.
+	existingIDs := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		existingIDs[n.ID] = true
+	}
+	missingSet := make(map[string]bool)
+	for _, e := range topoEdges {
+		if e.Source != "" && !existingIDs[e.Source] {
+			missingSet[e.Source] = true
+		}
+		if e.Target != "" && !existingIDs[e.Target] {
+			missingSet[e.Target] = true
+		}
+	}
+	if len(missingSet) > 0 {
+		missingUIDs := make([]string, 0, len(missingSet))
+		for id := range missingSet {
+			missingUIDs = append(missingUIDs, id)
+		}
+		// pod_uid에 해당하는 것만 매칭됨(sa:/crole:/role:/external 등 합성 ID는 자동 제외).
+		supplementalPods, err := r.fetchPodNodesByUIDs(ctx, cluster, missingUIDs)
+		if err != nil {
+			return nil, fmt.Errorf("fetch supplemental pod nodes: %w", err)
+		}
+		nodes = append(nodes, supplementalPods...)
+	}
 
 	for i := range nodes {
 		nodes[i].NodeType = kindToNodeType(nodes[i].Kind)
@@ -1449,6 +1482,72 @@ func (r *EdgesRepo) fetchPodNodes(ctx context.Context, cluster string) ([]edge.T
 	return result, nil
 }
 
+// fetchPodNodesByUIDs — 주어진 pod_uid 집합에 대해, 스냅샷 전체에서 pod_uid별 최신
+// 메타데이터(DISTINCT ON)를 가져옵니다.
+//
+// 용도(orphan edge 보충): edges가 참조하지만 최신 스냅샷 노드 집합에 없는 pod_uid
+// (재생성으로 UUID가 바뀐 Pod 등)를 노드로 보충해 모든 edge에 끝점을 보장합니다.
+// 범위 제한 없음(전체 스냅샷) — 임시 결정, 추후 팀 협의로 변경 가능.
+func (r *EdgesRepo) fetchPodNodesByUIDs(ctx context.Context, cluster string, uids []string) ([]edge.TopologyNode, error) {
+	if len(uids) == 0 {
+		return nil, nil
+	}
+	const q = `
+		SELECT DISTINCT ON (cp.pod_uid)
+			cp.pod_uid::text AS id,
+			cp.name AS label,
+			cp.namespace,
+			COALESCE(cp.service_account, '') AS service_account,
+			COALESCE(cp.containers->0->>'image', '') AS image_tag,
+			COALESCE(cp.containers->0->>'image_digest', '') AS image_digest,
+			COALESCE(fs.final_score, 0) AS risk_score,
+			COALESCE(fs.risk_level, 'safe') AS risk_level,
+			COALESCE(fs.used_top_cve, '') AS top_cve
+		FROM cluster_pods cp
+		LEFT JOIN LATERAL (
+			SELECT final_score, risk_level, used_top_cve
+			FROM final_scores
+			WHERE cluster_name = cp.cluster_name
+			  AND (
+			      pod_uid = cp.pod_uid
+			      OR (
+			          used_image_digest IS NOT NULL
+			          AND used_image_digest != ''
+			          AND used_image_digest = cp.containers->0->>'image_digest'
+			      )
+			  )
+			ORDER BY
+			    CASE WHEN pod_uid = cp.pod_uid THEN 1 ELSE 2 END,
+			    snapshot_at DESC,
+			    final_score DESC NULLS LAST
+			LIMIT 1
+		) fs ON true
+		WHERE cp.cluster_name = $1
+		  AND cp.pod_uid = ANY($2)
+		ORDER BY cp.pod_uid, cp.snapshot_at DESC
+	`
+	rows, err := r.pool.Query(ctx, q, cluster, uids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []edge.TopologyNode
+	for rows.Next() {
+		var n edge.TopologyNode
+		n.Kind = "pod"
+		if err := rows.Scan(
+			&n.ID, &n.Label, &n.Namespace,
+			&n.ServiceAccount, &n.ImageTag, &n.ImageDigest,
+			&n.RiskScore, &n.RiskLevel, &n.TopCVE,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, n)
+	}
+	return result, rows.Err()
+}
+
 // fetchOtherNodes — SA, Role, ClusterRole, Service, Image, CVE 노드 unique 추출
 func (r *EdgesRepo) fetchOtherNodes(ctx context.Context, cluster string) ([]edge.TopologyNode, error) {
 	const q = `
@@ -1470,19 +1569,20 @@ func (r *EdgesRepo) fetchOtherNodes(ctx context.Context, cluster string) ([]edge
 			
 			UNION
 			
-			-- target 측: SA/Role 가상 노드
+			-- target 측: SA/Role/ClusterRole 가상 노드
 			SELECT DISTINCT
 				target_service_name AS id,
-				CASE target_kind 
+				CASE target_kind
 					WHEN 'service_account' THEN 'sa'
 					WHEN 'cluster_role' THEN 'crole'
+					WHEN 'role' THEN 'role'
 					ELSE target_kind
 				END AS kind,
 				target_name AS label,
 				target_namespace AS ns
 			FROM edges
 			WHERE cluster_name = $1
-			  AND target_kind IN ('service_account', 'service', 'image', 'cve')
+			  AND target_kind IN ('service_account', 'service', 'image', 'cve', 'role', 'cluster_role')
 			  AND target_service_name IS NOT NULL
 			  AND target_service_name != ''
 			  AND target_pod_uid IS NULL

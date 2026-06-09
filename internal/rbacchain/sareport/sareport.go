@@ -49,9 +49,20 @@ type SAReport struct {
 	ReachesClusterAdmin bool         `json:"reaches_cluster_admin"`
 	InitialPermCount    int          `json:"initial_perm_count"`
 	FinalPermCount      int          `json:"final_perm_count"`
-	AppliedTransitions  []string     `json:"applied_transitions"`
-	UsedByPods          []PodRef     `json:"used_by_pods"`
-	DirectBindings      []BindingRef `json:"direct_bindings"`
+	AppliedTransitions  []string            `json:"applied_transitions"`
+	TransitionTriggers  []TransitionTrigger `json:"transition_triggers"`
+	UsedByPods          []PodRef            `json:"used_by_pods"`
+	DirectBindings      []BindingRef        `json:"direct_bindings"`
+}
+
+// TransitionTrigger — 한 룰(transition)을 트리거한 권한(들).
+// 룰이 둘 이상 걸리면 SAReport.TransitionTriggers 에 항목이 룰 수만큼 생김.
+// 한 룰이 여러 권한으로 트리거되면 TriggeredBy 에 모두 담김(중복 제거).
+// TriggeredBy 의 각 perm dict 는 fixpoint provenance.matched_perms 와 동일한
+// 6필드(api_group/resource/verb/namespace/resource_name/non_resource_url).
+type TransitionTrigger struct {
+	Transition  string           `json:"transition"`
+	TriggeredBy []map[string]any `json:"triggered_by"`
 }
 
 type Summary struct {
@@ -95,11 +106,12 @@ func Build(snapPath string, snap, allPerms, delta map[string]any) Report {
 		}
 	}
 
-	// 2,3. delta 권한 수 + 매치 룰셋
+	// 2,3. delta 권한 수 + 매치 룰셋 + 룰별 트리거 권한
 	type dInfo struct {
-		initial int
-		final   int
-		rules   []string
+		initial  int
+		final    int
+		rules    []string
+		triggers []TransitionTrigger
 	}
 	dMap := map[string]dInfo{}
 	for saKey, v := range delta {
@@ -110,6 +122,9 @@ func Build(snapPath string, snap, allPerms, delta map[string]any) Report {
 		initial := getInt(info, "initial_perm_count")
 		final := getInt(info, "final_perm_count")
 		ruleSet := map[string]struct{}{}
+		// 룰ID → 트리거 권한 목록(중복 제거). seen 으로 (룰,perm) 중복 차단.
+		trigByRule := map[string][]map[string]any{}
+		trigSeen := map[string]map[string]struct{}{}
 		absorbed, _ := info["newly_absorbed"].([]any)
 		for _, e := range absorbed {
 			em, _ := e.(map[string]any)
@@ -122,13 +137,46 @@ func Build(snapPath string, snap, allPerms, delta map[string]any) Report {
 					ruleSet[s] = struct{}{}
 				}
 			}
+			// provenance[] 에서 룰ID(via_transition) → matched_perms 수집.
+			provs, _ := em["provenance"].([]any)
+			for _, pv := range provs {
+				pvm, _ := pv.(map[string]any)
+				if pvm == nil {
+					continue
+				}
+				rid, _ := pvm["via_transition"].(string)
+				if rid == "" {
+					continue
+				}
+				mps, _ := pvm["matched_perms"].([]any)
+				for _, mp := range mps {
+					mpm, _ := mp.(map[string]any)
+					if mpm == nil {
+						continue
+					}
+					k := permDedupKey(mpm)
+					if trigSeen[rid] == nil {
+						trigSeen[rid] = map[string]struct{}{}
+					}
+					if _, dup := trigSeen[rid][k]; dup {
+						continue
+					}
+					trigSeen[rid][k] = struct{}{}
+					trigByRule[rid] = append(trigByRule[rid], mpm)
+				}
+			}
 		}
 		rl := make([]string, 0, len(ruleSet))
 		for r := range ruleSet {
 			rl = append(rl, r)
 		}
 		sort.Strings(rl)
-		dMap[saKey] = dInfo{initial, final, rl}
+		// 트리거를 룰ID 순으로 정렬해 결정적 출력(applied_transitions 와 정렬 일치).
+		trigs := make([]TransitionTrigger, 0, len(trigByRule))
+		for _, rid := range sortedKeys(trigByRule) {
+			trigs = append(trigs, TransitionTrigger{Transition: rid, TriggeredBy: trigByRule[rid]})
+		}
+		dMap[saKey] = dInfo{initial, final, rl, trigs}
 	}
 	// delta 에 없는 SA — initial == final == all_perms 길이
 	for saKey, perms := range allPerms {
@@ -136,7 +184,7 @@ func Build(snapPath string, snap, allPerms, delta map[string]any) Report {
 			continue
 		}
 		permList, _ := perms.([]any)
-		dMap[saKey] = dInfo{initial: len(permList), final: len(permList), rules: []string{}}
+		dMap[saKey] = dInfo{initial: len(permList), final: len(permList), rules: []string{}, triggers: []TransitionTrigger{}}
 	}
 
 	// 4,5. Pod 마운트 + 이미지
@@ -270,6 +318,7 @@ func Build(snapPath string, snap, allPerms, delta map[string]any) Report {
 			InitialPermCount:    info.initial,
 			FinalPermCount:      info.final,
 			AppliedTransitions:  ensureNotNil(info.rules),
+			TransitionTriggers:  ensureNotNilTriggers(info.triggers),
 			UsedByPods:          ensureNotNilPods(podsBySA[key]),
 			DirectBindings:      ensureNotNilBindings(bindingsBySA[key]),
 		})
@@ -480,6 +529,37 @@ func ensureNotNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+func ensureNotNilTriggers(s []TransitionTrigger) []TransitionTrigger {
+	if s == nil {
+		return []TransitionTrigger{}
+	}
+	return s
+}
+
+// permDedupKey — matched_perms dict 의 6필드로 중복 판정 키 생성.
+func permDedupKey(p map[string]any) string {
+	g := func(k string) string {
+		if v, ok := p[k].(string); ok {
+			return v
+		}
+		return "" // nil/누락은 빈 문자열로 (NULL 동치)
+	}
+	return strings.Join([]string{
+		g("api_group"), g("resource"), g("verb"),
+		g("namespace"), g("resource_name"), g("non_resource_url"),
+	}, "\x1f")
+}
+
+// sortedKeys — map 의 키를 정렬해 반환(결정적 출력용).
+func sortedKeys(m map[string][]map[string]any) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
 }
 
 func ensureNotNilPods(s []PodRef) []PodRef {

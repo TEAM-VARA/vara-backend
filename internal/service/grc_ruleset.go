@@ -72,12 +72,17 @@ type LegalReference struct {
 
 // Rule represents a single compliance check rule.
 //
-// judgment_source: "text_extraction" (지침 점검) | "k8s_api" (클라우드 환경 점검)
+// judgment_source:
+//   - "text_extraction": 지침 문서 점검 (GL — RAG/임베딩)
+//   - "k8s_api" / "k8s_native": 클러스터 자동측정 (Pod 평가기 대상)
+//   - "evidence_upload": 업로드 증적 점검 (OS/AD/IAM 설정 캡처, 화면, 코드 등 —
+//     K8s 측정 대상 아님; 2.5.4 R-03~15처럼 잘못 k8s_api로 분류돼 있던 룰의 정정 값)
+//
 // extraction_method: "rag" | "api" | "manual"
 type Rule struct {
 	RuleID           string                      `json:"rule_id"`
 	Name             string                      `json:"name,omitempty"`
-	JudgmentSource   string                      `json:"judgment_source"`   // "text_extraction" | "k8s_api"
+	JudgmentSource   string                      `json:"judgment_source"`   // "text_extraction" | "k8s_api" | "k8s_native" | "evidence_upload"
 	ExtractionMethod string                      `json:"extraction_method"` // "rag" | "api" | "manual"
 
 	// 검색/식별 키워드 (text_extraction 룰에서 사용)

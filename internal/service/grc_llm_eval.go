@@ -14,11 +14,18 @@ import (
 
 const defaultRAGTopK = 5
 
+// scoreUnknown marks a retrieved sentence whose true cosine score is unavailable
+// (e.g. served from the top-K text cache, which stores sentence text only — not
+// scores). Renderers, the VLM prompt, and evidence JSON must OMIT similarity when
+// the score is this sentinel instead of fabricating a perfect 1.000.
+const scoreUnknown = -1.0
+
 // scoredSentence holds a guideline sentence with its cosine similarity score.
 type scoredSentence struct {
-	index int
-	text  string
-	score float64
+	index  int
+	text   string
+	score  float64
+	source string // 출처 문서 파일명 (예: "정보보호정책서.pdf")
 }
 
 // evaluateLLMRAGEntailment performs RAG + LLM entailment judgment:
@@ -50,9 +57,14 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	// ── Fast path: use pre-computed top sentences (skip embedding entirely) ──
 	if len(cachedGLSentences) > 0 {
 		log.Printf("[grc-rag] rule=%s: cache HIT, skipping embedding (%d sentences)", rule.RuleID, len(cachedGLSentences))
+		// 캐시에 source가 없으므로 guideline에서 역추적
+		if len(sentenceSourceMap) == 0 && len(dbGuidelines) > 0 {
+			splitGuidelineSentencesWithSource(dbGuidelines, rule)
+		}
 		var topHits []scoredSentence
 		for i, s := range cachedGLSentences {
-			topHits = append(topHits, scoredSentence{index: i, text: s, score: 1.0})
+			src := sentenceSourceMap[s]
+			topHits = append(topHits, scoredSentence{index: i, text: s, score: scoreUnknown, source: src})
 		}
 		query := buildRuleQuery(rule)
 		polarity, params := extractRulePolarity(rule)
@@ -79,7 +91,7 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 		if respJSON, err := json.Marshal(judgeResp); err == nil {
 			log.Printf("[grc-rag] VLM RESPONSE (cached) rule=%s:\n%s", rule.RuleID, string(respJSON))
 		}
-		return mapVLMVerdictToResult(judgeResp, topHits, base)
+		return mapVLMVerdictToResult(judgeResp, topHits, base, rule)
 	}
 
 	// ── Guard: embedding client must be available for retrieval ──
@@ -103,7 +115,8 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 		if rule.JudgmentSource == "text_extraction" {
 			base.Verdict = grc.VerdictINDETERMINATE
 			base.SkipReason = "지침 문장 없음 (DB 지침 미등록)"
-			base.Reason = "지침 미등록"
+			base.Reason = fmt.Sprintf("지침 미등록 — 『%s』 문서 업로드 필요", policyDocHint(glItemID(rule, base)))
+			attachGLPolicyGuidance(rule, &base, "")
 		} else {
 			base.Verdict = grc.VerdictINDETERMINATE
 			base.SkipReason = "증적 텍스트 없음 (PDF 추출 실패 또는 미업로드)"
@@ -224,7 +237,7 @@ func (s *GRCService) evaluateLLMRAGEntailment(
 	}
 
 	// ── Step 7: Map VLM verdict → grc.RuleResult ──
-	return mapVLMVerdictToResult(judgeResp, topHits, base)
+	return mapVLMVerdictToResult(judgeResp, topHits, base, rule)
 }
 
 // splitEvidenceSentences extracts text from evidence data and splits into sentences.
@@ -268,33 +281,56 @@ func splitEvidenceSentences(evidenceData []any) []string {
 // splitGuidelineSentences breaks DB guideline extracted_text into individual sentences.
 // Falls back to buildGuidelineText(rule) if no DB guidelines exist.
 func splitGuidelineSentences(dbGuidelines []grc.Guideline, rule Rule) []string {
-	var allText string
-	for _, g := range dbGuidelines {
-		if g.ExtractedText != "" {
-			allText += g.ExtractedText + "\n"
-		}
-	}
-
-	if allText == "" {
-		allText = buildGuidelineText(rule)
-	}
-
-	if strings.TrimSpace(allText) == "" {
-		return nil
-	}
-
-	// Split by newlines, filter empty/trivial fragments.
-	var sentences []string
-	for _, line := range strings.Split(allText, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || line == "---" {
-			continue
-		}
-		if len([]rune(line)) > 5 {
-			sentences = append(sentences, line)
-		}
+	pairs := splitGuidelineSentencesWithSource(dbGuidelines, rule)
+	sentences := make([]string, len(pairs))
+	for i, p := range pairs {
+		sentences[i] = p.text
 	}
 	return sentences
+}
+
+type sourcedSentence struct {
+	text   string
+	source string
+}
+
+// sentenceSourceMap maps sentence text → source filename for later attribution.
+var sentenceSourceMap = map[string]string{}
+
+func splitGuidelineSentencesWithSource(dbGuidelines []grc.Guideline, rule Rule) []sourcedSentence {
+	var pairs []sourcedSentence
+
+	for _, g := range dbGuidelines {
+		if g.ExtractedText == "" {
+			continue
+		}
+		for _, line := range strings.Split(g.ExtractedText, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || line == "---" {
+				continue
+			}
+			if len([]rune(line)) > 5 {
+				pairs = append(pairs, sourcedSentence{text: line, source: g.Filename})
+				sentenceSourceMap[line] = g.Filename
+			}
+		}
+	}
+
+	if len(pairs) == 0 {
+		fallback := buildGuidelineText(rule)
+		if strings.TrimSpace(fallback) != "" {
+			for _, line := range strings.Split(fallback, "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" || line == "---" {
+					continue
+				}
+				if len([]rune(line)) > 5 {
+					pairs = append(pairs, sourcedSentence{text: line, source: "ruleset"})
+				}
+			}
+		}
+	}
+	return pairs
 }
 
 // buildRuleQuery constructs the query text from rule fields for embedding retrieval.
@@ -326,7 +362,7 @@ func extractRulePolarity(rule Rule) (string, map[string]string) {
 }
 
 // mapVLMVerdictToResult converts the VLM response into a grc.RuleResult.
-func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, base grc.RuleResult) grc.RuleResult {
+func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, base grc.RuleResult, rule Rule) grc.RuleResult {
 	verdict := resp.Verdict
 	base.Layer = grc.LayerGL
 
@@ -344,20 +380,32 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 		indicators = append(indicators, "LLM 판정: 충족")
 		// Build evidence_data JSON
 		type evidenceEntry struct {
-			SentenceIndex int     `json:"sentence_index"`
-			Text          string  `json:"text"`
-			CosineScore   float64 `json:"cosine_score"`
+			SentenceIndex int      `json:"sentence_index"`
+			Text          string   `json:"text"`
+			CosineScore   *float64 `json:"cosine_score,omitempty"`
+			Source        string   `json:"source,omitempty"`
 		}
 		var evidenceEntries []evidenceEntry
 		for _, idx := range resp.BasisIdx {
 			if idx >= 1 && idx <= len(topHits) {
 				hit := topHits[idx-1]
-				indicators = append(indicators, fmt.Sprintf("근거[%d]: %s (cos=%.3f)", idx, ragTruncate(hit.text, 80), hit.score))
-				evidenceEntries = append(evidenceEntries, evidenceEntry{
-					SentenceIndex: hit.index,
-					Text:          hit.text,
-					CosineScore:   hit.score,
-				})
+				src := hit.source
+				if src == "" {
+					src = sentenceSourceMap[hit.text]
+				}
+				entry := evidenceEntry{SentenceIndex: hit.index, Text: hit.text, Source: src}
+				srcTag := ""
+				if src != "" {
+					srcTag = fmt.Sprintf(" [%s]", src)
+				}
+				if hit.score >= 0 {
+					indicators = append(indicators, fmt.Sprintf("근거[%d]: %s (cos=%.3f)%s", idx, ragTruncate(hit.text, 80), hit.score, srcTag))
+					sc := hit.score
+					entry.CosineScore = &sc
+				} else {
+					indicators = append(indicators, fmt.Sprintf("근거[%d]: %s%s", idx, ragTruncate(hit.text, 80), srcTag))
+				}
+				evidenceEntries = append(evidenceEntries, entry)
 			}
 		}
 		base.MatchedIndicators = indicators
@@ -366,6 +414,18 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 		}
 
 	case "불충족":
+		// 거짓 불충족 방어: LLM이 '누락'으로 지목한 요소가 실제로 근거 문장에
+		// 존재하면 자동 불충족을 신뢰할 수 없으므로 수동 검토로 보정한다.
+		// (missingFoundInBasis는 동의어·부분 키워드 매칭이라 자동 '충족' 단정은
+		//  거짓 음성 위험이 있어, 안전하게 NEEDS_REVIEW로만 강등한다.)
+		if resp.MissingElem != "" && missingFoundInBasis(resp.MissingElem, resp.BasisIdx, topHits) {
+			log.Printf("[grc-rag] post-fix: 불충족→검토필요 (누락 지목 '%s'이(가) 근거 문장에 존재)", resp.MissingElem)
+			base.Verdict = grc.VerdictNEEDS_REVIEW
+			base.Reason = fmt.Sprintf("LLM은 '%s' 누락으로 판정했으나 근거 문장에 관련 내용이 있어 수동 검토 필요", resp.MissingElem)
+			base.MatchedIndicators = []string{fmt.Sprintf("판정 보정: '%s' 누락 판정 — 근거 문장에 관련 표현 존재(수동 검토 필요)", resp.MissingElem)}
+			attachGLPolicyGuidance(rule, &base, resp.MissingElem)
+			return base
+		}
 		base.Verdict = grc.VerdictNOT_MET
 		desc := "LLM 판정: 불충족"
 		if resp.MissingElem != "" {
@@ -378,14 +438,120 @@ func mapVLMVerdictToResult(resp *vlm.JudgeResponse, topHits []scoredSentence, ba
 			Description: desc,
 			Severity:    "high",
 		}}
+		attachGLPolicyGuidance(rule, &base, resp.MissingElem)
 
 	default: // 판정불가
 		base.Verdict = grc.VerdictINDETERMINATE
-		base.Reason = "LLM 판정불가 (수동 검토)"
-		base.MatchedIndicators = []string{"LLM 판정: 판정불가 (수동 검토 필요)"}
+		reason := strings.TrimSpace(resp.Reason)
+		if reason == "" {
+			reason = "사유 미제공 — 검색 문장만으로 충족 여부 판단 불가"
+		}
+		base.Reason = fmt.Sprintf("LLM 판정불가: %s", reason)
+		indicators := []string{fmt.Sprintf("LLM 판정: 판정불가 (수동 검토 필요) / 사유: %s", reason)}
+		// 판정불가여도 LLM이 검토한 문장을 함께 보여줘 수동 검토의 출발점을 제공한다.
+		for _, idx := range resp.BasisIdx {
+			if idx >= 1 && idx <= len(topHits) {
+				hit := topHits[idx-1]
+				if hit.score >= 0 {
+					indicators = append(indicators, fmt.Sprintf("검토 문장[%d]: %s (cos=%.3f)", idx, ragTruncate(hit.text, 80), hit.score))
+				} else {
+					indicators = append(indicators, fmt.Sprintf("검토 문장[%d]: %s", idx, ragTruncate(hit.text, 80)))
+				}
+			}
+		}
+		base.MatchedIndicators = indicators
+		attachGLPolicyGuidance(rule, &base, "")
 	}
 
 	return base
+}
+
+// glItemID resolves the ISMS-P item ID for a GL rule, deriving it from the
+// rule ID (e.g. "R-2.5.4-GL03" → "2.5.4") when the base result lacks one.
+func glItemID(rule Rule, base grc.RuleResult) string {
+	if base.ISMSPItemID != "" {
+		return base.ISMSPItemID
+	}
+	id := strings.TrimPrefix(rule.RuleID, "R-")
+	if i := strings.LastIndex(id, "-"); i > 0 {
+		return id[:i]
+	}
+	return id
+}
+
+// policyDocHint returns the recommended policy/standard document name an
+// organization should maintain for the given ISMS-P item.
+func policyDocHint(itemID string) string {
+	hints := map[string]string{
+		"1.2.1":  "정보자산 관리 지침·자산 분류 기준서",
+		"1.2.2":  "정보서비스·개인정보 흐름도(현황 및 흐름분석 문서)",
+		"2.1.3":  "정보자산 관리 지침(자산별 책임자·보안등급 취급절차)",
+		"2.5.1":  "사용자 계정 관리 지침",
+		"2.5.2":  "사용자 식별 기준(계정 명명·공유계정 규정)",
+		"2.5.4":  "비밀번호 관리 정책/지침",
+		"2.5.5":  "특수 계정 및 권한 관리 지침",
+		"2.6.1":  "네트워크 접근통제 지침(망 분리 설계 기준)",
+		"2.6.3":  "응용프로그램 접근통제 지침",
+		"2.6.7":  "인터넷 접속 통제 정책",
+		"2.7.1":  "암호정책(암호화 대상·알고리즘·키 관리 기준)",
+		"2.8.3":  "개발·운영 환경 분리 지침",
+		"2.9.1":  "변경관리 절차서",
+		"2.10.2": "클라우드 보안 지침",
+		"2.10.3": "공개서버 보안 지침",
+		"2.10.5": "정보전송 보안 정책(조직 간 전송 협약 기준 포함)",
+		"2.10.8": "패치관리 절차서",
+		"2.11.3": "이상행위 분석·모니터링 지침(로그 관리 정책)",
+	}
+	if h, ok := hints[itemID]; ok {
+		return h
+	}
+	return "해당 항목 관련 정책·지침"
+}
+
+// glRequiredContents collects the provisions the policy document must contain
+// for a GL rule (rule name + indicator descriptions, deduplicated).
+func glRequiredContents(rule Rule) []string {
+	var req []string
+	seen := map[string]bool{}
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		req = append(req, s)
+	}
+	add(rule.Name)
+	for _, ind := range rule.ComplianceIndicators {
+		add(ind.Description)
+	}
+	return req
+}
+
+// attachGLPolicyGuidance attaches "어떤 내용이 담긴 어떤 정책서가 필요한가" guidance
+// to a failed/indeterminate GL result — mirroring the off-cluster guidance(⚡/📋)
+// that R rules carry via ManualCheckOutput metadata.
+func attachGLPolicyGuidance(rule Rule, res *grc.RuleResult, missingElem string) {
+	doc := policyDocHint(glItemID(rule, *res))
+	req := glRequiredContents(rule)
+
+	res.Remediation = fmt.Sprintf("『%s』 등 사내 정책·지침에 다음 내용을 명문화하세요: %s", doc, strings.Join(req, " / "))
+	if missingElem != "" {
+		res.Remediation += fmt.Sprintf(" — 누락 확인: %s", missingElem)
+	}
+
+	// 프론트/CLI가 R룰과 동일하게 렌더링하도록 MCO 필드 재사용
+	if b, err := json.Marshal([]string{doc}); err == nil {
+		res.ManualCheckAreas = b
+	}
+	items := make([]string, 0, len(req)+1)
+	items = append(items, fmt.Sprintf("필요 문서: 『%s』", doc))
+	for _, r := range req {
+		items = append(items, "정책서 반영 필요: "+r)
+	}
+	if b, err := json.Marshal(items); err == nil {
+		res.AdditionalReviewItems = b
+	}
 }
 
 // missingFoundInBasis checks if the "missing element" text is actually present
@@ -449,4 +615,75 @@ func ragTruncate(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen]) + "..."
+}
+
+// ensureVerdictDisplay guarantees a renderable indicator for INDETERMINATE and
+// NO_DATA results. Several early-return paths (VLM/임베딩 비가동, 증적·지침 문장
+// 없음, 증적 미제출 등) set only Reason/SkipReason and leave MatchedIndicators
+// empty, which renders as a blank line after the "[INDETERMINATE]"/"[NO_DATA]"
+// tag. Fill it from the reason text so the verdict always carries a
+// human-readable explanation.
+func ensureVerdictDisplay(rr grc.RuleResult) grc.RuleResult {
+	if len(rr.MatchedIndicators) > 0 {
+		return rr
+	}
+	if nv := grc.NormalizeVerdict(rr.Verdict); nv != grc.VerdictINDETERMINATE && nv != grc.VerdictNO_DATA {
+		return rr
+	}
+	msg := strings.TrimSpace(rr.Reason)
+	if msg == "" {
+		msg = strings.TrimSpace(rr.SkipReason)
+	}
+	if msg == "" {
+		msg = "판정불가 (수동 검토 필요)"
+	}
+	rr.MatchedIndicators = []string{msg}
+	return rr
+}
+
+// dedupRuleResultsByID collapses results that share a RuleID (e.g. a rule
+// accidentally evaluated twice within one check), keeping the most informative
+// verdict: a definitive NOT_MET/MET wins over NEEDS_REVIEW/INDETERMINATE/NO_DATA,
+// and among equally-ranked results the later one wins. Results without a RuleID
+// are passed through untouched.
+//
+// NOTE: only safe where each RuleID is expected at most once (the GL/per-item
+// check loop). Do NOT use on the cluster per-pod path, where many pods
+// legitimately share a RuleID.
+func dedupRuleResultsByID(results []grc.RuleResult) []grc.RuleResult {
+	idx := make(map[string]int, len(results))
+	out := make([]grc.RuleResult, 0, len(results))
+	for _, r := range results {
+		if r.RuleID == "" {
+			out = append(out, r)
+			continue
+		}
+		if pos, ok := idx[r.RuleID]; ok {
+			if verdictInformativeness(r.Verdict) >= verdictInformativeness(out[pos].Verdict) {
+				out[pos] = r
+			}
+			continue
+		}
+		idx[r.RuleID] = len(out)
+		out = append(out, r)
+	}
+	return out
+}
+
+// verdictInformativeness ranks verdicts for dedup tie-breaking. A confirmed
+// defect (NOT_MET) is the most informative and must never be hidden behind a
+// duplicate INDETERMINATE evaluation of the same rule.
+func verdictInformativeness(v string) int {
+	switch grc.NormalizeVerdict(v) {
+	case grc.VerdictNOT_MET:
+		return 4
+	case grc.VerdictMET:
+		return 3
+	case grc.VerdictNEEDS_REVIEW:
+		return 2
+	case grc.VerdictNO_DATA, grc.VerdictINDETERMINATE:
+		return 1
+	default:
+		return 0
+	}
 }

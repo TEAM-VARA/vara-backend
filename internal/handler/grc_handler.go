@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"mime/multipart"
 	"net/http"
@@ -668,6 +669,18 @@ func (h *GRCHandler) EvaluateClusterCompliance(c *gin.Context) {
 		return
 	}
 
+	// 응답 페이로드 축소 (P2-10): Pod 수만큼 반복되는 룰 결과를 rule_id 단위로
+	// 중복 제거 (affected_count로 합산). DB에는 service 단계에서 전체가 저장됨.
+	for i := range result.Items {
+		result.Items[i].RuleResults = deduplicateRuleResults(result.Items[i].RuleResults)
+		if result.Items[i].Layers != nil {
+			result.Items[i].Layers.R = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.R))
+			result.Items[i].Layers.GL = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.GL))
+			result.Items[i].Layers.F = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.F))
+			result.Items[i].Layers.Report = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.Report))
+		}
+	}
+
 	c.JSON(http.StatusOK, result)
 }
 
@@ -693,39 +706,116 @@ func (h *GRCHandler) GetComplianceOverview(c *gin.Context) {
 	// Overview 페이로드 축소: rule_results를 룰 단위로 중복 제거,
 	// violated_assets에서 violated_rules 상세 제거 (name/namespace만 보존).
 	for i := range result.Items {
-		result.Items[i].RuleResults = deduplicateRuleResults(result.Items[i].RuleResults)
+		result.Items[i].RuleResults = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].RuleResults))
 		result.Items[i].ViolatedAssetCount = len(result.Items[i].ViolatedAssets)
 		for j := range result.Items[i].ViolatedAssets {
 			result.Items[i].ViolatedAssets[j].ViolatedRules = nil
 		}
 		if result.Items[i].Layers != nil {
-			result.Items[i].Layers.R = deduplicateRuleResults(result.Items[i].Layers.R)
-			result.Items[i].Layers.GL = deduplicateRuleResults(result.Items[i].Layers.GL)
-			result.Items[i].Layers.F = deduplicateRuleResults(result.Items[i].Layers.F)
-			result.Items[i].Layers.Report = deduplicateRuleResults(result.Items[i].Layers.Report)
+			result.Items[i].Layers.R = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.R))
+			result.Items[i].Layers.GL = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.GL))
+			result.Items[i].Layers.F = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.F))
+			result.Items[i].Layers.Report = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.Report))
 		}
 	}
 	c.JSON(http.StatusOK, result)
 }
 
 // deduplicateRuleResults collapses per-pod rule results into one entry per rule_id.
-// Keeps the first occurrence (with full detail) and adds an affected_count field.
+// Tracks pass/fail counts so mixed-verdict rules (2 fail out of 14) are visible.
 func deduplicateRuleResults(results []grc.RuleResult) []grc.RuleResult {
 	if len(results) == 0 {
 		return results
 	}
-	seen := map[string]int{} // rule_id → index in deduped
+	seen := map[string]int{}
 	var deduped []grc.RuleResult
 	for _, r := range results {
+		isFail := r.Verdict == "미준수" || r.Verdict == grc.VerdictNOT_MET
+		isPass := r.Verdict == "준수" || r.Verdict == grc.VerdictMET
+
 		if idx, ok := seen[r.RuleID]; ok {
 			deduped[idx].AffectedCount++
+			if isPass {
+				deduped[idx].AffectedPassCount++
+			}
+			if isFail {
+				deduped[idx].AffectedFailCount++
+				if len(deduped[idx].Violations) == 0 && len(r.Violations) > 0 {
+					deduped[idx].Violations = r.Violations
+				}
+				if deduped[idx].FailMessage == "" && r.FailMessage != "" {
+					deduped[idx].FailMessage = r.FailMessage
+				}
+			}
 			continue
 		}
 		r.AffectedCount = 1
+		if isPass {
+			r.AffectedPassCount = 1
+		}
+		if isFail {
+			r.AffectedFailCount = 1
+		}
 		seen[r.RuleID] = len(deduped)
 		deduped = append(deduped, r)
 	}
+	for i := range deduped {
+		if deduped[i].AffectedFailCount > 0 && deduped[i].AffectedPassCount > 0 {
+			deduped[i].Verdict = grc.VerdictNOT_MET
+			deduped[i].Reason = fmt.Sprintf("%d/%d pods 미준수", deduped[i].AffectedFailCount, deduped[i].AffectedCount)
+		}
+	}
 	return deduped
+}
+
+// humanizeRuleGuidance rewrites short keyword-style guidance fields into
+// complete Korean sentences for human-readable API output.
+func humanizeRuleGuidance(results []grc.RuleResult) []grc.RuleResult {
+	for i := range results {
+		results[i].AlternativeControls = humanizeJSONArray(results[i].AlternativeControls,
+			"대안 통제 수단으로 %s을(를) 적용하여 보완할 수 있습니다.")
+		results[i].AdditionalReviewItems = humanizeJSONArray(results[i].AdditionalReviewItems,
+			"%s 확인이 필요합니다.")
+	}
+	return results
+}
+
+func humanizeJSONArray(raw json.RawMessage, tmpl string) json.RawMessage {
+	if raw == nil {
+		return nil
+	}
+	var items []any
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return raw
+	}
+	var result []string
+	for _, item := range items {
+		var text string
+		switch v := item.(type) {
+		case string:
+			text = v
+		case map[string]any:
+			if n, ok := v["name"].(string); ok {
+				text = n
+			} else if d, ok := v["description"].(string); ok {
+				text = d
+			}
+		}
+		if text == "" {
+			continue
+		}
+		last := []rune(text)
+		lastChar := last[len(last)-1]
+		if lastChar == '.' || lastChar == '다' || lastChar == '요' || lastChar == '까' || lastChar == '?' {
+			result = append(result, text)
+		} else {
+			result = append(result, fmt.Sprintf(tmpl, text))
+		}
+	}
+	if out, err := json.Marshal(result); err == nil {
+		return out
+	}
+	return raw
 }
 
 // GET /compliance/findings/summary

@@ -1,230 +1,86 @@
-{
-  "schema_version": "4.0.0",
-  "isms_p_revision": "2023.11",
-  "item": {
-    "id": "2.1.3",
-    "name": "정보자산 관리",
-    "category_path": "2. 보호대책 요구사항 > 2.1 정책, 조직, 자산 관리 > 2.1.3 정보자산 관리",
-    "description": "식별된 정보자산에 대하여 법적 요구사항 및 업무상 중요도를 고려하여 보안등급과 취급절차를 정하고, 이에 따라 취급하여야 한다."
-  },
-  "legal_references": [
-    {
-      "law": "정보통신망법",
-      "article": "제47조",
-      "summary": "정보보호 관리체계 인증 기준"
-    },
-    {
-      "law": "개인정보 보호법",
-      "article": "제29조",
-      "summary": "안전조치의무"
-    }
-  ],
-  "rules": [
-    {
-      "rule_id": "R-2.1.3-01",
-      "name": "워크로드 owner annotation 부재",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "compliance_indicators": [
-        {
-          "field": "pod.metadata.annotations.isms-p/owner",
-          "op": "!=",
-          "value": null,
-          "description": "Pod에 자산 책임자(owner) annotation 존재"
-        },
-        {
-          "field": "pod.metadata.annotations.isms-p/owner-team",
-          "op": "!=",
-          "value": null,
-          "description": "Pod에 소유 팀(owner-team) annotation 존재"
-        }
-      ],
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      },
-      "manual_check_output": {
-        "applies_when": "always",
-        "absorbed_from": "F-2.1.3-01",
-        "additional_review_items": [
-          "회사가 K8s annotation으로 책임자를 관리하는 정책인가",
-          "외부 자산관리시스템(CMDB)에서 책임자 매핑 여부",
-          "책임자 미지정 자산의 사유 확인"
-        ],
-        "manual_check_areas": [
-          "자산관리시스템(CMDB) 책임자 매핑"
-        ],
-        "alternative_controls": [
-          "외부 CMDB",
-          "ITSM 시스템"
-        ],
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.1.3",
-            "match_strength": "indirect"
-          }
-        ],
-        "offcluster_satisfaction_conditions": [
-          "K8s owner 라벨이 없어도 외부 CMDB/ITSM에 워크로드의 책임자·소유팀이 매핑돼 있음"
-        ]
-      }
-    },
-    {
-      "rule_id": "R-2.1.3-02",
-      "name": "security-class 라벨 부재",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "compliance_indicators": [
-        {
-          "field": "workload.metadata.labels.security-class",
-          "op": "in",
-          "value": [
-            "critical",
-            "high",
-            "medium",
-            "low"
-          ],
-          "description": "워크로드에 유효한 보안등급(security-class) 라벨 존재"
-        }
-      ],
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      }
-    },
-    {
-      "rule_id": "R-2.1.3-03",
-      "name": "자산 변경 활동 감지",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "compliant_indicator",
-      "manual_meta": {
-        "target_resource": "Workload (history)",
-        "required_data": [
-          "cluster_workloads (snapshot history)"
-        ],
-        "condition": {
-          "operator": "change_activity_report",
-          "time_window": "7d"
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.1.3",
-            "match_strength": "supportive"
-          }
-        ],
-        "kisa_defect_case_refs": [],
-        "additional_review_items": [
-          "이 변경 사항이 회사 자산관리 절차를 거쳤는가",
-          "자산관리대장에 반영되었는가",
-          "변경 신청/승인 결재 기록과 매칭"
-        ],
-        "manual_check_areas": [
-          "변경관리 시스템(ITSM)",
-          "자산관리대장"
-        ],
-        "automation_coverage": {
-          "percentage": 100,
-          "covered": "변경 감지",
-          "not_covered": "변경 절차 준수 여부"
-        },
-        "offcluster_satisfaction_conditions": [
-          "감지된 변경이 변경관리(ITSM) 신청·승인 결재를 거쳤고 자산관리대장에 반영됨"
-        ],
-        "k8s_only_check": true,
-        "deferred": false
-      },
-      "reclassified_from": "F-2.1.3-02",
-      "output_type": "report",
-      "manual_check_output": {
-        "applies_when": "always",
-        "absorbed_from": "F-2.1.3-02",
-        "additional_review_items": [
-          "이 변경 사항이 회사 자산관리 절차를 거쳤는가",
-          "자산관리대장에 반영되었는가",
-          "변경 신청/승인 결재 기록과 매칭"
-        ],
-        "manual_check_areas": [
-          "변경관리 시스템(ITSM)",
-          "자산관리대장"
-        ],
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.1.3",
-            "match_strength": "supportive"
-          }
-        ],
-        "offcluster_satisfaction_conditions": [
-          "감지된 변경이 변경관리(ITSM) 신청·승인 결재를 거쳤고 자산관리대장에 반영됨"
-        ]
-      }
-    },
-    {
-      "rule_id": "R-2.1.3-GL01",
-      "name": "보안등급별 취급절차·보호대책 정의",
-      "judgment_source": "text_extraction",
-      "extraction_method": "rag",
-      "keywords": [
-        "정보자산의 보안등급에 따른 취급절차 및 보호대책을 정의하고 이행한다."
-      ],
-      "compliance_indicators": [
-        {
-          "description": "보안등급에 따른 취급절차와 보호대책을 정의·이행하도록 규정"
-        }
-      ],
-      "source_reference": {
-        "framework": "ISMS-P",
-        "item": "2.1.3",
-        "basis": "안내서 주요 확인사항/인증기준"
-      },
-      "judgment_logic": {
-        "type": "semantic_match",
-        "method": "llm_rag_entailment",
-        "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": [
-          "충족",
-          "미충족",
-          "확인불가"
-        ]
-      }
-    },
-    {
-      "rule_id": "R-2.1.3-GL02",
-      "name": "자산 책임자·관리자 지정",
-      "judgment_source": "text_extraction",
-      "extraction_method": "rag",
-      "keywords": [
-        "식별된 정보자산에 대하여 책임자 및 관리자를 지정한다."
-      ],
-      "compliance_indicators": [
-        {
-          "description": "식별된 정보자산에 책임자 및 관리자를 지정하도록 규정"
-        }
-      ],
-      "source_reference": {
-        "framework": "ISMS-P",
-        "item": "2.1.3",
-        "basis": "안내서 주요 확인사항/인증기준"
-      },
-      "judgment_logic": {
-        "type": "semantic_match",
-        "method": "llm_rag_entailment",
-        "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": [
-          "충족",
-          "미충족",
-          "확인불가"
-        ]
-      }
-    }
-  ],
-  "evaluation_strategy": {
-    "overall_verdict_logic": "any_fail_is_non_compliant",
-    "description": "모든 워크로드에 owner/owner-team annotation + security-class 라벨이 존재해야 PASS"
-  }
+﻿{
+    "schema_version":  "4.0.0",
+    "isms_p_revision":  "2023.11",
+    "item":  {
+                 "id":  "2.1.3",
+                 "name":  "정보자산 관리",
+                 "category_path":  "2. 보호대책 요구사항 \u003e 2.1 정책, 조직, 자산 관리 \u003e 2.1.3 정보자산 관리",
+                 "description":  "식별된 정보자산에 대하여 법적 요구사항 및 업무상 중요도를 고려하여 보안등급과 취급절차를 정하고, 이에 따라 취급하여야 한다."
+             },
+    "legal_references":  [
+                             {
+                                 "law":  "정보통신망법",
+                                 "article":  "제47조",
+                                 "summary":  "정보보호 관리체계 인증 기준"
+                             },
+                             {
+                                 "law":  "개인정보 보호법",
+                                 "article":  "제29조",
+                                 "summary":  "안전조치의무"
+                             }
+                         ],
+    "rules":  [
+                  {
+                      "rule_id":  "R-2.1.3-GL01",
+                      "name":  "보안등급별 취급절차·보호대책 정의",
+                      "judgment_source":  "text_extraction",
+                      "extraction_method":  "rag",
+                      "keywords":  [
+                                       "정보자산의 보안등급에 따른 취급절차 및 보호대책을 정의하고 이행한다."
+                                   ],
+                      "compliance_indicators":  [
+                                                    {
+                                                        "description":  "보안등급에 따른 취급절차와 보호대책을 정의·이행하도록 규정"
+                                                    }
+                                                ],
+                      "source_reference":  {
+                                               "framework":  "ISMS-P",
+                                               "item":  "2.1.3",
+                                               "basis":  "안내서 주요 확인사항/인증기준"
+                                           },
+                      "judgment_logic":  {
+                                             "type":  "semantic_match",
+                                             "method":  "llm_rag_entailment",
+                                             "match_criteria":  "sentence_semantic_equivalence",
+                                             "verdict_states":  [
+                                                                    "충족",
+                                                                    "미충족",
+                                                                    "확인불가"
+                                                                ]
+                                         }
+                  },
+                  {
+                      "rule_id":  "R-2.1.3-GL02",
+                      "name":  "자산 책임자·관리자 지정",
+                      "judgment_source":  "text_extraction",
+                      "extraction_method":  "rag",
+                      "keywords":  [
+                                       "식별된 정보자산에 대하여 책임자 및 관리자를 지정한다."
+                                   ],
+                      "compliance_indicators":  [
+                                                    {
+                                                        "description":  "식별된 정보자산에 책임자 및 관리자를 지정하도록 규정"
+                                                    }
+                                                ],
+                      "source_reference":  {
+                                               "framework":  "ISMS-P",
+                                               "item":  "2.1.3",
+                                               "basis":  "안내서 주요 확인사항/인증기준"
+                                           },
+                      "judgment_logic":  {
+                                             "type":  "semantic_match",
+                                             "method":  "llm_rag_entailment",
+                                             "match_criteria":  "sentence_semantic_equivalence",
+                                             "verdict_states":  [
+                                                                    "충족",
+                                                                    "미충족",
+                                                                    "확인불가"
+                                                                ]
+                                         }
+                  }
+              ],
+    "evaluation_strategy":  {
+                                "overall_verdict_logic":  "any_fail_is_non_compliant",
+                                "description":  "모든 워크로드에 owner/owner-team annotation + security-class 라벨이 존재해야 PASS"
+                            }
 }
