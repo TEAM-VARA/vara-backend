@@ -141,7 +141,8 @@ func newRouter(
 		api.GET("/scoring/rbac-chain/clusters/:cluster_name", rbacChain.GetByCluster)
 		api.GET("/scoring/rbac-chain/clusters/:cluster_name/permissions", rbacChain.FindSAsByPermission) // RC-5a 역질의
 		api.GET("/scoring/rbac-chain/clusters/:cluster_name/sa/:namespace/:name", rbacChain.GetSA)
-		api.GET("/scoring/rbac-chain/clusters/:cluster_name/sa/:namespace/:name/permissions", rbacChain.GetSAPermissions) // RC-5b
+		api.GET("/scoring/rbac-chain/clusters/:cluster_name/sa/:namespace/:name/permissions", rbacChain.GetSAPermissions)                 // RC-5b 최종 권한
+		api.GET("/scoring/rbac-chain/clusters/:cluster_name/sa/:namespace/:name/initial-permissions", rbacChain.GetSAInitialPermissions) // RC-5c 직접(흡수 전) 권한
 
 		// ── Toxic Combination (작업 B-4) ──
 		api.POST("/scoring/toxic/compute", toxic.Compute)

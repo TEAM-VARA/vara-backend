@@ -37,7 +37,10 @@ type RBACChainResult struct {
 	Summary         MetaSummary
 	SAReports       []SAReportRow
 	Escalations     []EscalationRow
-	Permissions     []PermissionRow
+
+	// 권한 목록(1권한=1행). 둘 다 PermissionRow 재사용.
+	Permissions        []PermissionRow // 최종(흡수 후) → rbac_sa_permissions
+	InitialPermissions []PermissionRow // 직접(흡수 전) → rbac_sa_initial_permissions
 }
 
 // MetaSummary는 rbac_analysis_meta 한 행입니다.
@@ -106,6 +109,7 @@ func (r *RBACChainRepo) Save(ctx context.Context, res RBACChainResult) error {
 		"rbac_sa_reports",
 		"rbac_escalation_paths",
 		"rbac_sa_permissions",
+		"rbac_sa_initial_permissions",
 	} {
 		if _, err := tx.Exec(ctx, "DELETE FROM "+t+" WHERE cluster_name = $1", res.Cluster); err != nil {
 			return fmt.Errorf("rbac_chain: delete %s: %w", t, err)
@@ -172,6 +176,17 @@ func (r *RBACChainRepo) Save(ctx context.Context, res RBACChainResult) error {
 	for _, p := range res.Permissions {
 		batch.Queue(`
 			INSERT INTO rbac_sa_permissions
+			    (cluster_name, sa_namespace, sa_name,
+			     api_group, resource, verb, namespace, resource_name, non_resource_url)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+			res.Cluster, p.SANamespace, p.SAName,
+			p.APIGroup, p.Resource, p.Verb, p.Namespace, p.ResourceName, p.NonResourceURL,
+		)
+	}
+
+	for _, p := range res.InitialPermissions {
+		batch.Queue(`
+			INSERT INTO rbac_sa_initial_permissions
 			    (cluster_name, sa_namespace, sa_name,
 			     api_group, resource, verb, namespace, resource_name, non_resource_url)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,

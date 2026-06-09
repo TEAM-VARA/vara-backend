@@ -138,6 +138,25 @@ func (s *RBACChainService) Compute(ctx context.Context, cluster string) (postgre
 		}
 	}
 
+	// ── 직접(흡수 전) 권한 전체 → rbac_sa_initial_permissions ──
+	// initialSnapshot 은 RunFixpoint 가 initialPerms 를 in-place mutate 하기 전에 떠 둔
+	// deep copy 이므로, fixpoint 적용 전 직접 보유 권한 집합 그대로다.
+	// (행 수 = rbac_sa_reports.initial_perm_count 와 일치.)
+	for sa, ps := range initialSnapshot {
+		for _, p := range ps.Iter() {
+			res.InitialPermissions = append(res.InitialPermissions, postgres.PermissionRow{
+				SANamespace:    sa.Namespace,
+				SAName:         sa.Name,
+				APIGroup:       p.APIGroup,
+				Resource:       p.Resource,
+				Verb:           p.Verb,
+				Namespace:      nullStrPtr(p.Namespace),
+				ResourceName:   nullStrPtr(p.ResourceName),
+				NonResourceURL: nullStrPtr(p.NonResourceURL),
+			})
+		}
+	}
+
 	if err := s.repo.Save(ctx, res); err != nil {
 		return postgres.MetaSummary{}, err
 	}
@@ -170,6 +189,11 @@ func (s *RBACChainService) GetSA(ctx context.Context, cluster, ns, name string) 
 // ListSAPermissions — SA 최종 권한 전체 (repo 패스스루). RC-5b.
 func (s *RBACChainService) ListSAPermissions(ctx context.Context, cluster, ns, name string) ([]postgres.PermissionOut, error) {
 	return s.repo.ListSAPermissions(ctx, cluster, ns, name)
+}
+
+// ListSAInitialPermissions — SA 직접(흡수 전) 권한 전체 (repo 패스스루). RC-5c.
+func (s *RBACChainService) ListSAInitialPermissions(ctx context.Context, cluster, ns, name string) ([]postgres.PermissionOut, error) {
+	return s.repo.ListSAInitialPermissions(ctx, cluster, ns, name)
 }
 
 // FindSAsByPermission — 특정 권한(resource/verb)을 가진 SA 역질의 (repo 패스스루). RC-5a.

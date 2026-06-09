@@ -216,6 +216,32 @@ func (r *RBACChainRepo) ListSAPermissions(ctx context.Context, cluster, ns, name
 	return out, rows.Err()
 }
 
+// ListSAInitialPermissions — SA 한 개의 직접(흡수 전) 권한 전체 (rbac_sa_initial_permissions). RC-5c.
+// rbac_sa_permissions(최종) 의 짝. fixpoint 적용 전 직접 보유 권한만 담는다.
+// 결과 없으면 빈 슬라이스.
+func (r *RBACChainRepo) ListSAInitialPermissions(ctx context.Context, cluster, ns, name string) ([]PermissionOut, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT api_group, resource, verb, namespace, resource_name, non_resource_url
+		FROM rbac_sa_initial_permissions
+		WHERE cluster_name = $1 AND sa_namespace = $2 AND sa_name = $3
+		ORDER BY api_group, resource, verb, namespace`, cluster, ns, name)
+	if err != nil {
+		return nil, fmt.Errorf("rbac_chain: list sa initial permissions: %w", err)
+	}
+	defer rows.Close()
+
+	out := []PermissionOut{}
+	for rows.Next() {
+		var p PermissionOut
+		if err := rows.Scan(&p.APIGroup, &p.Resource, &p.Verb,
+			&p.Namespace, &p.ResourceName, &p.NonResourceURL); err != nil {
+			return nil, fmt.Errorf("rbac_chain: scan sa initial permission: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // FindSAsByPermission — 특정 resource/verb 권한을 가진 SA 목록 (역질의). RC-5a.
 // 와일드카드 포함: resource/verb 가 정확히 일치하거나 '*' 인 행도 매칭한다
 // (예: cluster-admin 의 */*.* 도 secrets.get 질의에 잡힘). idx_perms_lookup 사용.
