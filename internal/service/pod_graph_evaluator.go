@@ -258,15 +258,12 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	"R-2.6.1-04": {"다른 네임스페이스로의 네트워크 트래픽 감지", "NetworkPolicy로 교차 네임스페이스 트래픽을 제한하여 네트워크 분리를 강화하세요"},
 	// 2.6.2 정보시스템 접근 (Ingress 인증 — 2.6.3에서 이동)
 	"R-2.6.2-01": {"Ingress에 인증 설정(auth-url, auth-type 등) 부재", "Ingress에 인증 annotation(nginx.ingress.kubernetes.io/auth-url 등)을 추가하세요"},
-	// 2.6.1 네트워크 접근 (내부 mTLS — 2.6.3에서 이동)
-	"R-2.6.1-05": {"서비스 간 mTLS 미적용", "서비스 메시(Istio, Linkerd 등)를 통해 mTLS를 활성화하거나 sidecar injection을 설정하세요"},
 	// 2.6.7 인터넷 접속 통제
 	"R-2.6.7-01": {"Pod에 Egress NetworkPolicy 미적용", "Pod에 Egress NetworkPolicy를 적용하여 외부 인터넷 접속을 통제하세요"},
 	// 2.7.1 암호정책 적용
 	"R-2.7.1-01": {"Secret이 etcd에 암호화되지 않은 상태로 저장될 수 있음", "etcd 저장 시 Secret 암호화(EncryptionConfiguration)를 활성화하세요"},
 	"R-2.7.1-02": {"ConfigMap에 비밀번호, API 키 등 민감 정보 포함 의심", "ConfigMap에서 민감 정보를 제거하고 Secret 리소스로 이동하세요"},
-	"R-2.7.1-03": {"Ingress에 TLS 설정 미적용", "Ingress에 TLS 인증서를 설정하여 HTTPS 통신을 보장하세요"},
-	"R-2.7.1-04": {"Ingress에 TLS 설정 미적용", "Ingress에 TLS 인증서를 설정하여 HTTPS 통신을 보장하세요"},
+	"R-2.7.1-04": {"KMS 키가 비활성 상태이거나 자동 로테이션 미설정 또는 비승인 알고리즘 사용", "KMS 키를 활성 상태로 유지하고 자동 키 로테이션을 활성화하며 승인된 알고리즘(AES-256/RSA-2048 이상)을 사용하세요"},
 	// 2.8.3 시험과 운영 환경 분리
 	"R-2.8.3-02": {"하나의 네임스페이스에 서로 다른 환경의 워크로드가 혼합 배치됨", "production과 staging/development 워크로드를 별도 네임스페이스로 분리하세요"},
 	"R-2.8.3-03": {"다른 환경의 Secret을 교차 참조하고 있음", "환경별 Secret을 분리하여 교차 환경 참조를 제거하세요"},
@@ -353,18 +350,17 @@ var implementedPodRules = map[string]bool{
 	"R-2.5.1-01": true, "R-2.5.1-03": true,
 	"R-2.5.2-01": true, "R-2.5.2-02": true,
 	"R-2.5.5-01": true, "R-2.5.5-02": true,
-	"R-2.6.1-01": true, "R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true, "R-2.6.1-05": true,
+	"R-2.6.1-01": true, "R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true,
 	"R-2.6.2-01": true,
 	"R-2.6.3-01": true,
 	"R-2.6.7-01": true,
-	"R-2.7.1-01": true, "R-2.7.1-02": true, "R-2.7.1-03": true, "R-2.7.1-04": true,
+	"R-2.7.1-01": true, "R-2.7.1-02": true,
 	"R-2.8.3-02": true, "R-2.8.3-03": true,
 	"R-2.9.1-02": true,
 	"R-2.10.2-08": true,
 	"R-2.10.3-01": true, "R-2.10.3-02": true, "R-2.10.3-04": true,
 	"R-2.10.5-01": true, "R-2.10.5-03": true,
 	"R-2.10.8-01": true, "R-2.10.8-02": true, "R-2.10.8-03": true,
-	"R-2.10.9-01": true,
 	"R-2.11.3-01": true, "R-2.11.3-03": true,
 }
 
@@ -528,9 +524,6 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	// 2.6.3 응용프로그램 접근
 	case "R-2.6.3-POD-01", "R-2.6.3-01":
 		result = evalWorkloadCreatePrivilege(rule, req, base)
-	// 2.6.1 네트워크 접근 (내부 mTLS — 2.6.3에서 이동)
-	case "R-2.6.1-POD-05", "R-2.6.1-05":
-		result = evalMTLS(rule, req, base)
 	// 2.6.7 인터넷 접속 통제
 	case "R-2.6.7-POD-01", "R-2.6.7-01":
 		result = evalEgressPolicy(rule, req, base)
@@ -539,10 +532,6 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		result = evalSecretEncryption(rule, req, base)
 	case "R-2.7.1-POD-02", "R-2.7.1-02":
 		result = evalConfigMapSecrets(rule, req, base)
-	case "R-2.7.1-POD-03", "R-2.7.1-03":
-		result = evalIngressTLS(rule, req, base)
-	case "R-2.7.1-04":
-		result = evalIngressTLS(rule, req, base) // TLS 관련 추가 룰
 	// 2.8.3 시험과 운영 환경 분리
 	case "R-2.8.3-POD-02", "R-2.8.3-02":
 		result = evalNSEnvMixing(rule, req, base)
@@ -573,9 +562,6 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		result = evalImageTagMutable(rule, req, base)
 	case "R-2.10.8-POD-03", "R-2.10.8-03":
 		result = evalImageDigest(rule, req, base)
-	// 2.10.9 악성코드 통제
-	case "R-2.10.9-POD-01", "R-2.10.9-01":
-		result = evalApprovedRegistry(rule, req, base)
 	// 2.11.3 이상행위 분석 및 모니터링
 	case "R-2.11.3-POD-01", "R-2.11.3-01":
 		result = evalProdShellExec(rule, req, base)
@@ -1332,53 +1318,6 @@ func evalWorkloadCreatePrivilege(rule Rule, req PodGraphRequest, base PodRuleRes
 	} else {
 		base.Verdict = "준수"
 		base.MatchedIndicators = []string{"Pod/워크로드 직접 create 권한 없음"}
-	}
-	return base
-}
-
-// ─────────────────────────────────────────────
-// R-2.6.3-POD-02: 내부 Service mTLS 강제 점검
-// ─────────────────────────────────────────────
-
-func evalMTLS(rule Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	podNS := jsonStr(req.Pod, "metadata", "namespace")
-	ns := req.RelatedResources.Namespace
-
-	// 시스템 네임스페이스 예외: kube-system 등 시스템 컴포넌트에 sidecar injection을
-	// 요구하는 것은 비현실적 (Istio 공식 문서도 kube-system 제외 권장).
-	if isSystemNamespace(podNS) {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{fmt.Sprintf("시스템 네임스페이스 '%s' — mTLS 예외 적용", podNS)}
-		return base
-	}
-
-	// Check istio-injection label on namespace
-	nsLabels := jsonMap(ns, "metadata", "labels")
-	istioInjection := strVal(nsLabels["istio-injection"])
-
-	if istioInjection != "enabled" {
-		base.Verdict = "미준수"
-		base.Violations = []grc.Violation{{
-			Field:       "istio_injection_enabled",
-			Expected:    "== true",
-			Actual:      false,
-			Description: "namespace에 istio-injection=enabled 라벨 없음 — mTLS 강제 불가",
-			Severity:    "high",
-			K8sSource: grc.K8sSource{
-				Namespace:    podNS,
-				ResourceKind: "Namespace",
-				ResourceName: podNS,
-			},
-		}}
-		return base
-	}
-
-	// If istio is enabled, we consider it compliant
-	// (full PeerAuthentication check would require custom Istio CRDs not in standard related_resources)
-	base.Verdict = "준수"
-	base.MatchedIndicators = []string{
-		fmt.Sprintf("istio-injection=enabled (namespace: %s)", podNS),
-		"Istio sidecar 주입 활성 — mTLS 적용 가능",
 	}
 	return base
 }
