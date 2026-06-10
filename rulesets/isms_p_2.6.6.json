@@ -1,0 +1,213 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.6.6",
+    "name": "원격접근 통제",
+    "category_path": "2. 보호대책 요구사항 > 2.6 접근통제 > 2.6.6 원격접근 통제",
+    "description": "보호구역 이외 장소에서의 정보시스템 관리 및 개인정보 처리는 원칙적으로 금지하고, 재택근무·장애대응·원격협업 등 불가피한 사유로 원격접근을 허용하는 경우 책임자 승인, 접근 단말 지정, 접근 허용 범위 및 기간 설정, 강화된 인증, 구간 암호화, 접속단말 보안 등 보호대책을 수립·이행하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제6조",
+      "summary": "접근통제"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.6.6-01",
+      "name": "Security Group 원격 관리 포트(SSH·RDP) 전체 개방 (원격접근 통제)",
+      "judgment_source": "aws_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "AWS::EC2::SecurityGroup",
+        "required_data": [
+          "aws_security_groups.ingress_rules"
+        ],
+        "condition": {
+          "operator": "sg_sensitive_port_world_open",
+          "forbidden_cidrs": ["0.0.0.0/0", "::/0"],
+          "sensitive_ports": [22, 3389]
+        },
+        "compliance_mappings": [
+          { "framework": "ISMS-P", "item": "2.6.6", "match_strength": "direct" }
+        ],
+        "kisa_defect_case_refs": [
+          { "case_number": null, "description": "원격 서버 관리 포트(SSH 22/RDP 3389)가 인터넷(0.0.0.0/0)에 직접 노출", "match": "direct" }
+        ],
+        "automation_coverage": {
+          "percentage": 85,
+          "covered": "SG ingress 0.0.0.0/0 → 22/3389 자동 탐지",
+          "not_covered": "Bastion/VPN/SSM 등 안전한 원격접근 수단·강화된 인증 운영 여부"
+        },
+        "k8s_only_check": false,
+        "deferred": false
+      },
+      "promoted_from": "SG-2.6.6-01",
+      "source_reference": {
+        "framework": "CIS AWS Foundations Benchmark",
+        "control": "5.2 / 5.3",
+        "basis": "어떤 보안 그룹도 원격 서버 관리 포트(SSH 22, RDP 3389)에 0.0.0.0/0으로부터의 ingress를 허용해선 안 된다 — 관리 인터페이스 대상 브루트포스 등 공격 노출 최소화"
+      },
+      "manual_check_output": {
+        "applies_when": "fail"
+      }
+    },
+    {
+      "rule_id": "R-2.6.6-GL01",
+      "name": "보호구역 외 정보시스템 관리·개인정보 처리 금지 원칙",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "보호구역 이외의 장소에서 정보시스템 관리 및 개인정보 처리를 원칙적으로 금지한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "보호구역 외 장소에서의 정보시스템 관리·개인정보 처리를 원칙적으로 금지하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.6",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.6.6-GL02",
+      "name": "원격접근 시 책임자 승인 및 접근 허용 범위·기간 설정",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "불가피한 사유로 원격접근을 허용하는 경우 책임자의 승인을 받고 접근 허용 범위 및 기간을 설정한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "원격접근 허용 시 책임자 승인과 접근 허용 범위·기간 설정을 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.6",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.6.6-GL03",
+      "name": "원격접근 단말 지정 및 접속단말 보안대책",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "원격접근에 사용하는 단말을 지정하고 접속단말에 대한 보안대책(백신·자료유출 방지 등)을 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "원격접근 단말 지정 및 접속단말 보안대책 적용을 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.6",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.6.6-GL04",
+      "name": "원격접근 시 강화된 인증 적용",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "원격접근 시 다중 인증 등 강화된 인증수단을 적용한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "원격접근 시 강화된 인증(다중 인증 등) 적용을 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.6",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.6.6-GL05",
+      "name": "원격접근 구간 암호화",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "원격접근 시 전송구간을 암호화(VPN 등)하여 보호한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "원격접근 전송구간 암호화(VPN 등) 적용을 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.6.6",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "SG의 원격 관리 포트(SSH 22/RDP 3389) 0.0.0.0/0 전체개방 미존재(R-2.6.6-01) + 원격접근 보호대책(책임자 승인·단말 지정·강화된 인증·구간 암호화 등) 규정(GL)이 모두 PASS여야 항목 충족"
+  }
+}

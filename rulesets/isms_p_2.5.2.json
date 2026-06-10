@@ -53,11 +53,6 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "F-2.5.2-01",
-        "additional_review_items": [
-          "해당 SA가 인증범위 내 자산인가",
-          "명명 자체보다 권한 범위 점검(F-2.5.5와 결합)",
-          "회사 명명 규칙 문서와 비교"
-        ],
         "kisa_defect_case_refs": [
           {
             "case_number": null,
@@ -73,7 +68,7 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "명명 규칙 문서상 허용된 명칭이거나, SA 권한이 최소화돼 위험이 통제됨"
+          "용도가 의미적으로 식별 가능하게 매핑·관리되는지 확인"
         ]
       }
     },
@@ -105,10 +100,6 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "F-2.5.2-02",
-        "additional_review_items": [
-          "용도가 의미적으로 식별 가능한가",
-          "운영 표준 명명 규칙과 일치하는가"
-        ],
         "compliance_mappings": [
           {
             "framework": "ISMS-P",
@@ -117,7 +108,7 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "운영 표준 명명 규칙 문서상 용도가 의미적으로 식별 가능하게 매핑·관리됨"
+          "용도가 의미적으로 식별 가능하게 매핑·관리되는지 확인"
         ]
       }
     },

@@ -55,16 +55,6 @@
       "manual_check_output": {
         "applies_when": "always",
         "absorbed_from": "F-2.6.7-01",
-        "additional_review_items": [
-          "K8s 외 VPC NAT Gateway 화이트리스트 적용 여부",
-          "프록시 서버를 통한 외부 접속 통제",
-          "발견된 Pod가 개인정보 처리 시스템인지"
-        ],
-        "manual_check_areas": [
-          "외부 접속 화이트리스트 정책",
-          "프록시 서버 운영 현황",
-          "VPC 라우팅 정책"
-        ],
         "alternative_controls": [
           "VPC NAT Gateway 화이트리스트",
           "프록시 서버(Squid 등)",
@@ -86,7 +76,7 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제됨"
+          "K8s 외 VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제되고 있다면 결함이 아닙니다."
         ]
       }
     },
@@ -114,22 +104,13 @@
           }
         ],
         "kisa_defect_case_refs": [],
-        "additional_review_items": [
-          "화이트리스트와 실제 접속 패턴 일치 여부",
-          "의심 도메인 접속이 있는가",
-          "개인정보 처리 Pod의 외부 접속 패턴 검토"
-        ],
-        "manual_check_areas": [
-          "외부 접속 화이트리스트",
-          "DNS 로그 분석 기록"
-        ],
         "automation_coverage": {
           "percentage": 80,
           "covered": "실제 통신 패턴 관찰",
           "not_covered": "통제 정책 자체"
         },
         "offcluster_satisfaction_conditions": [
-          "관찰된 외부 접속이 화이트리스트 범위 내이고 의심 도메인 없음(DNS 로그 분석 기록으로 확인)"
+          "K8s 외 VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제되고 있다면 결함이 아닙니다."
         ],
         "k8s_only_check": true,
         "deferred": true,
@@ -139,15 +120,6 @@
       "manual_check_output": {
         "applies_when": "always",
         "absorbed_from": "F-2.6.7-02",
-        "additional_review_items": [
-          "화이트리스트와 실제 접속 패턴 일치 여부",
-          "의심 도메인 접속이 있는가",
-          "개인정보 처리 Pod의 외부 접속 패턴 검토"
-        ],
-        "manual_check_areas": [
-          "외부 접속 화이트리스트",
-          "DNS 로그 분석 기록"
-        ],
         "compliance_mappings": [
           {
             "framework": "ISMS-P",
@@ -156,7 +128,7 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "관찰된 외부 접속이 화이트리스트 범위 내이고 의심 도메인 없음(DNS 로그 분석 기록으로 확인)"
+          "K8s 외 VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제되고 있다면 결함이 아닙니다."
         ]
       }
     },
@@ -182,22 +154,13 @@
         "kisa_defect_case_refs": [
           { "case_number": null, "description": "아웃바운드 전체 허용 — 인터넷 자유 접속(유출·C2 경로)", "match": "direct" }
         ],
-        "additional_review_items": [
-          "아웃바운드를 목적지 CIDR/포트로 제한했는지(기본 egress는 0.0.0.0/0 전체 허용)",
-          "외부 접속이 NAT Gateway 화이트리스트·프록시·FQDN 정책으로 통제되는지",
-          "해당 SG가 개인정보·중요정보 처리 시스템에 부착됐는지"
-        ],
-        "manual_check_areas": [
-          "인터넷 접속 통제 정책 문서",
-          "VPC NAT Gateway / 프록시 / Network Firewall 아웃바운드 정책"
-        ],
         "automation_coverage": {
           "percentage": 80,
           "covered": "SG egress 0.0.0.0/0 전체개방 자동 탐지",
           "not_covered": "NAT GW 화이트리스트·프록시·FQDN 등 상위 아웃바운드 통제"
         },
         "offcluster_satisfaction_conditions": [
-          "아웃바운드가 VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 통제되어 SG egress 전체개방이 무력화됨"
+          "K8s 외 VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제되고 있다면 결함이 아닙니다."
         ],
         "k8s_only_check": false,
         "deferred": false
@@ -206,15 +169,11 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "SG-2.6.7-01",
-        "additional_review_items": [
-          "아웃바운드를 목적지·포트로 제한했는지",
-          "NAT GW 화이트리스트·프록시 통제 여부"
-        ],
         "compliance_mappings": [
           { "framework": "ISMS-P", "item": "2.6.7", "match_strength": "direct" }
         ],
         "offcluster_satisfaction_conditions": [
-          "아웃바운드가 NAT Gateway 화이트리스트/프록시/Network Firewall로 통제됨"
+          "K8s 외 VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제되고 있다면 결함이 아닙니다."
         ]
       }
     },

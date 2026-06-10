@@ -51,15 +51,6 @@
       },
       "manual_check_output": {
         "applies_when": "fail",
-        "additional_review_items": [
-          "정보시스템 접근을 허용하는 사용자·접근수단이 정의·통제되는가",
-          "관리자 접근이 Bastion/VPN/SSM 등 안전한 접근수단을 경유하는가",
-          "Ingress 인증 외 IAM·세션 통제 등 상위 접근통제가 적용되는가"
-        ],
-        "manual_check_areas": [
-          "정보시스템 접근통제 정책 문서",
-          "원격·관리자 접근수단(Bastion/VPN/SSM) 설계"
-        ],
         "alternative_controls": [
           "Bastion 경유 접근",
           "VPN/Zero-Trust 게이트웨이",
@@ -69,7 +60,7 @@
           { "framework": "ISMS-P", "item": "2.6.2", "match_strength": "indirect" }
         ],
         "offcluster_satisfaction_conditions": [
-          "Ingress 인증이 없더라도 Bastion/VPN/SSM 등 안전한 접근수단과 IAM·세션 통제로 정보시스템 접근이 제한됨"
+          "Ingress 인증이 없더라도 Bastion/VPN/SSM 등 안전한 접근수단과 IAM·세션 통제로 정보시스템 접근이 제한되는지"
         ]
       }
     }

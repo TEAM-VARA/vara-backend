@@ -1,0 +1,99 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.10.9",
+    "name": "악성코드 통제",
+    "category_path": "2. 보호대책 요구사항 > 2.10 시스템 및 서비스 보안관리 > 2.10.9 악성코드 통제",
+    "description": "바이러스·웜·트로이목마·랜섬웨어 등의 악성코드로부터 개인정보 및 중요정보, 정보시스템 및 업무용 단말기 등을 보호하기 위하여 악성코드 예방·탐지·대응 등의 보호대책을 수립·이행하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제9조",
+      "summary": "악성프로그램 등 방지"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.10.9-01",
+      "name": "승인된 컨테이너 레지스트리만 사용",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "approved_registries": [
+        "*.dkr.ecr.ap-northeast-2.amazonaws.com",
+        "public.ecr.aws",
+        "registry.k8s.io"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "untrusted_registry_image",
+          "op": "==",
+          "value": false,
+          "description": "승인되지 않은 레지스트리 출처 이미지 없음 — 신뢰할 수 있는 이미지 출처 강제 (악성코드·공급망 예방)"
+        }
+      ],
+      "exception_check": {
+        "annotation": "malware-exception/justification",
+        "system_namespaces": [
+          "kube-system",
+          "kube-node-lease"
+        ]
+      },
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required"
+      },
+      "source_reference": {
+        "framework": "CIS Amazon EKS Benchmark",
+        "control": "5.1.4 / 5.1.3",
+        "basis": "Ensure only approved/trusted container registries are used — 신뢰 이미지 출처 강제"
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "offcluster_satisfaction_conditions": [
+          "eBPF 런타임 탐지 도구(Tetragon 등)가 운영 namespace를 커버하고 텔레메트리가 SIEM/보관소로 수집·보존됨",
+          "탐지 시 분석·에스컬레이션·차단·보고·복구의 적시 대응 절차가 수립·이행됨"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.10.9-GL01",
+      "name": "악성코드 예방·탐지·대응 보호대책 수립",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "악성코드로부터 정보시스템을 보호하기 위하여 예방·탐지·대응 절차 및 보호대책(백신·이미지 스캔·EDR 등)을 수립·이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "악성코드 예방·탐지·대응 보호대책을 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.10.9",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "승인된 레지스트리 이미지만 사용(R-2.10.9-01) + 악성코드 예방·탐지·대응 보호대책 수립(GL01) 시 PASS"
+  }
+}

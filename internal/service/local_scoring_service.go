@@ -237,7 +237,7 @@ func (s *LocalScoringService) ComputeForPod(ctx context.Context, clusterName, po
 		ComputedAt:             now,
 	}
 
-	fmt.Printf("info: local compute pod cluster=%s pod_uid=%s name=%s local_score=%d level=%s\n",
+	fmt.Printf("info: local compute pod cluster=%s pod_uid=%s name=%s local_score=%g level=%s\n",
 		clusterName, podUID, src.PodName, localScore, level)
 
 	// 4. 저장 (batch지만 단건도 그대로 호출 가능)

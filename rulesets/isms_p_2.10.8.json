@@ -34,10 +34,6 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "F-2.10.8-01",
-        "additional_review_items": [
-          "EKS 지원 버전 정책과 비교",
-          "패치 일정 계획 확인"
-        ],
         "kisa_defect_case_refs": [
           {
             "case_number": null,
@@ -53,7 +49,8 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "kubeletVersion이 EKS 지원 버전 범위 내이거나, 패치 일정 계획상 지원 버전 업그레이드가 결재·관리됨(EOL 운영이면 결함)"
+          "digest가 아니어도 CI/CD 빌드 추적 시스템으로 실제 배포 이미지·패치 시점 추적 가능한가",
+          "이미지 무결성을 다른 방식으로 보장하는가"
         ]
       }
     },
@@ -86,14 +83,6 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "F-2.10.8-02",
-        "additional_review_items": [
-          "mutable 태그 정책이 회사 표준에 부합하는가",
-          "패치 적용 시점 추적이 다른 방식으로 가능한가"
-        ],
-        "manual_check_areas": [
-          "이미지 태그 정책",
-          "CI/CD 빌드 추적 시스템"
-        ],
         "compliance_mappings": [
           {
             "framework": "ISMS-P",
@@ -102,7 +91,8 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "mutable 태그여도 CI/CD 빌드 추적 시스템으로 실제 배포 이미지·패치 시점 추적 가능"
+          "digest가 아니어도 CI/CD 빌드 추적 시스템으로 실제 배포 이미지·패치 시점 추적 가능한가",
+          "이미지 무결성을 다른 방식으로 보장하는가"
         ]
       }
     },
@@ -127,14 +117,6 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "F-2.10.8-03",
-        "additional_review_items": [
-          "digest 미고정이 회사 표준에 부합하는가",
-          "이미지 무결성을 다른 방식으로 보장하는가"
-        ],
-        "manual_check_areas": [
-          "이미지 무결성 정책",
-          "이미지 서명/검증 운영"
-        ],
         "compliance_mappings": [
           {
             "framework": "ISMS-P",
@@ -143,7 +125,8 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "digest 미고정이어도 이미지 서명/검증(Cosign/Notation 등)으로 무결성 보장됨"
+          "digest가 아니어도 CI/CD 빌드 추적 시스템으로 실제 배포 이미지·패치 시점 추적 가능한가",
+          "이미지 무결성을 다른 방식으로 보장하는가"
         ]
       }
     },
@@ -177,22 +160,14 @@
             "match": "direct"
           }
         ],
-        "additional_review_items": [
-          "Trivy/Clair 등 이미지 스캔 도구 운영 여부",
-          "Critical CVE 긴급 패치 프로세스",
-          "취약점 관리 정책/기록"
-        ],
-        "manual_check_areas": [
-          "취약점 관리 정책",
-          "이미지 스캔 운영 현황"
-        ],
         "automation_coverage": {
           "percentage": 80,
           "covered": "Trivy 기반 CVE 스캔",
           "not_covered": "OS 패치, 커스텀 취약점"
         },
         "offcluster_satisfaction_conditions": [
-          "발견된 CVE가 취약점 관리 정책상 예외 승인/완화조치로 처리됐거나 긴급 패치 프로세스로 조치(예정)됨"
+          "digest가 아니어도 CI/CD 빌드 추적 시스템으로 실제 배포 이미지·패치 시점 추적 가능한가",
+          "이미지 무결성을 다른 방식으로 보장하는가"
         ],
         "k8s_only_check": true,
         "deferred": false
@@ -201,15 +176,6 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "F-2.10.8-04",
-        "additional_review_items": [
-          "Trivy/Clair 등 이미지 스캔 도구 운영 여부",
-          "Critical CVE 긴급 패치 프로세스",
-          "취약점 관리 정책/기록"
-        ],
-        "manual_check_areas": [
-          "취약점 관리 정책",
-          "이미지 스캔 운영 현황"
-        ],
         "kisa_defect_case_refs": [
           {
             "case_number": null,
@@ -225,7 +191,8 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "발견된 CVE가 취약점 관리 정책상 예외 승인/완화조치로 처리됐거나 긴급 패치 프로세스로 조치(예정)됨"
+          "digest가 아니어도 CI/CD 빌드 추적 시스템으로 실제 배포 이미지·패치 시점 추적 가능한가",
+          "이미지 무결성을 다른 방식으로 보장하는가"
         ]
       }
     },

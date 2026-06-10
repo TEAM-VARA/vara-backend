@@ -212,14 +212,6 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "F-2.7.1-01",
-        "additional_review_items": [
-          "미설정 Ingress가 외부 LB(CloudFront 등)에서 TLS 종료 후 평문 전달 구조인가",
-          "그렇다면 클러스터 내 통신 보호 별도 통제 필요(mTLS 등)",
-          "진짜 HTTP 평문이라면 즉시 시정"
-        ],
-        "manual_check_areas": [
-          "저장 데이터 암호화 적용"
-        ],
         "alternative_controls": [
           "CloudFront/외부 LB TLS",
           "외부 인증서 관리"
@@ -244,8 +236,9 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "외부 LB(CloudFront/ALB) TLS 종료 후 내부는 mTLS 보호 구조",
-          "저장 데이터 암호화(Secret etcd·KMS)가 별도 적용됨"
+          "미설정 Ingress가 외부 LB(CloudFront 등)에서 TLS 종료 후 평문 전달 구조인가",
+          "그렇다면 클러스터 내 통신 보호 별도 통제 필요(mTLS 등)",
+          "외부 LB(CloudFront/ALB) TLS 종료 후 내부는 mTLS 보호 구조"
         ]
       }
     },

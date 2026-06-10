@@ -86,17 +86,6 @@
             "match": "partial"
           }
         ],
-        "additional_review_items": [
-          "발견된 shell exec이 인가된 운영 작업이었는가",
-          "kubectl exec 권한 보유 SA 식별",
-          "활동 시간대가 업무 시간 내인가",
-          "회사의 운영 접근 정책 확인"
-        ],
-        "manual_check_areas": [
-          "이상행위 탐지 도구 운영(Falco, Tetragon)",
-          "탐지 룰 정의 문서",
-          "모니터링 로그 보관 정책"
-        ],
         "automation_coverage": {
           "percentage": 30,
           "covered": "eBPF 기반 shell 활동",
@@ -107,29 +96,14 @@
           "Teleport",
           "외부 PAM 도구"
         ],
-        "offcluster_satisfaction_conditions": [
-          "탐지된 shell exec이 인가된 운영 작업(결재·SSM Session Manager/Teleport/PAM 기록)으로 확인",
-          "이상행위 탐지 도구(Falco/Tetragon)·로그 보관 정책 운영 중"
-        ],
         "k8s_only_check": true,
-        "deferred": true,
-        "deferred_reason": "행위 관측(운영 shell exec). eBPF(Falco/Tetragon) 파이프라인 연동 후 활성화"
+        "deferred": false,
+        "deferred_reason": "eBPF process event 파이프라인 연동 완료 — 활성화됨"
       },
       "deferred_from": "F-2.11.3-01",
       "manual_check_output": {
         "applies_when": "always",
         "absorbed_from": "F-2.11.3-01",
-        "additional_review_items": [
-          "발견된 shell exec이 인가된 운영 작업이었는가",
-          "kubectl exec 권한 보유 SA 식별",
-          "활동 시간대가 업무 시간 내인가",
-          "회사의 운영 접근 정책 확인"
-        ],
-        "manual_check_areas": [
-          "이상행위 탐지 도구 운영(Falco, Tetragon)",
-          "탐지 룰 정의 문서",
-          "모니터링 로그 보관 정책"
-        ],
         "alternative_controls": [
           "SSM Session Manager",
           "Teleport",
@@ -148,10 +122,6 @@
             "item": "2.11.3",
             "match_strength": "indirect"
           }
-        ],
-        "offcluster_satisfaction_conditions": [
-          "탐지된 shell exec이 인가된 운영 작업(결재·SSM Session Manager/Teleport/PAM 기록)으로 확인",
-          "이상행위 탐지 도구(Falco/Tetragon)·로그 보관 정책 운영 중"
         ]
       }
     },
@@ -212,10 +182,75 @@
           "확인불가"
         ]
       }
+    },
+    {
+      "rule_id": "R-2.11.3-GL03",
+      "name": "이상행위 발생 시 적시 대응 절차 수립·이행",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "이상행위(침해시도·개인정보 유출시도·부정행위 등) 발생 시 분석·에스컬레이션·차단·보고·복구 등 적시에 대응할 수 있는 절차를 수립하고 이행한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "이상행위 발생 시 적시 대응(분석·에스컬레이션·차단·보고·복구)할 수 있는 대응 절차를 수립·이행하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.11.3",
+        "basis": "안내서 주요 확인사항/인증기준 — 이상행위 발생 시 적시 대응 절차"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.11.3-03",
+      "name": "eBPF 런타임 텔레메트리 수집 가동 확인",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "monitoring_telemetry": {
+        "source": "eBPF",
+        "streams": [
+          "ebpf_process_events",
+          "ebpf_dns_queries",
+          "ebpf_network_flows"
+        ],
+        "scope": "production_namespaces",
+        "description": "운영 환경에 eBPF 런타임 텔레메트리(프로세스/DNS/네트워크 흐름)가 수집되고 있어 이상행위 탐지가 가능한지 확인. 현 평가는 per-pod 페이로드로 제공되는 process event 스트림 기준이며, DNS/네트워크 흐름 스트림은 어셈블러 연동 후 확장 가능."
+      },
+      "compliance_indicators": [
+        {
+          "field": "ebpf_telemetry_collected",
+          "op": "==",
+          "value": true,
+          "description": "운영 namespace에 eBPF 런타임 텔레메트리 수집 중 — 이상행위 탐지 데이터 확보"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required"
+      },
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.11.3",
+        "basis": "이상행위 탐지 모니터링 체계 가동 — eBPF 런타임 텔레메트리 수집 여부"
+      },
+      "manual_check_output": {
+        "applies_when": "fail"
+      }
     }
   ],
   "evaluation_strategy": {
     "overall_verdict_logic": "any_fail_is_non_compliant",
-    "description": "운영 환경(prod) namespace에서 Pod exec(shell) 활동이 탐지되지 않아야 PASS"
+    "description": "운영(prod) namespace에서 Pod exec(shell) 미탐지 + eBPF 런타임 텔레메트리 수집 가동(R-2.11.3-03) 시 PASS"
   }
 }

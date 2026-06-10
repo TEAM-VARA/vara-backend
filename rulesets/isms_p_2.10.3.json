@@ -83,14 +83,6 @@
       "manual_check_output": {
         "applies_when": "always",
         "absorbed_from": "F-2.10.3-03",
-        "additional_review_items": [
-          "발견된 NodePort가 의도된 공개인가",
-          "VPC SG에서 노드의 NodePort 차단되어 있는가"
-        ],
-        "manual_check_areas": [
-          "NodePort 사용 정책",
-          "VPC Security Group 설정"
-        ],
         "alternative_controls": [
           "VPC Security Group",
           "Network ACL"
@@ -103,8 +95,7 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "VPC SG/Network ACL에서 해당 NodePort가 외부로부터 차단",
-          "의도된 공개로 NodePort 사용 정책상 승인·문서화됨"
+          "노출된 관리 포트(22/3389)·DB 포트(3306/5432 등)가 의도된 공개인지"
         ]
       }
     },
@@ -184,22 +175,13 @@
         "kisa_defect_case_refs": [
           { "case_number": null, "description": "공개서버의 관리·DB 포트가 인터넷에 직접 노출", "match": "direct" }
         ],
-        "additional_review_items": [
-          "노출된 관리 포트(22/3389)·DB 포트(3306/5432 등)가 의도된 공개인지",
-          "공개가 필요하면 출발지 CIDR/SG 제한 또는 Bastion·VPN 경유로 전환했는지",
-          "WAF·NACL 등 추가 보호대책 적용 여부"
-        ],
-        "manual_check_areas": [
-          "공개서버 보호대책 설계 문서",
-          "VPC Security Group / Network ACL 정책"
-        ],
         "automation_coverage": {
           "percentage": 90,
           "covered": "SG ingress 0.0.0.0/0 + 민감/관리 포트 자동 탐지",
           "not_covered": "공개 의도 여부, 상위 WAF/NACL 보완 통제"
         },
         "offcluster_satisfaction_conditions": [
-          "민감·관리 포트가 VPC SG/Network ACL에서 외부로부터 차단되거나, 공개가 필요한 경우 출발지 제한·Bastion 경유로 통제됨"
+          "노출된 관리 포트(22/3389)·DB 포트(3306/5432 등)가 의도된 공개인지"
         ],
         "k8s_only_check": false,
         "deferred": false
@@ -208,15 +190,11 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "SG-2.10.3-01",
-        "additional_review_items": [
-          "노출된 포트가 의도된 공개인지",
-          "출발지 제한·Bastion·VPN 경유 여부"
-        ],
         "compliance_mappings": [
           { "framework": "ISMS-P", "item": "2.10.3", "match_strength": "direct" }
         ],
         "offcluster_satisfaction_conditions": [
-          "VPC SG/Network ACL에서 해당 포트가 외부로부터 차단됨"
+          "노출된 관리 포트(22/3389)·DB 포트(3306/5432 등)가 의도된 공개인지"
         ]
       }
     },

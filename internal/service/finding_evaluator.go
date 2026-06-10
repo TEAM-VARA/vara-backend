@@ -183,6 +183,10 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 		result = evalSGUnrestrictedEgress(base, snap, cond)
 	case "sg_cross_env_ingress":
 		result = evalSGCrossEnvIngress(base, snap, cond)
+	case "cloudtrail_audit_logging":
+		result = evalCloudTrailAuditLogging(base, snap, cond)
+	case "required_label_policy_enforced":
+		result = evalRequiredLabelPolicy(base, snap, cond)
 	default:
 		base.Observation = fmt.Sprintf("미지원 operator: %s", op)
 		base.Verdict = grc.VerdictINDETERMINATE
@@ -439,6 +443,45 @@ func evalOwnerIndicatorExists(base grc.RuleResult, snap *ClusterSnapshot, cond m
 		"pod_count":     podTotal,
 		"missing_count": missingCount,
 		"missing_list":  listStr,
+	}
+	return base
+}
+
+// ─────────────────────────────────────────────
+// R-2.1.3-02: required_label_policy_enforced
+//
+// 책임소재 라벨(team/owner/cost-center 등)을 Kyverno ClusterPolicy / Gatekeeper
+// Constraint가 "배포 시점에 강제"하는지를 본다. 라벨의 *존재*(자기증명)가 아니라
+// admission 단계의 *강제*가 신뢰성의 핵심이기 때문이다.
+//
+// 현재 스냅샷은 Kyverno ClusterPolicy / Gatekeeper Constraint를 수집하지 않으므로
+// Matched=false + Evidence["data_provided"]=false 로 두어 승격(promoted) 경로가
+// NO_DATA로 확정하게 한다. (미수집 상태를 "강제됨=준수"로 거짓 보고하지 않는다 —
+// 자기증명 함정 회피. SG의 sgNoData 패턴과 동일.)
+//
+// 후속(수집 연동 시): required_label_keys를 require/validate로 강제하는 정책이
+// enforce 모드로 존재하면 Matched=false(→MET), 없으면 Matched=true(→NOT_MET).
+// ─────────────────────────────────────────────
+func evalRequiredLabelPolicy(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
+	keys := condStringSlice(cond, "required_label_keys")
+	if len(keys) == 0 {
+		keys = []string{"team", "owner", "cost-center"}
+	}
+	kinds := condStringSlice(cond, "policy_kinds")
+	if len(kinds) == 0 {
+		kinds = []string{"ClusterPolicy", "K8sRequiredLabels"}
+	}
+
+	// Kyverno ClusterPolicy / Gatekeeper Constraint는 현재 스냅샷 미수집 → NO_DATA.
+	base.Matched = false
+	base.Observation = fmt.Sprintf(
+		"admission 강제 정책(%s) 미수집으로 책임소재 라벨(%s) 배포 시점 강제 여부를 자동 점검할 수 없습니다. "+
+			"Kyverno ClusterPolicy / Gatekeeper Constraint 수집을 연동하면 자동 판정됩니다.",
+		strings.Join(kinds, ", "), strings.Join(keys, ", "))
+	base.Evidence = map[string]any{
+		"data_provided":       false,
+		"required_label_keys": keys,
+		"policy_kinds":        kinds,
 	}
 	return base
 }
