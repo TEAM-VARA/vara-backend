@@ -126,123 +126,6 @@
       }
     },
     {
-      "rule_id": "R-2.7.1-03",
-      "name": "전송구간 TLS 적용 점검",
-      "judgment_source": "k8s_api",
-      "extraction_method": "rag",
-      "k8s_native_check": {
-        "compliance_indicators": [
-          {
-            "field": "all_external_ingresses_have_tls",
-            "op": "==",
-            "value": true,
-            "source": "k8s",
-            "description": "외부 노출 Ingress 모두 .spec.tls 설정 존재"
-          }
-        ]
-      },
-      "manual_evidence_spec": {
-        "title": "ALB Listener SSL 정책 캡처",
-        "description": "외부 ALB의 HTTPS Listener가 TLS 1.2 이상의 승인된 SSL 정책을 사용함을 증명",
-        "acceptable_formats": [
-          "png",
-          "jpg",
-          "pdf",
-          "txt",
-          "json"
-        ],
-        "max_age_days": 180,
-        "recommended_evidence_sources": [
-          "AWS Console → EC2 → Load Balancers → 대상 ALB 선택 → Listeners 탭 → HTTPS:443 Listener의 'Security policy' 표시 캡처",
-          "CLI 출력 캡처: `aws elbv2 describe-listeners --load-balancer-arn <ARN>`",
-          "외부 검증: `nmap --script ssl-enum-ciphers -p 443 <도메인>` 출력 캡처"
-        ],
-        "approved_alb_ssl_policies": [
-          "ELBSecurityPolicy-TLS13-1-2-2021-06",
-          "ELBSecurityPolicy-TLS-1-2-Ext-2018-06",
-          "ELBSecurityPolicy-FS-1-2-Res-2020-10"
-        ],
-        "tls_min_version": "TLSv1.2",
-        "required_content": [
-          {
-            "field": "alb_arn_or_name",
-            "description": "대상 ALB의 ARN 또는 이름 (Ingress와 매칭 확인용)"
-          },
-          {
-            "field": "listener_protocol",
-            "description": "Listener 프로토콜",
-            "expected_pattern": "^HTTPS$"
-          },
-          {
-            "field": "ssl_policy",
-            "description": "사용 중인 SSL 정책명"
-          }
-        ],
-        "vlm_extraction_prompt": "이 캡처에서 ALB(Application Load Balancer)의 HTTPS Listener 정보를 추출하라. 추출할 항목: (1) ALB 이름/ARN, (2) Listener 프로토콜(HTTP/HTTPS), (3) Security policy 또는 SSL policy 값. JSON으로 응답."
-      },
-      "compliance_indicators": [
-        {
-          "field": "all_external_ingresses_have_tls",
-          "op": "==",
-          "value": true,
-          "source": "k8s",
-          "description": "Ingress .spec.tls 설정 존재"
-        },
-        {
-          "field": "evidence.listener_protocol",
-          "op": "==",
-          "value": "HTTPS",
-          "source": "manual",
-          "description": "ALB Listener HTTPS 사용"
-        },
-        {
-          "field": "evidence.ssl_policy",
-          "op": "in_approved_list",
-          "value": "approved_alb_ssl_policies",
-          "source": "manual",
-          "description": "승인된 SSL 정책(TLS 1.2+) 사용"
-        }
-      ],
-      "judgment_logic": {
-        "type": "hybrid_match",
-        "method": "k8s_structured_match + vlm_extract_then_structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      },
-      "manual_check_output": {
-        "applies_when": "fail",
-        "absorbed_from": "F-2.7.1-01",
-        "alternative_controls": [
-          "CloudFront/외부 LB TLS",
-          "외부 인증서 관리"
-        ],
-        "kisa_defect_case_refs": [
-          {
-            "case_number": null,
-            "description": "외부 송수신 시 평문 전송",
-            "match": "direct"
-          }
-        ],
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.7.1",
-            "match_strength": "direct"
-          },
-          {
-            "framework": "개인정보보호법",
-            "item": "안전성 확보조치 - 전송 시 암호화",
-            "match_strength": "direct"
-          }
-        ],
-        "offcluster_satisfaction_conditions": [
-          "미설정 Ingress가 외부 LB(CloudFront 등)에서 TLS 종료 후 평문 전달 구조인가",
-          "그렇다면 클러스터 내 통신 보호 별도 통제 필요(mTLS 등)",
-          "외부 LB(CloudFront/ALB) TLS 종료 후 내부는 mTLS 보호 구조"
-        ]
-      }
-    },
-    {
       "rule_id": "R-2.7.1-04",
       "name": "KMS 키 로테이션 및 상태 점검",
       "judgment_source": "k8s_api",
@@ -356,35 +239,6 @@
       }
     },
     {
-      "rule_id": "R-2.7.1-GL02",
-      "name": "저장·전송·전달 시 암호화",
-      "judgment_source": "text_extraction",
-      "extraction_method": "rag",
-      "keywords": [
-        "암호정책에 따라 개인정보 및 주요정보의 저장·전송·전달 시 암호화를 수행한다."
-      ],
-      "compliance_indicators": [
-        {
-          "description": "개인정보·주요정보의 저장·전송·전달 시 암호화를 수행하도록 규정"
-        }
-      ],
-      "source_reference": {
-        "framework": "ISMS-P",
-        "item": "2.7.1",
-        "basis": "안내서 주요 확인사항/인증기준"
-      },
-      "judgment_logic": {
-        "type": "semantic_match",
-        "method": "llm_rag_entailment",
-        "match_criteria": "sentence_semantic_equivalence",
-        "verdict_states": [
-          "충족",
-          "미충족",
-          "확인불가"
-        ]
-      }
-    },
-    {
       "rule_id": "R-2.7.1-GL03",
       "name": "암호키 관리 절차",
       "judgment_source": "text_extraction",
@@ -416,6 +270,6 @@
   ],
   "evaluation_strategy": {
     "overall_verdict_logic": "any_fail_is_non_compliant",
-    "description": "etcd KMS 암호화 증적(manual) + ConfigMap 평문 비밀값 없음(k8s) + Ingress TLS(k8s) + ALB SSL 정책 증적(manual) + KMS 키 활성·로테이션 증적(manual) 시 PASS"
+    "description": "etcd KMS 암호화 증적(manual) + ConfigMap 평문 비밀값 없음(k8s) + KMS 키 활성·로테이션 증적(manual) 시 PASS"
   }
 }

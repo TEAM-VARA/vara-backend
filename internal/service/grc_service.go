@@ -695,6 +695,86 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 	return result, nil
 }
 
+// ── 통합 실행: R/F (동기) + GL (비동기 트리거) 한 번에 ──
+
+// EvaluateAllRequest is the input for the combined cluster (R/F) + GL evaluation.
+type EvaluateAllRequest struct {
+	CompanyID   string `json:"company_id"`
+	ClusterName string `json:"cluster_name"`
+	Namespace   string `json:"namespace,omitempty"`
+}
+
+// GLCheckTrigger records the outcome of triggering one item's GL check.
+type GLCheckTrigger struct {
+	ISMSPItemID string `json:"isms_p_item_id"`
+	CheckID     string `json:"check_id,omitempty"`
+	Status      string `json:"status"` // queued | error
+	Error       string `json:"error,omitempty"`
+}
+
+// EvaluateAllResult bundles the synchronous cluster (R+F) result with the
+// asynchronously-triggered per-item GL checks.
+type EvaluateAllResult struct {
+	Cluster     *grc.ClusterComplianceResult `json:"cluster"`
+	GLChecks    []GLCheckTrigger             `json:"gl_checks"`
+	GLTriggered int                          `json:"gl_triggered"`
+	GLFailed    int                          `json:"gl_failed"`
+	TriggeredAt string                       `json:"triggered_at"`
+}
+
+// EvaluateAll runs the cluster R+F evaluation synchronously and triggers GL
+// checks for every GL-rule item, in a single call ("R룰 + GL 점검 한 번에").
+//
+// R/F 결과는 동기로 완료되어 즉시 반환된다. GL 점검은 항목별 비동기 워커(LLM RAG)로
+// 큐잉되며, 완료 후 GetComplianceOverview(GET /compliance/overview)가 R/F+GL을
+// 병합해 보여준다. 트리거 실패(지침 없음 등)는 항목별로 기록하되 전체를 실패시키지 않는다.
+func (s *GRCService) EvaluateAll(ctx context.Context, req EvaluateAllRequest) (*EvaluateAllResult, error) {
+	if req.ClusterName == "" {
+		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "cluster_name 필수", HTTPStatus: 400}
+	}
+	companyID := req.CompanyID
+	if companyID == "" {
+		companyID = req.ClusterName // EvaluateClusterCompliance와 동일한 fallback
+	}
+
+	// 1. R + F (동기 — 클러스터 스냅샷 기반)
+	cluster, err := s.EvaluateClusterCompliance(ctx, ClusterComplianceRequest{
+		CompanyID:   req.CompanyID,
+		ClusterName: req.ClusterName,
+		Namespace:   req.Namespace,
+	})
+	if err != nil {
+		return nil, err // 스냅샷 없음(NO_SNAPSHOT) 등은 그대로 전파
+	}
+
+	// 2. GL (전체 GL-룰 항목, 비동기 트리거)
+	glItems := s.ListGLRuleItemIDs()
+	sort.Strings(glItems) // 응답 순서 안정화
+	out := &EvaluateAllResult{
+		Cluster:     cluster,
+		TriggeredAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	for _, itemID := range glItems {
+		chk, terr := s.TriggerGLCheck(ctx, companyID, itemID)
+		if terr != nil {
+			out.GLFailed++
+			out.GLChecks = append(out.GLChecks, GLCheckTrigger{
+				ISMSPItemID: itemID, Status: "error", Error: terr.Error(),
+			})
+			log.Printf("[evaluate-all] GL trigger 실패 item=%s: %v", itemID, terr)
+			continue
+		}
+		out.GLTriggered++
+		out.GLChecks = append(out.GLChecks, GLCheckTrigger{
+			ISMSPItemID: itemID, CheckID: chk.CheckID, Status: chk.Status,
+		})
+	}
+	log.Printf("[evaluate-all] cluster=%s R/F done (%d items), GL triggered=%d failed=%d",
+		req.ClusterName, cluster.TotalItems, out.GLTriggered, out.GLFailed)
+
+	return out, nil
+}
+
 // ── Compliance Overview (전체 항목 한눈에) ──
 
 // GetComplianceOverview returns the latest cluster compliance result merged with GL check results.
@@ -1295,12 +1375,8 @@ func buildRuleDefMap(store *RulesetStore) map[string]*Rule {
 // even though they carry no ManualCheckOutput metadata. These are rules where the
 // K8s measurement is only one possible implementation of the control and
 // off-cluster alternative controls can satisfy the ISMS-P requirement.
-//
-// R-2.6.3-02: istio-injection 라벨은 mTLS 구현 방식 중 하나일 뿐 — Linkerd,
-// AWS App Mesh, L7 게이트웨이 TLS 등 대체통제로 충족 가능하므로 자동 미준수 단정 불가.
-var demoteToReviewOverride = map[string]bool{
-	"R-2.6.3-02": true,
-}
+// (Currently empty — the internal-mTLS rule (R-2.6.3-02) that used this was removed.)
+var demoteToReviewOverride = map[string]bool{}
 
 // complianceMappingEntry is the minimal shape of a compliance_mappings element.
 type complianceMappingEntry struct {
