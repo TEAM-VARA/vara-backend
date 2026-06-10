@@ -94,6 +94,9 @@ type Rule struct {
 	// k8s_api 룰 전용
 	SecretPatterns  []SecretPattern `json:"secret_patterns,omitempty"`
 	AuthAnnotations []string        `json:"auth_annotations,omitempty"`
+	// ApprovedRegistries: 신뢰할 수 있는 컨테이너 레지스트리 화이트리스트
+	// (R-2.10.9-01 악성코드 통제 — 승인 레지스트리 강제). "*." 접두로 서브도메인 매칭 지원.
+	ApprovedRegistries []string        `json:"approved_registries,omitempty"`
 	ExceptionCheck  *ExceptionCheck `json:"exception_check,omitempty"`
 	ActivatesOnPass []ActivationRule `json:"activates_on_pass,omitempty"`
 

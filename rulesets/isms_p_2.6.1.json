@@ -86,16 +86,6 @@
       "manual_check_output": {
         "applies_when": "always",
         "absorbed_from": "F-2.6.1-01",
-        "additional_review_items": [
-          "K8s NetworkPolicy 외 네트워크 분리 통제가 적용되어 있는가",
-          "미적용 namespace가 인증범위 내인가",
-          "운영망/개발망/DMZ 등 영역별 분리 설계"
-        ],
-        "manual_check_areas": [
-          "네트워크 분리 설계 문서",
-          "VPC/Subnet/Security Group 정책",
-          "사내망 IP 관리 대장"
-        ],
         "alternative_controls": [
           "VPC subnet 분리 + Security Group",
           "Istio AuthorizationPolicy",
@@ -117,7 +107,7 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "영역 분리가 VPC 서브넷+SG / 별도 클러스터 / Istio AuthorizationPolicy / Calico GlobalNetworkPolicy 등으로 적용됨"
+          "K8s NetworkPolicy 외 네트워크 분리 통제가 적용되어 있는지 확인하세요"
         ]
       }
     },
@@ -173,14 +163,6 @@
       "manual_check_output": {
         "applies_when": "always",
         "absorbed_from": "F-2.6.1-02",
-        "additional_review_items": [
-          "미발견 시 K8s NetworkPolicy 무효화 가능성 - 외부 통제로 분리 확인",
-          "발견 시 정책 강제 옵션 활성화 여부(도구는 옵션 미확인)"
-        ],
-        "manual_check_areas": [
-          "CNI 설정 문서",
-          "Network 강제 정책 운영 상태"
-        ],
         "alternative_controls": [
           "AWS VPC CNI + Security Group",
           "Service Mesh",
@@ -194,7 +176,7 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "AWS VPC CNI+SG, Service Mesh, 외부 방화벽 등으로 통신 통제가 강제됨(정책 강제 CNI 미발견이어도)"
+          "K8s NetworkPolicy 외 네트워크 분리 통제가 적용되어 있는지 확인하세요"
         ]
       }
     },
@@ -219,14 +201,6 @@
       "manual_check_output": {
         "applies_when": "always",
         "absorbed_from": "F-2.6.1-03",
-        "additional_review_items": [
-          "영역별 분리가 cluster 또는 VPC 분리로 이뤄지면 K8s 통제 불필요",
-          "단일 클러스터 내 영역 분리라면 K8s 통제 적용 권장"
-        ],
-        "manual_check_areas": [
-          "네트워크 분리 설계 문서",
-          "VPC 분리 정책"
-        ],
         "alternative_controls": [
           "VPC 라우팅",
           "Service Mesh",
@@ -240,9 +214,36 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "운영/개발 영역이 별도 VPC(서브넷+SG)/별도 클러스터로 분리",
-          "Service Mesh AuthorizationPolicy/mTLS로 ns 간 통신 차단"
+          "K8s NetworkPolicy 외 네트워크 분리 통제가 적용되어 있는지 확인하세요"
         ]
+      }
+    },
+    {
+      "rule_id": "R-2.6.1-05",
+      "name": "내부 Service mTLS 강제 점검 (서비스 간 통신 통제 — 2.6.3에서 이동)",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "acceptable_mtls_modes": [
+        "STRICT"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "istio_injection_enabled",
+          "op": "==",
+          "value": true,
+          "description": "namespace에 istio sidecar 자동 주입 활성"
+        },
+        {
+          "field": "effective_mtls_mode",
+          "op": "==",
+          "value": "STRICT",
+          "description": "namespace 또는 mesh-wide PeerAuthentication mtls.mode=STRICT 적용"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
       }
     },
     {
@@ -267,22 +268,14 @@
         "kisa_defect_case_refs": [
           { "case_number": null, "description": "서버팜/사무망 미분리 — 광범위 인바운드 허용", "match": "direct" }
         ],
-        "additional_review_items": [
-          "0.0.0.0/0 인바운드가 의도된 공개 서비스(80/443)인지",
-          "운영망/개발망/DB존 등 영역별 SG 분리 설계 확인",
-          "허용 출발지를 특정 SG/CIDR로 제한했는지"
-        ],
-        "manual_check_areas": [
-          "VPC/Subnet/Security Group 영역 분리 설계 문서",
-          "사내망 IP 관리 대장"
-        ],
         "automation_coverage": {
           "percentage": 85,
           "covered": "SG ingress 0.0.0.0/0 자동 탐지",
           "not_covered": "영역 분리 설계 의도, 사내망 IP 정책"
         },
         "offcluster_satisfaction_conditions": [
-          "영역 분리가 VPC 서브넷+SG / 별도 클러스터 / Service Mesh 등으로 적용되고, 0.0.0.0/0 인바운드는 80/443 등 의도된 공개 서비스로 한정됨"
+          "0.0.0.0/0 인바운드가 의도된 공개 서비스(80/443)인지 확인하세요.",
+          "허용 출발지를 특정 SG/CIDR로 제한했는지"
         ],
         "k8s_only_check": false,
         "deferred": false
@@ -291,15 +284,12 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "SG-2.6.1-01",
-        "additional_review_items": [
-          "0.0.0.0/0 인바운드가 의도된 공개 서비스(80/443)인지",
-          "영역별 SG 분리 설계 확인"
-        ],
         "compliance_mappings": [
           { "framework": "ISMS-P", "item": "2.6.1", "match_strength": "direct" }
         ],
         "offcluster_satisfaction_conditions": [
-          "영역 분리가 VPC 서브넷+SG로 적용되고 광범위 인바운드가 통제됨"
+          "0.0.0.0/0 인바운드가 의도된 공개 서비스(80/443)인지 확인하세요.",
+          "허용 출발지를 특정 SG/CIDR로 제한했는지"
         ]
       }
     },

@@ -41,14 +41,6 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "F-2.5.1-01",
-        "additional_review_items": [
-          "해당 Pod가 인증범위 내 자산인가",
-          "default SA 사용에 대한 회사 정책상 예외 허용 사례인가",
-          "시스템 namespace는 예외 처리"
-        ],
-        "manual_check_areas": [
-          "공용 계정 사용 예외 승인 기록"
-        ],
         "kisa_defect_case_refs": [
           {
             "case_number": null,
@@ -69,8 +61,7 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "시스템 namespace(kube-system·kube-public·kube-node-lease) 예외 대상",
-          "공용/default SA 사용에 책임자 예외 승인 기록 있음(인증범위 내 일반 워크로드면 전용 SA 필요)"
+          "default SA 사용에 대한 회사 정책상 예외 허용 사례인지 확인"
         ],
         "exception_namespaces": [
           "kube-system",
@@ -153,21 +144,13 @@
             "match": "partial"
           }
         ],
-        "additional_review_items": [
-          "이 SA들이 계획된 향후 사용을 위한 것인가",
-          "정기 점검 미실시로 잔존한 계정인가",
-          "회사의 계정 정기 점검 주기/기록 확인"
-        ],
-        "manual_check_areas": [
-          "최근 점검 기록"
-        ],
         "automation_coverage": {
           "percentage": 80,
           "covered": "K8s SA 정리 상태",
           "not_covered": "점검 절차 운영 여부"
         },
         "offcluster_satisfaction_conditions": [
-          "해당 SA가 예정 사용분으로 문서화돼 있거나 계정 정기 점검 기록상 인지·관리됨"
+          "default SA 사용에 대한 회사 정책상 예외 허용 사례인지 확인"
         ],
         "k8s_only_check": true,
         "deferred": false
@@ -176,14 +159,6 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "F-2.5.1-02",
-        "additional_review_items": [
-          "이 SA들이 계획된 향후 사용을 위한 것인가",
-          "정기 점검 미실시로 잔존한 계정인가",
-          "회사의 계정 정기 점검 주기/기록 확인"
-        ],
-        "manual_check_areas": [
-          "최근 점검 기록"
-        ],
         "kisa_defect_case_refs": [
           {
             "case_number": null,
@@ -199,7 +174,7 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "해당 SA가 예정 사용분으로 문서화돼 있거나 계정 정기 점검 기록상 인지·관리됨"
+          "default SA 사용에 대한 회사 정책상 예외 허용 사례인지 확인"
         ]
       }
     },

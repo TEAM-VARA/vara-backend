@@ -1,0 +1,72 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.6.2",
+    "name": "정보시스템 접근",
+    "category_path": "2. 보호대책 요구사항 > 2.6 접근통제 > 2.6.2 정보시스템 접근",
+    "description": "서버, 네트워크시스템 등 정보시스템에 접근을 허용하는 사용자, 접근제한 방식, 안전한 접근수단 등을 정의하여 통제하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제5조",
+      "summary": "접근권한의 관리"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제6조",
+      "summary": "접근통제"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.6.2-01",
+      "name": "Ingress 접근 인증(안전한 접근수단) 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "auth_annotations": [
+        "nginx.ingress.kubernetes.io/auth-type",
+        "nginx.ingress.kubernetes.io/auth-url",
+        "alb.ingress.kubernetes.io/auth-type",
+        "traefik.ingress.kubernetes.io/auth-type"
+      ],
+      "compliance_indicators": [
+        {
+          "field": "all_ingresses_have_auth",
+          "op": "==",
+          "value": true,
+          "description": "외부에서 정보시스템에 접근하는 모든 Ingress에 인증(안전한 접근수단)이 적용됨"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "alternative_controls": [
+          "Bastion 경유 접근",
+          "VPN/Zero-Trust 게이트웨이",
+          "AWS SSM Session Manager"
+        ],
+        "compliance_mappings": [
+          { "framework": "ISMS-P", "item": "2.6.2", "match_strength": "indirect" }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "Ingress 인증이 없더라도 Bastion/VPN/SSM 등 안전한 접근수단과 IAM·세션 통제로 정보시스템 접근이 제한되는지"
+        ]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "외부 노출 Ingress에 인증(안전한 접근수단)이 적용되면 PASS. 미적용 시 Bastion/VPN/SSM 등 대체 접근수단으로 통제되는지 수동 확인."
+  }
+}

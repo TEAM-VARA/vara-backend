@@ -321,3 +321,67 @@ func evalSGCrossEnvIngress(base grc.RuleResult, snap *ClusterSnapshot, cond map[
 			"reason":   "source_sg_refs_and_env_mapping_not_collected",
 		})
 }
+
+// ─────────────────────────────────────────────
+// R-2.9.4-01: cloudtrail_audit_logging
+// 감사로그(CloudTrail)가 활성 + 멀티리전 + 로그 무결성 검증 + KMS 암호화로
+// 안전하게 보존되는 trail이 하나라도 있으면 "감사로그 체계 존재"로 준수.
+// 로깅 자체가 없거나, 활성이지만 보호요건 미충족이면 미준수. 데이터 미수집이면 NO_DATA.
+//   입력: snap.Related.CloudTrailTrails [{name, is_logging, is_multi_region,
+//          log_file_validation_enabled, kms_key_id, ...}]  (bool은 scan 시 deref됨)
+// ─────────────────────────────────────────────
+func evalCloudTrailAuditLogging(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
+	trails := snap.Related.CloudTrailTrails
+	if len(trails) == 0 {
+		return sgNoData(base, "CloudTrail 데이터 미수집 — 감사로그 체계 판단 불가", map[string]any{"trail_total": 0})
+	}
+	reqMulti := sgBool(cond, "require_multi_region", true)
+	reqValidation := sgBool(cond, "require_log_validation", true)
+	reqEncryption := sgBool(cond, "require_encryption", true)
+
+	loggingFound := false
+	compliantTrail := ""
+	var issues []string
+	for _, t := range trails {
+		if t["is_logging"] != true {
+			continue
+		}
+		loggingFound = true
+		var miss []string
+		if reqMulti && t["is_multi_region"] != true {
+			miss = append(miss, "멀티리전 아님")
+		}
+		if reqValidation && t["log_file_validation_enabled"] != true {
+			miss = append(miss, "로그 무결성 검증 미적용")
+		}
+		if reqEncryption && strVal(t["kms_key_id"]) == "" {
+			miss = append(miss, "KMS 암호화 미적용")
+		}
+		if len(miss) == 0 {
+			compliantTrail = strVal(t["name"])
+			break
+		}
+		issues = appendUnique(issues, fmt.Sprintf("%s: %s", strVal(t["name"]), strings.Join(miss, ", ")))
+	}
+
+	if compliantTrail != "" {
+		base.Matched = false
+		base.Observation = fmt.Sprintf("감사로그 활성 + 보호요건(멀티리전·무결성검증·암호화) 충족 trail 존재: %s", compliantTrail)
+		base.Evidence = map[string]any{"trail_total": len(trails), "compliant_trail": compliantTrail, "data_provided": true}
+		return base
+	}
+
+	base.Matched = true
+	if !loggingFound {
+		base.Observation = "활성(is_logging) CloudTrail이 없음 — 감사로그 미수집"
+	} else {
+		base.Observation = "감사로그는 활성이나 보호요건 미충족: " + strings.Join(issues, " / ")
+	}
+	base.Evidence = map[string]any{
+		"trail_total":   len(trails),
+		"logging_found": loggingFound,
+		"issues":        issues,
+		"data_provided": true,
+	}
+	return base
+}

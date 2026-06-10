@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -823,6 +824,7 @@ type ClusterRelatedRows struct {
 	EBPFProcessEvents    []map[string]any
 	ImageVulnerabilities []map[string]any
 	SecurityGroups       []map[string]any // AWS Security Groups (account/region-global, 최신 SG 스냅샷)
+	CloudTrailTrails     []map[string]any // AWS CloudTrail trails (account/region-global, 최신 스냅샷)
 }
 
 // GetRelatedResources loads all related K8s resources for a cluster/snapshot/namespace.
@@ -838,7 +840,13 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, type, cluster_ip, external_name, selector, ports
-			 FROM cluster_services WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			 FROM cluster_services
+			 WHERE cluster_name=$1 AND namespace=$3
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_services
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt, namespace)
 		if err != nil {
 			return nil, fmt.Errorf("query services: %w", err)
@@ -853,7 +861,13 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, ingress_class, rules, tls
-			 FROM cluster_ingresses WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			 FROM cluster_ingresses
+			 WHERE cluster_name=$1 AND namespace=$3
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_ingresses
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt, namespace)
 		if err != nil {
 			return nil, fmt.Errorf("query ingresses: %w", err)
@@ -868,7 +882,13 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, pod_selector, policy_types, ingress_rules, egress_rules
-			 FROM cluster_network_policies WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			 FROM cluster_network_policies
+			 WHERE cluster_name=$1 AND namespace=$3
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_network_policies
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt, namespace)
 		if err != nil {
 			return nil, fmt.Errorf("query network_policies: %w", err)
@@ -906,7 +926,12 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, rules FROM cluster_roles
-			 WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			 WHERE cluster_name=$1 AND namespace=$3
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_roles
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt, namespace)
 		if err != nil {
 			return nil, fmt.Errorf("query roles: %w", err)
@@ -921,7 +946,12 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, role_ref, subjects FROM cluster_role_bindings
-			 WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			 WHERE cluster_name=$1 AND namespace=$3
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_role_bindings
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt, namespace)
 		if err != nil {
 			return nil, fmt.Errorf("query role_bindings: %w", err)
@@ -936,7 +966,12 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, secrets FROM cluster_service_accounts
-			 WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			 WHERE cluster_name=$1 AND namespace=$3
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_service_accounts
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt, namespace)
 		if err != nil {
 			return nil, fmt.Errorf("query service_accounts: %w", err)
@@ -951,7 +986,12 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, type FROM cluster_secrets
-			 WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			 WHERE cluster_name=$1 AND namespace=$3
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_secrets
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt, namespace)
 		if err != nil {
 			return nil, fmt.Errorf("query secrets: %w", err)
@@ -966,7 +1006,12 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace FROM cluster_configmaps
-			 WHERE cluster_name=$1 AND snapshot_at=$2 AND namespace=$3`,
+			 WHERE cluster_name=$1 AND namespace=$3
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_configmaps
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt, namespace)
 		if err != nil {
 			return nil, fmt.Errorf("query configmaps: %w", err)
@@ -981,7 +1026,12 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, kubelet_version FROM cluster_nodes
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_nodes
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query nodes: %w", err)
@@ -996,7 +1046,12 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, rules FROM cluster_cluster_roles
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_cluster_roles
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query cluster_roles: %w", err)
@@ -1011,7 +1066,12 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, role_ref, subjects FROM cluster_cluster_role_bindings
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_cluster_role_bindings
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query cluster_role_bindings: %w", err)
@@ -1026,7 +1086,12 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT namespace FROM cluster_namespaces
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_namespaces
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query namespaces: %w", err)
@@ -1044,15 +1109,22 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	// ── eBPF Process Events (namespace-scoped, best-effort) ──
 	{
 		rows, err := r.pg.Query(ctx,
-			`SELECT pod_name, namespace, process, timestamp
+			`SELECT src_pod_id, comm, timestamp
 			 FROM ebpf_process_events
-			 WHERE cluster_name=$1 AND namespace=$2
+			 WHERE cluster_name=$1 AND src_pod_id LIKE $2 || '/%'
 			 ORDER BY timestamp DESC LIMIT 100`,
 			clusterName, namespace)
 		if err == nil {
-			res.EBPFProcessEvents, _ = scanEBPFProcessRows(rows)
+			if events, scanErr := scanEBPFProcessRows(rows); scanErr != nil {
+				log.Printf("warn: scan ebpf_process_events (namespace-scoped): %v", scanErr)
+			} else {
+				res.EBPFProcessEvents = events
+			}
+		} else {
+			// Best-effort: table may be absent or have a different schema.
+			// Log a warning so the next schema mismatch is not silently hidden.
+			log.Printf("warn: query ebpf_process_events (namespace-scoped): %v", err)
 		}
-		// Silently ignore errors (table may not exist or have different schema)
 	}
 
 	return res, nil
@@ -1071,7 +1143,13 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, type, cluster_ip, external_name, selector, ports
-			 FROM cluster_services WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 FROM cluster_services
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_services
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query services: %w", err)
@@ -1086,7 +1164,13 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, ingress_class, rules, tls
-			 FROM cluster_ingresses WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 FROM cluster_ingresses
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_ingresses
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query ingresses: %w", err)
@@ -1101,7 +1185,13 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, pod_selector, policy_types, ingress_rules, egress_rules
-			 FROM cluster_network_policies WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 FROM cluster_network_policies
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_network_policies
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query network_policies: %w", err)
@@ -1124,6 +1214,22 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 			return nil, fmt.Errorf("query security_groups: %w", err)
 		}
 		res.SecurityGroups, err = scanSecurityGroupRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ── AWS CloudTrail trails (account/region-global; 최신 스냅샷) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT name, trail_arn, home_region, s3_bucket, is_multi_region,
+			        include_global_events, kms_key_id, log_file_validation_enabled, is_logging
+			 FROM aws_cloudtrail_trails
+			 WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM aws_cloudtrail_trails)`)
+		if err != nil {
+			return nil, fmt.Errorf("query cloudtrail_trails: %w", err)
+		}
+		res.CloudTrailTrails, err = scanCloudTrailRows(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -1154,7 +1260,12 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, rules FROM cluster_roles
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_roles
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query roles: %w", err)
@@ -1169,7 +1280,12 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, role_ref, subjects FROM cluster_role_bindings
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_role_bindings
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query role_bindings: %w", err)
@@ -1184,7 +1300,12 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, secrets FROM cluster_service_accounts
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_service_accounts
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query service_accounts: %w", err)
@@ -1199,7 +1320,12 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace, type FROM cluster_secrets
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_secrets
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query secrets: %w", err)
@@ -1214,7 +1340,12 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, namespace FROM cluster_configmaps
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_configmaps
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query configmaps: %w", err)
@@ -1229,7 +1360,12 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, kubelet_version FROM cluster_nodes
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_nodes
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query nodes: %w", err)
@@ -1244,7 +1380,12 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, rules FROM cluster_cluster_roles
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_cluster_roles
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query cluster_roles: %w", err)
@@ -1259,7 +1400,12 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT name, role_ref, subjects FROM cluster_cluster_role_bindings
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_cluster_role_bindings
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query cluster_role_bindings: %w", err)
@@ -1274,7 +1420,12 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	{
 		rows, err := r.pg.Query(ctx,
 			`SELECT namespace FROM cluster_namespaces
-			 WHERE cluster_name=$1 AND snapshot_at=$2`,
+			 WHERE cluster_name=$1
+			   AND snapshot_at = (
+			       SELECT snapshot_at FROM cluster_namespaces
+			       WHERE cluster_name=$1
+			       ORDER BY ABS(EXTRACT(EPOCH FROM snapshot_at - $2::timestamptz)) LIMIT 1
+			   )`,
 			clusterName, snapshotAt)
 		if err != nil {
 			return nil, fmt.Errorf("query namespaces: %w", err)
@@ -1299,13 +1450,19 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	// ── eBPF Process Events (all namespaces, best-effort) ──
 	{
 		rows, err := r.pg.Query(ctx,
-			`SELECT pod_name, namespace, process, timestamp
+			`SELECT src_pod_id, comm, timestamp
 			 FROM ebpf_process_events
 			 WHERE cluster_name=$1
 			 ORDER BY timestamp DESC LIMIT 500`,
 			clusterName)
 		if err == nil {
-			res.EBPFProcessEvents, _ = scanEBPFProcessRows(rows)
+			if events, scanErr := scanEBPFProcessRows(rows); scanErr != nil {
+				log.Printf("warn: scan ebpf_process_events (cluster-wide): %v", scanErr)
+			} else {
+				res.EBPFProcessEvents = events
+			}
+		} else {
+			log.Printf("warn: query ebpf_process_events (cluster-wide): %v", err)
 		}
 	}
 
@@ -1441,6 +1598,44 @@ func scanSecurityGroupRows(rows pgx.Rows) ([]map[string]any, error) {
 			"description":   deref(description),
 			"ingress_rules": ir,
 			"egress_rules":  er,
+		})
+	}
+	return result, nil
+}
+
+func scanCloudTrailRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	deref := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	derefB := func(p *bool) bool {
+		if p == nil {
+			return false
+		}
+		return *p
+	}
+	var result []map[string]any
+	for rows.Next() {
+		var name, trailArn string
+		var homeRegion, s3Bucket, kmsKeyID *string
+		var isMultiRegion, includeGlobal, logValidation, isLogging *bool
+		if err := rows.Scan(&name, &trailArn, &homeRegion, &s3Bucket, &isMultiRegion,
+			&includeGlobal, &kmsKeyID, &logValidation, &isLogging); err != nil {
+			return nil, fmt.Errorf("scan cloudtrail: %w", err)
+		}
+		result = append(result, map[string]any{
+			"name":                        name,
+			"trail_arn":                   trailArn,
+			"home_region":                 deref(homeRegion),
+			"s3_bucket":                   deref(s3Bucket),
+			"is_multi_region":             derefB(isMultiRegion),
+			"include_global_events":       derefB(includeGlobal),
+			"kms_key_id":                  deref(kmsKeyID),
+			"log_file_validation_enabled": derefB(logValidation),
+			"is_logging":                  derefB(isLogging),
 		})
 	}
 	return result, nil
@@ -1631,17 +1826,31 @@ func scanEBPFProcessRows(rows pgx.Rows) ([]map[string]any, error) {
 	defer rows.Close()
 	var result []map[string]any
 	for rows.Next() {
-		var podName, ns, process string
+		var srcPodID *string
+		var comm string
 		var ts time.Time
-		if err := rows.Scan(&podName, &ns, &process, &ts); err != nil {
+		if err := rows.Scan(&srcPodID, &comm, &ts); err != nil {
 			return nil, fmt.Errorf("scan ebpf_process: %w", err)
 		}
+		// src_pod_id = "namespace/name" (호스트 프로세스면 빈 문자열/NULL)
+		sp := ""
+		if srcPodID != nil {
+			sp = *srcPodID
+		}
+		ns, podName := "", ""
+		for i := 0; i < len(sp); i++ {
+			if sp[i] == '/' {
+				ns, podName = sp[:i], sp[i+1:]
+				break
+			}
+		}
 		m := map[string]any{
-			"pod_name":  podName,
-			"namespace": ns,
-			"process":   process,
-			"binary":    process,
-			"timestamp": ts.Format(time.RFC3339),
+			"pod_name":    podName,
+			"namespace":   ns,
+			"process":     comm,
+			"binary":      comm,
+			"binary_path": comm,
+			"timestamp":   ts.Format(time.RFC3339),
 		}
 		result = append(result, m)
 	}

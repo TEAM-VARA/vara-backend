@@ -46,14 +46,6 @@
       "manual_check_output": {
         "applies_when": "always",
         "absorbed_from": "F-2.8.3-01",
-        "additional_review_items": [
-          "회사가 env 라벨로 환경 구분 정책인가",
-          "별도 클러스터/VPC로 환경 분리되어 있는가",
-          "namespace 네이밍 컨벤션으로 식별되는가"
-        ],
-        "manual_check_areas": [
-          "클러스터/VPC 분리 설계"
-        ],
         "alternative_controls": [
           "별도 클러스터",
           "별도 VPC",
@@ -67,6 +59,7 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
+          "회사 환경 분리 정책이 cluster 단위이고 그 수준에서 분리되는지",
           "env 라벨이 없어도 별도 클러스터/별도 VPC/namespace 네이밍 컨벤션으로 환경 식별·분리됨"
         ]
       }
@@ -106,11 +99,6 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "F-2.8.3-02",
-        "additional_review_items": [
-          "회사 환경 분리 정책이 namespace 단위인가 cluster 단위인가",
-          "namespace 분리 정책이면 결함 가능",
-          "cluster 분리 정책이면 namespace 내 혼재는 무관"
-        ],
         "kisa_defect_case_refs": [
           {
             "case_number": null,
@@ -126,7 +114,8 @@
           }
         ],
         "offcluster_satisfaction_conditions": [
-          "환경 분리 정책이 cluster/VPC 단위이고 그 수준에서 분리됨 → ns 내 혼재 무관(ns 단위 분리 정책이면 결함)"
+          "회사 환경 분리 정책이 cluster 단위이고 그 수준에서 분리되는지",
+          "env 라벨이 없어도 별도 클러스터/별도 VPC/namespace 네이밍 컨벤션으로 환경 식별·분리됨"
         ]
       }
     },
@@ -177,22 +166,14 @@
         "kisa_defect_case_refs": [
           { "case_number": null, "description": "운영·개발 환경 간 네트워크 미분리", "match": "partial" }
         ],
-        "additional_review_items": [
-          "운영 SG가 개발/시험 SG·서브넷으로부터의 인바운드를 허용하는지",
-          "환경 구분이 SG/VPC가 아니라 별도 계정·클러스터로 분리됐는지",
-          "SG에 env 태그·명명 규칙이 부여돼 환경 식별이 가능한지"
-        ],
-        "manual_check_areas": [
-          "운영·개발 환경 분리 설계 문서",
-          "VPC/SG 환경 태깅·명명 규칙"
-        ],
         "automation_coverage": {
           "percentage": 60,
           "covered": "SG 간 cross-env 인바운드 참조 자동 탐지(환경 식별 가능 시)",
           "not_covered": "환경 태그/명명이 없으면 판별 불가, 계정·클러스터 단위 분리"
         },
         "offcluster_satisfaction_conditions": [
-          "운영·개발이 별도 클러스터/별도 VPC/별도 계정으로 분리되어 SG 단위 cross-env 허용이 무의미하거나, env 태깅·명명 규칙으로 환경이 식별·분리됨"
+          "회사 환경 분리 정책이 cluster 단위이고 그 수준에서 분리되는지",
+          "env 라벨이 없어도 별도 클러스터/별도 VPC/namespace 네이밍 컨벤션으로 환경 식별·분리됨"
         ],
         "k8s_only_check": false,
         "deferred": false
@@ -201,15 +182,12 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "SG-2.8.3-01",
-        "additional_review_items": [
-          "운영↔개발 SG 인바운드 허용이 의도된 것인지",
-          "계정/VPC/클러스터 단위 분리 여부"
-        ],
         "compliance_mappings": [
           { "framework": "ISMS-P", "item": "2.8.3", "match_strength": "indirect" }
         ],
         "offcluster_satisfaction_conditions": [
-          "운영·개발이 별도 VPC/계정으로 분리됨"
+          "회사 환경 분리 정책이 cluster 단위이고 그 수준에서 분리되는지",
+          "env 라벨이 없어도 별도 클러스터/별도 VPC/namespace 네이밍 컨벤션으로 환경 식별·분리됨"
         ]
       }
     },

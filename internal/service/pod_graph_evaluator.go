@@ -256,9 +256,10 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	"R-2.6.1-02": {"Pod에 적용되는 NetworkPolicy 없음", "Pod에 적용되는 Ingress/Egress NetworkPolicy를 생성하여 네트워크 접근을 통제하세요"},
 	"R-2.6.1-03": {"클러스터에 CNI 플러그인 DaemonSet 미감지", "클러스터에 CNI 플러그인(Calico, Cilium 등)이 설치되어 NetworkPolicy가 적용 가능한지 확인하세요"},
 	"R-2.6.1-04": {"다른 네임스페이스로의 네트워크 트래픽 감지", "NetworkPolicy로 교차 네임스페이스 트래픽을 제한하여 네트워크 분리를 강화하세요"},
-	// 2.6.3 응용프로그램 접근
-	"R-2.6.3-01": {"Ingress에 인증 설정(auth-url, auth-type 등) 부재", "Ingress에 인증 annotation(nginx.ingress.kubernetes.io/auth-url 등)을 추가하세요"},
-	"R-2.6.3-02": {"서비스 간 mTLS 미적용", "서비스 메시(Istio, Linkerd 등)를 통해 mTLS를 활성화하거나 sidecar injection을 설정하세요"},
+	// 2.6.2 정보시스템 접근 (Ingress 인증 — 2.6.3에서 이동)
+	"R-2.6.2-01": {"Ingress에 인증 설정(auth-url, auth-type 등) 부재", "Ingress에 인증 annotation(nginx.ingress.kubernetes.io/auth-url 등)을 추가하세요"},
+	// 2.6.1 네트워크 접근 (내부 mTLS — 2.6.3에서 이동)
+	"R-2.6.1-05": {"서비스 간 mTLS 미적용", "서비스 메시(Istio, Linkerd 등)를 통해 mTLS를 활성화하거나 sidecar injection을 설정하세요"},
 	// 2.6.7 인터넷 접속 통제
 	"R-2.6.7-01": {"Pod에 Egress NetworkPolicy 미적용", "Pod에 Egress NetworkPolicy를 적용하여 외부 인터넷 접속을 통제하세요"},
 	// 2.7.1 암호정책 적용
@@ -352,8 +353,9 @@ var implementedPodRules = map[string]bool{
 	"R-2.5.1-01": true, "R-2.5.1-03": true,
 	"R-2.5.2-01": true, "R-2.5.2-02": true,
 	"R-2.5.5-01": true, "R-2.5.5-02": true,
-	"R-2.6.1-01": true, "R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true,
-	"R-2.6.3-01": true, "R-2.6.3-02": true,
+	"R-2.6.1-01": true, "R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true, "R-2.6.1-05": true,
+	"R-2.6.2-01": true,
+	"R-2.6.3-01": true,
 	"R-2.6.7-01": true,
 	"R-2.7.1-01": true, "R-2.7.1-02": true, "R-2.7.1-03": true, "R-2.7.1-04": true,
 	"R-2.8.3-02": true, "R-2.8.3-03": true,
@@ -362,7 +364,8 @@ var implementedPodRules = map[string]bool{
 	"R-2.10.3-01": true, "R-2.10.3-02": true, "R-2.10.3-04": true,
 	"R-2.10.5-01": true, "R-2.10.5-03": true,
 	"R-2.10.8-01": true, "R-2.10.8-02": true, "R-2.10.8-03": true,
-	"R-2.11.3-01": true,
+	"R-2.10.9-01": true,
+	"R-2.11.3-01": true, "R-2.11.3-03": true,
 }
 
 // podRuleImplemented reports whether a pod-level evaluator exists for the rule.
@@ -519,10 +522,14 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		result = evalCNIDaemonSet(rule, req, base)
 	case "R-2.6.1-POD-04", "R-2.6.1-04":
 		result = evalCrossNSTraffic(rule, req, base)
+	// 2.6.2 정보시스템 접근 (Ingress 인증 — 2.6.3에서 이동)
+	case "R-2.6.2-POD-01", "R-2.6.2-01":
+		result = evalIngressAuth(rule, req, base)
 	// 2.6.3 응용프로그램 접근
 	case "R-2.6.3-POD-01", "R-2.6.3-01":
-		result = evalIngressAuth(rule, req, base)
-	case "R-2.6.3-POD-02", "R-2.6.3-02":
+		result = evalWorkloadCreatePrivilege(rule, req, base)
+	// 2.6.1 네트워크 접근 (내부 mTLS — 2.6.3에서 이동)
+	case "R-2.6.1-POD-05", "R-2.6.1-05":
 		result = evalMTLS(rule, req, base)
 	// 2.6.7 인터넷 접속 통제
 	case "R-2.6.7-POD-01", "R-2.6.7-01":
@@ -566,9 +573,14 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		result = evalImageTagMutable(rule, req, base)
 	case "R-2.10.8-POD-03", "R-2.10.8-03":
 		result = evalImageDigest(rule, req, base)
+	// 2.10.9 악성코드 통제
+	case "R-2.10.9-POD-01", "R-2.10.9-01":
+		result = evalApprovedRegistry(rule, req, base)
 	// 2.11.3 이상행위 분석 및 모니터링
 	case "R-2.11.3-POD-01", "R-2.11.3-01":
 		result = evalProdShellExec(rule, req, base)
+	case "R-2.11.3-POD-03", "R-2.11.3-03":
+		result = evalEBPFMonitoringCoverage(rule, req, base)
 	default:
 		base.Verdict = "skip"
 		base.SkipReason = fmt.Sprintf("알 수 없는 Pod 룰: %s", rule.RuleID)
@@ -1186,6 +1198,140 @@ func evalDangerousVerbCombos(rule Rule, req PodGraphRequest, base PodRuleResult)
 	} else {
 		base.Verdict = "준수"
 		base.MatchedIndicators = []string{"위험 RBAC verb 조합 없음"}
+	}
+	return base
+}
+
+// ─────────────────────────────────────────────
+// R-2.6.3-01: 워크로드 생성 권한 최소화 (pods/워크로드 create)
+//
+// ISMS-P 2.6.3 응용프로그램 접근 — 사용자별 업무·정보 중요도에 따라 응용프로그램
+// 접근권한을 제한해야 한다. Pod 및 Pod를 생성하는 워크로드 컨트롤러를 직접
+// create 할 수 있는 ServiceAccount는 임의의 응용프로그램(컨테이너)을 무단으로
+// 배포·기동할 수 있어 접근권한 최소화 원칙에 위배된다. CIS EKS 4.1.4 대응.
+//
+// 참고: evalDangerousVerbCombos와 동일하게 점검 대상 verb/resource는 Go에
+// 고정한다(룰셋 JSON의 dangerous_verb_combinations는 문서·표시용이며 Rule
+// 구조체로 파싱되지 않는다).
+// ─────────────────────────────────────────────
+func evalWorkloadCreatePrivilege(rule Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
+	saName := jsonStr(req.Pod, "spec", "serviceAccountName")
+	if saName == "" {
+		saName = "default"
+	}
+	podNS := jsonStr(req.Pod, "metadata", "namespace")
+
+	// 시스템 네임스페이스 예외
+	if rule.ExceptionCheck != nil {
+		for _, sysNS := range rule.ExceptionCheck.SystemNamespaces {
+			if podNS == sysNS {
+				base.Verdict = "준수"
+				base.MatchedIndicators = []string{fmt.Sprintf("시스템 네임스페이스 '%s' — 예외 적용", podNS)}
+				return base
+			}
+		}
+	}
+
+	// 점검 대상: Pod 및 Pod를 생성하는 워크로드 컨트롤러
+	createResources := []string{
+		"pods", "deployments", "daemonsets", "statefulsets",
+		"replicasets", "replicationcontrollers", "jobs", "cronjobs",
+	}
+
+	// 이 Pod의 SA에 바인딩된 ClusterRole/Role 규칙 수집
+	type rbacRule struct {
+		Verbs     []string
+		Resources []string
+		RoleName  string
+		RoleKind  string
+	}
+	var allRBACRules []rbacRule
+	collect := func(roleName, roleKind string, rules []any) {
+		for _, r := range rules {
+			rm := toMap(r)
+			allRBACRules = append(allRBACRules, rbacRule{
+				Verbs:     toStringSlice(rm["verbs"]),
+				Resources: toStringSlice(rm["resources"]),
+				RoleName:  roleName,
+				RoleKind:  roleKind,
+			})
+		}
+	}
+
+	for _, crb := range req.RelatedResources.ClusterRoleBindings {
+		if !subjectsMatchSA(jsonSlice(crb, "subjects"), saName, podNS) {
+			continue
+		}
+		roleName := strVal(jsonMap(crb, "roleRef")["name"])
+		for _, cr := range req.RelatedResources.ClusterRoles {
+			if jsonStr(cr, "metadata", "name") == roleName {
+				collect(roleName, "ClusterRole", jsonSlice(cr, "rules"))
+			}
+		}
+	}
+
+	for _, rb := range req.RelatedResources.RoleBindings {
+		if !subjectsMatchSA(jsonSlice(rb, "subjects"), saName, podNS) {
+			continue
+		}
+		roleRef := jsonMap(rb, "roleRef")
+		roleName := strVal(roleRef["name"])
+		if strVal(roleRef["kind"]) == "ClusterRole" {
+			for _, cr := range req.RelatedResources.ClusterRoles {
+				if jsonStr(cr, "metadata", "name") == roleName {
+					collect(roleName, "ClusterRole", jsonSlice(cr, "rules"))
+				}
+			}
+		} else {
+			for _, role := range req.RelatedResources.Roles {
+				if jsonStr(role, "metadata", "name") == roleName {
+					collect(roleName, "Role", jsonSlice(role, "rules"))
+				}
+			}
+		}
+	}
+
+	// create + (pods|워크로드) 보유 여부 점검
+	var violations []grc.Violation
+	for _, rr := range allRBACRules {
+		if !containsStr(rr.Verbs, "create") && !containsStr(rr.Verbs, "*") {
+			continue
+		}
+		matchedRes := ""
+		if containsStr(rr.Resources, "*") {
+			matchedRes = "* (전체 리소스)"
+		} else {
+			for _, want := range createResources {
+				if containsStr(rr.Resources, want) {
+					matchedRes = want
+					break
+				}
+			}
+		}
+		if matchedRes == "" {
+			continue
+		}
+		violations = append(violations, grc.Violation{
+			Field:       "has_pod_create_permission",
+			Expected:    "== false",
+			Actual:      true,
+			Description: fmt.Sprintf("%s '%s'가 '%s' create 권한 보유 — 임의 워크로드 배포 가능", rr.RoleKind, rr.RoleName, matchedRes),
+			Severity:    "high",
+			K8sSource: grc.K8sSource{
+				Namespace:    podNS,
+				ResourceKind: rr.RoleKind,
+				ResourceName: rr.RoleName,
+			},
+		})
+	}
+
+	if len(violations) > 0 {
+		base.Verdict = "미준수"
+		base.Violations = violations
+		base.Remediation = "Pod/워크로드 create 권한을 CD 파이프라인·운영 주체로 한정하고 워크로드 SA에서 회수하세요. 정당한 경우 rbac-exception/justification annotation으로 예외 관리."
+	} else {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{"Pod/워크로드 직접 create 권한 없음"}
 	}
 	return base
 }

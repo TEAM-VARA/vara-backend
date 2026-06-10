@@ -1,0 +1,166 @@
+{
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "2.9.4",
+    "name": "로그 및 접속기록 관리",
+    "category_path": "2. 보호대책 요구사항 > 2.9 시스템 및 서비스 운영관리 > 2.9.4 로그 및 접속기록 관리",
+    "description": "정보시스템의 사용자 접속기록, 시스템 로그, 권한 부여 내역 등의 로그유형, 보존기간, 보존방법 등을 정하고, 시스템 로그가 위·변조, 도난, 분실되지 않도록 안전하게 보존·관리하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    },
+    {
+      "law": "개인정보의 안전성 확보조치 기준",
+      "article": "제8조",
+      "summary": "접속기록의 보관 및 점검"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-2.9.4-01",
+      "name": "CloudTrail 감사로그 활성·보호 점검",
+      "judgment_source": "aws_api",
+      "extraction_method": "manual",
+      "verdict_type": "potential_finding",
+      "manual_meta": {
+        "target_resource": "AWS::CloudTrail::Trail",
+        "required_data": [
+          "aws_cloudtrail_trails.is_logging",
+          "aws_cloudtrail_trails.is_multi_region",
+          "aws_cloudtrail_trails.log_file_validation_enabled",
+          "aws_cloudtrail_trails.kms_key_id"
+        ],
+        "condition": {
+          "operator": "cloudtrail_audit_logging",
+          "require_multi_region": true,
+          "require_log_validation": true,
+          "require_encryption": true
+        },
+        "compliance_mappings": [
+          { "framework": "ISMS-P", "item": "2.9.4", "match_strength": "direct" }
+        ],
+        "kisa_defect_case_refs": [
+          { "case_number": null, "description": "감사로그 미수집 또는 로그 위·변조 방지(무결성 검증) 미적용", "match": "direct" }
+        ],
+        "automation_coverage": {
+          "percentage": 75,
+          "covered": "CloudTrail 활성·멀티리전·무결성검증·암호화 자동 점검(체계 존재)",
+          "not_covered": "보존기간 충족(S3 lifecycle), 실제 로그 점검·분석(2.9.5)"
+        },
+        "offcluster_satisfaction_conditions": [
+          "CloudTrail 외 SIEM·중앙 로그 수집 체계로 사용자 접속기록·시스템 로그가 위·변조 방지되어 안전하게 보존·관리됨",
+          "감사로그 활성·무결성검증·암호화 여부"
+        ],
+        "k8s_only_check": false,
+        "deferred": false
+      },
+      "promoted_from": "CT-2.9.4-01",
+      "manual_check_output": {
+        "applies_when": "fail",
+        "absorbed_from": "CT-2.9.4-01",
+        "compliance_mappings": [
+          { "framework": "ISMS-P", "item": "2.9.4", "match_strength": "direct" }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "CloudTrail 외 SIEM·중앙 로그 수집 체계로 사용자 접속기록·시스템 로그가 위·변조 방지되어 안전하게 보존·관리됨",
+          "감사로그 활성·무결성검증·암호화 여부"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.9.4-GL01",
+      "name": "로그 유형·보존기간·보존방법 정의",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "사용자 접속기록, 시스템 로그, 권한 부여 내역 등의 로그 유형과 보존기간·보존방법을 정의한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "수집 대상 로그 유형·보존기간·보존방법을 정의하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.9.4",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.9.4-GL02",
+      "name": "로그 위·변조·도난·분실 방지 보존",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "시스템 로그 및 접속기록이 위·변조, 도난, 분실되지 않도록 안전하게 보존·관리한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "로그의 위·변조·도난·분실 방지 및 안전한 보존 대책을 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.9.4",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.9.4-GL03",
+      "name": "개인정보 접속기록 법정 보존기간 준수",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "개인정보처리시스템의 접속기록을 법령에서 정한 최소 기간(원칙 1년, 5만명 이상·고유식별정보·민감정보 처리 시 2년) 이상 보존한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "개인정보처리시스템 접속기록을 법정 최소 보존기간 이상 보존하도록 규정"
+        }
+      ],
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "2.9.4",
+        "basis": "개인정보의 안전성 확보조치 기준 제8조"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "CloudTrail이 전 리전 활성 + 로그 무결성 검증 + KMS 암호화로 안전하게 보존되면 감사로그 '체계 존재' PASS. 로그 유형·보존기간·실제 점검(2.9.5)은 정책문서(GL)로 확인."
+  }
+}
