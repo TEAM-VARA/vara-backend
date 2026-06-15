@@ -1044,8 +1044,8 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			 AND target.labels @> COALESCE(np.pod_selector->'matchLabels', '{}'::jsonb)
 			CROSS JOIN LATERAL jsonb_array_elements(COALESCE(np.ingress_rules, '[]'::jsonb)) AS ing
 			CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ing->'from', '[]'::jsonb)) AS from_rule
-			JOIN latest_pods source 
-			  ON source.labels @> COALESCE(from_rule->'podSelector'->'matchLabels', '{}'::jsonb)
+			JOIN latest_pods source
+			  ON source.labels @> (from_rule->'pod_selector'->'matchLabels')
 			 AND source.pod_uid != target.pod_uid
 		)
 		INSERT INTO edges (
