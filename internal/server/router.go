@@ -24,6 +24,7 @@ func newRouter(
 	toxic *handler.ToxicHandler,
 	sbomPackage *handler.SBOMPackageHandler,
 	packageVuln *handler.PackageVulnHandler,
+	depsDev *handler.DepsDevHandler,
 	ebpf *handler.EbpfHandler,
 	edge *handler.EdgeHandler,
 	podRefresh *handler.PodRefreshHandler,
@@ -156,6 +157,8 @@ func newRouter(
 		api.GET("/sboms/packages/vulnerabilities/search", packageVuln.SearchByVulnID)
 		api.GET("/sboms/packages/vulnerabilities/by-purl", packageVuln.ListByPURL)
 		api.GET("/sboms/packages/vulnerabilities/timeline/pods/:pod_uid", packageVuln.CVETimelineByPod)
+		api.POST("/sboms/packages/versions/fetch", depsDev.FetchByPURL)
+		api.GET("/sboms/packages/versions", depsDev.ListByPURL)
 		api.GET("/sboms/packages/search", sbomPackage.Search)
 		api.POST("/sboms/packages/backfill", sbomPackage.Backfill)
 		api.POST("/sboms/packages/extract/:digest", sbomPackage.Extract)
@@ -170,6 +173,7 @@ func newRouter(
 		// 동적 경로 (이미지 단위)
 		api.POST("/sboms/packages/:digest/vulnerabilities/scan", packageVuln.Scan)
 		api.GET("/sboms/packages/:digest/vulnerabilities", packageVuln.ListByImage)
+		api.POST("/sboms/packages/:digest/versions/fetch", depsDev.FetchByImage)
 		api.GET("/sboms/packages/:digest", sbomPackage.List)
 
 		// ── ISMS-P ──
