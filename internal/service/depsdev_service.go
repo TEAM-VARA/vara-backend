@@ -78,6 +78,25 @@ func (s *DepsDevService) FetchAndStore(ctx context.Context, purl string, force b
 	return res, nil
 }
 
+// FetchAllInUse는 사용 중인 모든 이미지의 패키지에 대해 deps.dev 수집을 수행합니다.
+// (스케줄러용) 패키지 단위 캐시로 이미 받은 건 skip됩니다.
+func (s *DepsDevService) FetchAllInUse(ctx context.Context, force bool) (fetched, skipped int, err error) {
+	digests, err := s.pvRepo.ListDistinctImageDigests(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("list image digests: %w", err)
+	}
+	for _, digest := range digests {
+		f, sk, ferr := s.FetchForImage(ctx, digest, force)
+		if ferr != nil {
+			fmt.Printf("warn: depsdev fetch image %s failed: %v\n", digest, ferr)
+			continue
+		}
+		fetched += f
+		skipped += sk
+	}
+	return fetched, skipped, nil
+}
+
 // ListVersions는 한 PURL의 저장된 버전 릴리스 목록을 반환합니다.
 func (s *DepsDevService) ListVersions(ctx context.Context, purl string) ([]depsdev.VersionRelease, error) {
 	system, name, ok := depsdev.PurlToDepsDev(purl)
