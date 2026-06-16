@@ -166,3 +166,27 @@ func (h *PackageVulnHandler) CVETimelineByPod(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+// PatchStatusByPod : GET /api/v1/sboms/packages/vulnerabilities/patch-status/pods/:pod_uid?cluster=...
+//
+// 한 Pod의 CVE별 패치 가능 여부 요약 (patchable / no_fix).
+func (h *PackageVulnHandler) PatchStatusByPod(c *gin.Context) {
+	podUID := c.Param("pod_uid")
+	clusterName := c.Query("cluster")
+	if podUID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pod_uid is required"})
+		return
+	}
+	if clusterName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster query parameter is required"})
+		return
+	}
+
+	resp, err := h.service.GetPatchStatusByPod(c.Request.Context(), clusterName, podUID)
+	if err != nil {
+		fmt.Printf("warn: patch status failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
