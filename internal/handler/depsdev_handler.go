@@ -66,6 +66,24 @@ func (h *DepsDevHandler) FetchByImage(c *gin.Context) {
 	})
 }
 
+// Metrics : GET /api/v1/sboms/packages/metrics?purl=...
+//
+// 패키지의 릴리스 주기 + 벤더 보안 대응속도를 즉석 계산해 반환.
+func (h *DepsDevHandler) Metrics(c *gin.Context) {
+	purl := c.Query("purl")
+	if purl == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "purl query parameter is required"})
+		return
+	}
+	m, err := h.svc.GetPackageMetrics(c.Request.Context(), purl)
+	if err != nil {
+		fmt.Printf("warn: depsdev metrics failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, m)
+}
+
 // ListByPURL : GET /api/v1/sboms/packages/versions?purl=...
 func (h *DepsDevHandler) ListByPURL(c *gin.Context) {
 	purl := c.Query("purl")

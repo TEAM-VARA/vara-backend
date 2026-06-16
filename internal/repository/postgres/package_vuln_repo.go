@@ -353,6 +353,36 @@ func (r *PackageVulnerabilityRepo) GetCVETimelineByPod(ctx context.Context, clus
 	return resp, nil
 }
 
+// ListFixableByPackage는 한 패키지(버전 무관)의 "fixed 버전이 있는 CVE"를 반환합니다.
+//
+// purlBase는 PURL에서 버전(@...)을 뗀 부분 (예: "pkg:maven/org.springframework/spring-beans").
+// split_part(purl,'@',1) = purlBase로 그 패키지의 모든 버전에 걸친 CVE를 모읍니다.
+// 벤더 대응속도(= fixed 버전 릴리스 − CVE published) 계산용.
+func (r *PackageVulnerabilityRepo) ListFixableByPackage(ctx context.Context, purlBase string) ([]sbom.FixableCVE, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT DISTINCT vuln_id, published_at, fixed_version
+		 FROM package_vulnerabilities
+		 WHERE split_part(purl, '@', 1) = $1
+		   AND fixed_version IS NOT NULL AND fixed_version != ''
+		   AND published_at IS NOT NULL`,
+		purlBase,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list fixable by package: %w", err)
+	}
+	defer rows.Close()
+
+	var out []sbom.FixableCVE
+	for rows.Next() {
+		var c sbom.FixableCVE
+		if err := rows.Scan(&c.VulnID, &c.PublishedAt, &c.FixedVersion); err != nil {
+			return nil, fmt.Errorf("scan fixable cve: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // DeleteByPURL은 한 PURL의 모든 취약점 기록을 삭제합니다 (재스캔 전 정리).
 func (r *PackageVulnerabilityRepo) DeleteByPURL(ctx context.Context, purl string) error {
 	_, err := r.pool.Exec(ctx,
