@@ -20,6 +20,7 @@ import (
 	"github.com/vara/backend/internal/platform/exploitdb"
 	"github.com/vara/backend/internal/platform/kev"
 	"github.com/vara/backend/internal/platform/nvd"
+	"github.com/vara/backend/internal/platform/depsdev"
 	"github.com/vara/backend/internal/platform/osv"
 	"github.com/vara/backend/internal/platform/vlm"
 	"github.com/vara/backend/internal/rbacchain/loader"
@@ -48,6 +49,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	toxicRepo := postgres.NewToxicRepo(pg)
 	sbomPackageRepo := postgres.NewSBOMPackageRepo(pg)
 	packageVulnRepo := postgres.NewPackageVulnerabilityRepo(pg) // 신규 (작업 B-6)
+	versionReleaseRepo := postgres.NewVersionReleaseRepo(pg)    // 신규 (deps.dev 버전 릴리스)
 	ebpfRepo := postgres.NewEbpfRepo(pg)                        // 신규 (dev_v2 통합)
 	clusterNodesRepo := postgres.NewClusterNodesRepo(pg)
 	edgesRepo := postgres.NewEdgesRepo(pg)                 // 신규 (runtime 분석)                     // 신규 (dev_v2 통합)
@@ -66,7 +68,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	epssClient := epss.NewClient()
 	kevClient := kev.NewClient()
 	exploitDBClient := exploitdb.NewClient()
-	osvClient := osv.NewClient() // 신규 (작업 B-6)
+	osvClient := osv.NewClient()       // 신규 (작업 B-6)
+	depsDevClient := depsdev.NewClient() // 신규 (deps.dev 버전 릴리스)
 
 	// ── Trivy ──
 	trivyClient := trivy.NewClient()
@@ -99,6 +102,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	breakdownH := handler.NewBreakdownHandler(breakdownSvc)
 	sbomPackageSvc := service.NewSBOMPackageService(pg, sbomPackageRepo)
 	packageVulnSvc := service.NewPackageVulnService(osvClient, packageVulnRepo, sbomPackageRepo) // 신규 (B-6)
+	depsDevSvc := service.NewDepsDevService(depsDevClient, versionReleaseRepo, sbomPackageRepo)  // 신규 (deps.dev)
 	notifSvc := service.NewNotificationService(notifRepo)                                        // 신규 (대시보드 알림)
 	analysisSvc := service.NewAnalysisService(edgesRepo, analysisCacheRepo)                      // 신규 (그래프 분석)
 	edgeSvc := service.NewEdgeService(edgesRepo)                                                 // 신규 (blast radius)  ← 추가
@@ -140,6 +144,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	toxicH := handler.NewToxicHandler(toxicSvc)
 	sbomPackageH := handler.NewSBOMPackageHandler(sbomPackageSvc)
 	packageVulnH := handler.NewPackageVulnHandler(packageVulnSvc) // 신규 (B-6)
+	depsDevH := handler.NewDepsDevHandler(depsDevSvc)             // 신규 (deps.dev)
 	ebpfH := handler.NewEbpf(ebpfRepo, pg)                        // 신규 (dev_v2 통합)
 	edgeH := handler.NewEdgeHandler(edgeSvc)
 	podRefreshH := handler.NewPodRefreshHandler(exposureSvc, attackPathSvc, localScoringSvc, toxicSvc, finalScoringSvc)
@@ -155,7 +160,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
-		finalScoringH, toxicH, sbomPackageH, packageVulnH, ebpfH, edgeH, podRefreshH,
+		finalScoringH, toxicH, sbomPackageH, packageVulnH, depsDevH, ebpfH, edgeH, podRefreshH,
 		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH)
 	// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
 	// ENV로 ON/OFF, 기본 활성
