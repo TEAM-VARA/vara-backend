@@ -383,6 +383,58 @@ func (r *PackageVulnerabilityRepo) ListFixableByPackage(ctx context.Context, pur
 	return out, rows.Err()
 }
 
+// GetPatchStatusByPod은 한 Pod(최신 스냅샷 이미지 기준)의 CVE별 패치 가능 여부를 반환합니다.
+//
+// 경로는 GetCVETimelineByPod과 동일(pod→image→sbom_packages→package_vulnerabilities).
+// vuln_id 기준 1회로 묶고, fixed_version이 있으면 patchable로 봅니다.
+func (r *PackageVulnerabilityRepo) GetPatchStatusByPod(ctx context.Context, clusterName, podUID string) (*sbom.PodPatchStatus, error) {
+	const q = `
+		WITH pod_digests AS (
+			SELECT DISTINCT s.image_digest
+			FROM cluster_pods cp
+			CROSS JOIN LATERAL jsonb_array_elements(cp.containers) c
+			JOIN sboms s ON s.image = (c->>'image')
+			WHERE cp.cluster_name = $1
+			  AND cp.pod_uid = $2
+			  AND cp.snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+		)
+		SELECT DISTINCT ON (pv.vuln_id)
+			pv.vuln_id,
+			COALESCE(pv.severity_label, ''),
+			COALESCE(pv.severity_score, 0),
+			pv.name,
+			pv.version,
+			COALESCE(pv.fixed_version, '')
+		FROM pod_digests pd
+		JOIN sbom_packages sp ON sp.image_digest = pd.image_digest
+		JOIN package_vulnerabilities pv ON pv.purl = sp.purl
+		ORDER BY pv.vuln_id, pv.fixed_version DESC NULLS LAST
+	`
+	rows, err := r.pool.Query(ctx, q, clusterName, podUID)
+	if err != nil {
+		return nil, fmt.Errorf("patch status by pod: %w", err)
+	}
+	defer rows.Close()
+
+	resp := &sbom.PodPatchStatus{ClusterName: clusterName, PodUID: podUID}
+	for rows.Next() {
+		var it sbom.PodPatchStatusItem
+		if err := rows.Scan(&it.VulnID, &it.SeverityLabel, &it.SeverityScore,
+			&it.PackageName, &it.InstalledVersion, &it.FixedVersion); err != nil {
+			return nil, fmt.Errorf("scan patch status: %w", err)
+		}
+		it.PatchAvailable = it.FixedVersion != ""
+		if it.PatchAvailable {
+			resp.Patchable++
+		} else {
+			resp.NoFix++
+		}
+		resp.TotalCVEs++
+		resp.Items = append(resp.Items, it)
+	}
+	return resp, rows.Err()
+}
+
 // DeleteByPURL은 한 PURL의 모든 취약점 기록을 삭제합니다 (재스캔 전 정리).
 func (r *PackageVulnerabilityRepo) DeleteByPURL(ctx context.Context, purl string) error {
 	_, err := r.pool.Exec(ctx,
@@ -416,6 +468,7 @@ func scanVulns(rows pgx.Rows) ([]sbom.PackageVulnerability, error) {
 		if err != nil {
 			return nil, fmt.Errorf("scan vuln: %w", err)
 		}
+		v.PatchAvailable = v.FixedVersion != ""
 		out = append(out, v)
 	}
 	return out, rows.Err()

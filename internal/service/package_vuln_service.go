@@ -186,6 +186,11 @@ func (s *PackageVulnService) GetCVETimelineByPod(ctx context.Context, clusterNam
 	return s.repo.GetCVETimelineByPod(ctx, clusterName, podUID)
 }
 
+// GetPatchStatusByPod은 한 Pod의 CVE별 패치 가능 여부 요약을 반환합니다.
+func (s *PackageVulnService) GetPatchStatusByPod(ctx context.Context, clusterName, podUID string) (*sbom.PodPatchStatus, error) {
+	return s.repo.GetPatchStatusByPod(ctx, clusterName, podUID)
+}
+
 // ─────────────────────────────────────────
 // Scheduler 지원 메서드
 // ─────────────────────────────────────────

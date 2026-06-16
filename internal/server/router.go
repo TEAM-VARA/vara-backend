@@ -157,6 +157,7 @@ func newRouter(
 		api.GET("/sboms/packages/vulnerabilities/search", packageVuln.SearchByVulnID)
 		api.GET("/sboms/packages/vulnerabilities/by-purl", packageVuln.ListByPURL)
 		api.GET("/sboms/packages/vulnerabilities/timeline/pods/:pod_uid", packageVuln.CVETimelineByPod)
+		api.GET("/sboms/packages/vulnerabilities/patch-status/pods/:pod_uid", packageVuln.PatchStatusByPod)
 		api.POST("/sboms/packages/versions/fetch", depsDev.FetchByPURL)
 		api.GET("/sboms/packages/versions", depsDev.ListByPURL)
 		api.GET("/sboms/packages/metrics", depsDev.Metrics)
