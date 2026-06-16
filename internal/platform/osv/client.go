@@ -74,7 +74,8 @@ type OSVVulnerability struct {
 	Severity         []OSVSeverity   `json:"severity"`
 	Published        string          `json:"published"`
 	Modified         string          `json:"modified"`
-	Affected         []OSVAffected   `json:"affected,omitempty"` // 영향 패키지 + 패치 버전 범위
+	Withdrawn        string          `json:"withdrawn,omitempty"` // 있으면 철회된 권고 (무효)
+	Affected         []OSVAffected   `json:"affected,omitempty"`  // 영향 패키지 + 패치 버전 범위
 	DatabaseSpecific json.RawMessage `json:"database_specific,omitempty"` // GHSA/OSV가 종종 severity 라벨 제공
 }
 
