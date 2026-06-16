@@ -84,13 +84,13 @@ func (r *PackageVulnerabilityRepo) UpsertBatch(ctx context.Context, vulns []sbom
 			purl, name, version, ecosystem,
 			vuln_id, aliases, summary,
 			severity_score, severity_vector, severity_label,
-			published_at, modified_at, fixed_version,
+			published_at, modified_at, fixed_version, withdrawn_at,
 			fetched_at, expires_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, NULLIF($7, ''),
 			$8, NULLIF($9, ''), NULLIF($10, ''),
-			$11, $12, NULLIF($13, ''),
-			$14, $15
+			$11, $12, NULLIF($13, ''), $14,
+			$15, $16
 		)
 		ON CONFLICT (purl, vuln_id) DO UPDATE SET
 			name            = EXCLUDED.name,
@@ -104,6 +104,7 @@ func (r *PackageVulnerabilityRepo) UpsertBatch(ctx context.Context, vulns []sbom
 			published_at    = EXCLUDED.published_at,
 			modified_at     = EXCLUDED.modified_at,
 			fixed_version   = EXCLUDED.fixed_version,
+			withdrawn_at    = EXCLUDED.withdrawn_at,
 			fetched_at      = EXCLUDED.fetched_at,
 			expires_at      = EXCLUDED.expires_at
 	`
@@ -117,7 +118,7 @@ func (r *PackageVulnerabilityRepo) UpsertBatch(ctx context.Context, vulns []sbom
 			v.PURL, v.Name, v.Version, v.Ecosystem,
 			v.VulnID, v.Aliases, v.Summary,
 			score, v.SeverityVector, v.SeverityLabel,
-			v.PublishedAt, v.ModifiedAt, v.FixedVersion,
+			v.PublishedAt, v.ModifiedAt, v.FixedVersion, v.WithdrawnAt,
 			v.FetchedAt, v.ExpiresAt,
 		)
 		if err != nil {
@@ -144,7 +145,7 @@ func (r *PackageVulnerabilityRepo) ListByImageDigest(ctx context.Context, imageD
 			COALESCE(pv.severity_score, 0),
 			COALESCE(pv.severity_vector, ''),
 			COALESCE(pv.severity_label, ''),
-			pv.published_at, pv.modified_at, COALESCE(pv.fixed_version, ''),
+			pv.published_at, pv.modified_at, COALESCE(pv.fixed_version, ''), pv.withdrawn_at,
 			pv.fetched_at, pv.expires_at
 		 FROM package_vulnerabilities pv
 		 JOIN sbom_packages sp ON sp.purl = pv.purl
@@ -170,7 +171,7 @@ func (r *PackageVulnerabilityRepo) ListByPURL(ctx context.Context, purl string) 
 			COALESCE(severity_score, 0),
 			COALESCE(severity_vector, ''),
 			COALESCE(severity_label, ''),
-			published_at, modified_at, COALESCE(fixed_version, ''),
+			published_at, modified_at, COALESCE(fixed_version, ''), withdrawn_at,
 			fetched_at, expires_at
 		 FROM package_vulnerabilities
 		 WHERE purl = $1
@@ -195,7 +196,7 @@ func (r *PackageVulnerabilityRepo) SearchByVulnID(ctx context.Context, vulnID st
 			COALESCE(severity_score, 0),
 			COALESCE(severity_vector, ''),
 			COALESCE(severity_label, ''),
-			published_at, modified_at, COALESCE(fixed_version, ''),
+			published_at, modified_at, COALESCE(fixed_version, ''), withdrawn_at,
 			fetched_at, expires_at
 		 FROM package_vulnerabilities
 		 WHERE vuln_id = $1 OR $1 = ANY(aliases)
@@ -222,7 +223,8 @@ func (r *PackageVulnerabilityRepo) SearchPodsByVulnID(ctx context.Context, clust
 			SELECT DISTINCT sp.image_digest, pv.name AS pkg_name, pv.version AS pkg_version
 			FROM package_vulnerabilities pv
 			JOIN sbom_packages sp ON sp.purl = pv.purl
-			WHERE pv.vuln_id = $2 OR $2 = ANY(pv.aliases)
+			WHERE (pv.vuln_id = $2 OR $2 = ANY(pv.aliases))
+			  AND pv.withdrawn_at IS NULL
 		),
 		affected_images AS (
 			SELECT ad.image_digest, ad.pkg_name, ad.pkg_version, s.image
@@ -287,6 +289,7 @@ func (r *PackageVulnerabilityRepo) GetCVETimelineByPod(ctx context.Context, clus
 			FROM pod_digests pd
 			JOIN sbom_packages sp ON sp.image_digest = pd.image_digest
 			JOIN package_vulnerabilities pv ON pv.purl = sp.purl
+			WHERE pv.withdrawn_at IS NULL
 			ORDER BY pv.vuln_id, pv.published_at NULLS LAST
 		)
 		SELECT
@@ -335,6 +338,7 @@ func (r *PackageVulnerabilityRepo) GetCVETimelineByPod(ctx context.Context, clus
 			FROM pod_digests pd
 			JOIN sbom_packages sp ON sp.image_digest = pd.image_digest
 			JOIN package_vulnerabilities pv ON pv.purl = sp.purl
+			WHERE pv.withdrawn_at IS NULL
 			ORDER BY pv.vuln_id, pv.published_at NULLS LAST
 		)
 		SELECT
@@ -364,7 +368,8 @@ func (r *PackageVulnerabilityRepo) ListFixableByPackage(ctx context.Context, pur
 		 FROM package_vulnerabilities
 		 WHERE split_part(purl, '@', 1) = $1
 		   AND fixed_version IS NOT NULL AND fixed_version != ''
-		   AND published_at IS NOT NULL`,
+		   AND published_at IS NOT NULL
+		   AND withdrawn_at IS NULL`,
 		purlBase,
 	)
 	if err != nil {
@@ -408,6 +413,7 @@ func (r *PackageVulnerabilityRepo) GetPatchStatusByPod(ctx context.Context, clus
 		FROM pod_digests pd
 		JOIN sbom_packages sp ON sp.image_digest = pd.image_digest
 		JOIN package_vulnerabilities pv ON pv.purl = sp.purl
+		WHERE pv.withdrawn_at IS NULL
 		ORDER BY pv.vuln_id, pv.fixed_version DESC NULLS LAST
 	`
 	rows, err := r.pool.Query(ctx, q, clusterName, podUID)
@@ -462,13 +468,14 @@ func scanVulns(rows pgx.Rows) ([]sbom.PackageVulnerability, error) {
 			&v.SeverityScore,
 			&v.SeverityVector,
 			&v.SeverityLabel,
-			&v.PublishedAt, &v.ModifiedAt, &v.FixedVersion,
+			&v.PublishedAt, &v.ModifiedAt, &v.FixedVersion, &v.WithdrawnAt,
 			&v.FetchedAt, &v.ExpiresAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan vuln: %w", err)
 		}
 		v.PatchAvailable = v.FixedVersion != ""
+		v.Withdrawn = v.WithdrawnAt != nil
 		out = append(out, v)
 	}
 	return out, rows.Err()
@@ -517,10 +524,11 @@ func (r *PackageVulnerabilityRepo) ListRecentlyAdded(
 		SELECT purl, name, version, ecosystem,
 		       vuln_id, COALESCE(aliases, '{}'::text[]), COALESCE(summary, ''),
 		       COALESCE(severity_score, 0), COALESCE(severity_vector, ''), COALESCE(severity_label, ''),
-		       published_at, modified_at, COALESCE(fixed_version, ''),
+		       published_at, modified_at, COALESCE(fixed_version, ''), withdrawn_at,
 		       fetched_at, expires_at
 		FROM package_vulnerabilities
 		WHERE fetched_at >= $1
+		  AND withdrawn_at IS NULL
 	`
 	args := []interface{}{since}
 
