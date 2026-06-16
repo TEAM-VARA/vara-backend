@@ -135,7 +135,8 @@ type VendorResponseItem struct {
 	CVEPublished  *time.Time `json:"cve_published"`
 	FixedVersion  string     `json:"fixed_version"`
 	FixedReleased *time.Time `json:"fixed_released,omitempty"` // deps.dev에 그 버전 날짜 없으면 nil
-	ResponseDays  *int       `json:"response_days,omitempty"`  // 계산 불가면 nil
+	ResponseDays  *int       `json:"response_days,omitempty"`  // 계산 불가(릴리스 날짜 없음)면 nil
+	PreDisclosed  bool       `json:"pre_disclosed,omitempty"`  // 패치가 CVE 공개 시점 이전/동시 (대응속도 0)
 }
 
 // VendorResponse는 패키지의 벤더 보안 대응속도 집계입니다.
@@ -233,8 +234,16 @@ func (s *DepsDevService) computeVendorResponse(ctx context.Context, system, name
 		released, err := s.repo.GetReleaseDate(ctx, system, name, f.FixedVersion)
 		if err == nil && released != nil {
 			item.FixedReleased = released
-			if f.PublishedAt != nil && !released.Before(*f.PublishedAt) {
-				d := int(released.Sub(*f.PublishedAt).Hours() / 24.0)
+			if f.PublishedAt != nil {
+				diffDays := released.Sub(*f.PublishedAt).Hours() / 24.0
+				var d int
+				if diffDays < 0 {
+					// 패치가 CVE 공개보다 먼저/동시 = 조정 공개. 대응속도 0으로 본다.
+					d = 0
+					item.PreDisclosed = true
+				} else {
+					d = int(diffDays + 0.5)
+				}
 				item.ResponseDays = &d
 				sum += d
 				n++
