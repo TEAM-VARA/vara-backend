@@ -217,6 +217,18 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		glScheduler.Start(context.Background())
 		log.Printf("server: gl scheduler started (interval=%v)", glInterval)
 	}
+	// ── DepsDev Scheduler 시작 (패키지 버전 릴리스 날짜 자동 수집) ──
+	if os.Getenv("DISABLE_DEPSDEV_SCHEDULER") != "true" {
+		depsDevInterval := 24 * time.Hour
+		if h := os.Getenv("DEPSDEV_INTERVAL_HOURS"); h != "" {
+			if hrs, err := strconv.Atoi(h); err == nil && hrs > 0 {
+				depsDevInterval = time.Duration(hrs) * time.Hour
+			}
+		}
+		depsDevScheduler := scheduler.NewDepsDevScheduler(depsDevSvc, depsDevInterval)
+		depsDevScheduler.Start(context.Background())
+		log.Printf("server: depsdev scheduler started (interval=%v)", depsDevInterval)
+	}
 	// ── Analysis Scheduler 시작 (그래프 분석 사전 계산) ──
 	if os.Getenv("DISABLE_ANALYSIS_SCHEDULER") != "true" {
 		clusterName := os.Getenv("DEFAULT_CLUSTER_NAME")
