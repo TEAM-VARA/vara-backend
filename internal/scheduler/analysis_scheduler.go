@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/vara/backend/internal/blastedge"
 	"github.com/vara/backend/internal/repository/postgres"
 	"github.com/vara/backend/internal/service"
 )
@@ -19,9 +20,10 @@ import (
 // 데이터(cluster_pods, eBPF)는 에이전트가 채우므로, 이 파이프라인만 돌면
 // DB 정리/클러스터 재배포 후에도 다음 주기에 자동 복구됩니다.
 type AnalysisScheduler struct {
-	svc         *service.AnalysisService
-	edgesRepo   *postgres.EdgesRepo
-	imgCacheSvc *service.ImageGlobalCacheService
+	svc            *service.AnalysisService
+	edgesRepo      *postgres.EdgesRepo
+	blastEdgesRepo *postgres.BlastEdgesRepo
+	imgCacheSvc    *service.ImageGlobalCacheService
 	sbomRepo    *postgres.SBOMRepo
 	exposureSvc *service.ExposureService
 	attackSvc   *service.AttackPathService
@@ -37,6 +39,7 @@ type AnalysisScheduler struct {
 func NewAnalysisScheduler(
 	svc *service.AnalysisService,
 	edgesRepo *postgres.EdgesRepo,
+	blastEdgesRepo *postgres.BlastEdgesRepo,
 	imgCacheSvc *service.ImageGlobalCacheService,
 	sbomRepo *postgres.SBOMRepo,
 	exposureSvc *service.ExposureService,
@@ -51,9 +54,10 @@ func NewAnalysisScheduler(
 		interval = 1 * time.Hour
 	}
 	return &AnalysisScheduler{
-		svc:         svc,
-		edgesRepo:   edgesRepo,
-		imgCacheSvc: imgCacheSvc,
+		svc:            svc,
+		edgesRepo:      edgesRepo,
+		blastEdgesRepo: blastEdgesRepo,
+		imgCacheSvc:    imgCacheSvc,
 		sbomRepo:    sbomRepo,
 		exposureSvc: exposureSvc,
 		attackSvc:   attackSvc,
@@ -75,8 +79,8 @@ func (s *AnalysisScheduler) Start(ctx context.Context) {
 	}
 	log.Printf("analysis-scheduler: started (interval=%v, cluster=%s)", s.interval, s.clusterName)
 	go func() {
-		// 서버 시작 45초 후 첫 실행 (VulnScheduler 30초보다 늦게 — 부하 분산)
-		time.Sleep(45 * time.Second)
+		// 서버 시작 10분 후 첫 실행, 이후 interval(기본 40분)마다
+		time.Sleep(10 * time.Minute)
 		s.run(ctx)
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
@@ -165,6 +169,11 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 	log.Printf("analysis-scheduler: scoring chain done (%v)", time.Since(start))
 
 	// ─────────────────────────────────────────────
+	// Phase 2.5: blast 엣지 재계산 (network=B.Risk가 final_scores를 읽으므로 점수 체인 이후)
+	// ─────────────────────────────────────────────
+	s.computeBlastEdges(ctx)
+
+	// ─────────────────────────────────────────────
 	// Phase 3: 그래프 분석 사전계산 (최신 엣지 기준)
 	// ─────────────────────────────────────────────
 	if err := s.svc.PrecomputeAll(ctx, s.clusterName); err != nil {
@@ -181,4 +190,37 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 	} else if deleted > 0 {
 		log.Printf("analysis-scheduler: cleaned %d old edge snapshots", deleted)
 	}
+}
+
+// computeBlastEdges는 host/rbac/network 3채널을 합쳐 blast_edges 테이블을 재적재한다.
+// B.Risk(network)가 final_scores를 읽으므로 반드시 Phase 2(점수 체인) 이후에 호출한다.
+func (s *AnalysisScheduler) computeBlastEdges(ctx context.Context) {
+	if s.blastEdgesRepo == nil {
+		return
+	}
+	pods, snap, err := s.blastEdgesRepo.LoadPods(ctx, s.clusterName)
+	if err != nil {
+		log.Printf("analysis-scheduler: blast load pods failed: %v", err)
+		return
+	}
+	if len(pods) == 0 {
+		return
+	}
+	perms, err := s.blastEdgesRepo.LoadPerms(ctx, s.clusterName)
+	if err != nil {
+		log.Printf("analysis-scheduler: blast load perms failed: %v", err)
+		return
+	}
+	// 관측 flow는 직접 탐지하지 않고 edges 테이블(connects_to/observed)에서 가져온다.
+	flows, err := s.blastEdgesRepo.LoadObservedFlows(ctx, s.clusterName)
+	if err != nil {
+		log.Printf("analysis-scheduler: blast load flows failed: %v", err)
+	}
+	edges := blastedge.BuildEdges(pods, perms, flows)
+	n, err := s.blastEdgesRepo.Replace(ctx, s.clusterName, snap, edges, pods)
+	if err != nil {
+		log.Printf("analysis-scheduler: blast edges replace failed: %v", err)
+		return
+	}
+	log.Printf("analysis-scheduler: blast edges computed (%d edges, snapshot=%s)", n, snap.Format(time.RFC3339))
 }
