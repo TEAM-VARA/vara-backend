@@ -7,18 +7,23 @@ import "time"
 // ─────────────────────────────────────────
 //
 // 공식:
-//   Final = (0.6 × Global_image + 0.4 × Local) × Toxic_Multiplier
+//   Final = (0.7 × Global_image + 0.3 × Exposure) × Toxic_Multiplier
 //
-//   범위: 0~100 (Toxic=1.0일 때)
-//         최대 150 (Toxic=1.5일 때, 작업 B-4 매칭 시)
+//   Risk Score는 "발생 가능성(likelihood)"만 다룬다:
+//     - Global   : CVE 자체의 본질적 위험
+//     - Exposure : 인터넷 노출 (0=비노출, 100=노출)
+//   Attack Path(RBAC/Network/Mount)는 "영향(impact)" 축이라 Risk Score에서 제외하고
+//   자산중요도·Blast Radius로 분리 표기한다. (attack_path 계산/테이블/API는 유지)
+//
+//   범위: 0~100 (상한 clamp)
 
 // ─────────────────────────────────────────
 // 가중치
 // ─────────────────────────────────────────
 
 const (
-	FinalWeightGlobal = 0.6
-	FinalWeightLocal  = 0.4
+	FinalWeightGlobal   = 0.7
+	FinalWeightExposure = 0.3
 
 	FinalDefaultToxicMultiplier = 1.0
 )
@@ -150,7 +155,7 @@ type ScoreBreakdown struct {
 type BreakdownSection struct {
 	Label          string            `json:"label"`             // "Global Score"
 	RawScore       float64           `json:"raw_score"`          // 원점수 (Toxic은 multiplier)
-	Weight         float64           `json:"weight,omitempty"`  // 0.6 / 0.4 (Toxic 없음)
+	Weight         float64           `json:"weight,omitempty"`  // 0.7 / 0.3 (Toxic 없음)
 	Contribution   float64           `json:"contribution"`      // 가중 기여분
 	Description    string            `json:"description"`       // 항목 정의 (고정)
 	Interpretation string            `json:"interpretation"`    // 값별 해석 (다)
@@ -187,24 +192,27 @@ type BreakdownToxic struct {
 // ─────────────────────────────────────────
 
 // ComputeFinalScore는 가중 평균에 Toxic Multiplier를 곱해 Final Score를 산정합니다.
-func ComputeFinalScore(globalImage, local, toxic float64) (final, globalContrib, localContrib float64) {
+//
+// 두 번째 인자 exposure는 인터넷 노출 점수(0~100)입니다.
+// (예전엔 local = exposure+attack_path였으나, attack_path를 제외하고 exposure만 사용)
+func ComputeFinalScore(globalImage, exposure, toxic float64) (final, globalContrib, exposureContrib float64) {
 	globalImage = clamp(globalImage, 0, 100)
-	local = clamp(local, 0, 100)
+	exposure = clamp(exposure, 0, 100)
 	if toxic <= 0 {
 		toxic = FinalDefaultToxicMultiplier
 	}
 
 	globalContrib = globalImage * FinalWeightGlobal
-	localContrib = local * FinalWeightLocal
+	exposureContrib = exposure * FinalWeightExposure
 
-	weightedAvg := globalContrib + localContrib
+	weightedAvg := globalContrib + exposureContrib
 	final = weightedAvg * toxic
 
 	final = clamp(final, 0, 100)
 
 	final = round2Final(final)
 	globalContrib = round2Final(globalContrib)
-	localContrib = round2Final(localContrib)
+	exposureContrib = round2Final(exposureContrib)
 	return
 }
 
