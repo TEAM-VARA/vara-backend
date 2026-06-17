@@ -188,7 +188,8 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 		}
 	}
 	res.AttackScenario = composeScenario(res.Incoming, res.NodeStates, res.Outgoing)
-	res.Mitigation = composeMitigation(fs)
+	res.Mitigations = collectMitigations(fs)
+	res.Mitigation = composeMitigationText(res.Mitigations)
 
 	// 수집 갭 고지
 	if len(in.HostPathVolumes) > 0 {

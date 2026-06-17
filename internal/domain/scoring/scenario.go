@@ -57,6 +57,20 @@ type ScenarioFinding struct {
 	Caveat     string   `json:"caveat,omitempty"`
 }
 
+// ScenarioMitigation — 보완대책 1건 (개조식 항목).
+//
+// mitigation 줄글과 별개로, 프론트에서 항목을 클릭하면 Key(또는 MSTA)로
+// 백엔드 조치 로직을 분기할 수 있도록 technique 단위로 분리한다.
+type ScenarioMitigation struct {
+	Key    string   `json:"key"`            // 조치 분기 키 (ms_ta, VULN은 "VULN")
+	MSTA   string   `json:"ms_ta,omitempty"`
+	MitreT string   `json:"mitre_t,omitempty"`
+	Bucket string   `json:"bucket"` // RBAC|NET|MOUNT|VULN
+	CVE    string   `json:"cve,omitempty"`
+	Text   string   `json:"text"`             // 보완 줄글 (한 항목, MITRE 태그 제외)
+	MitreM []string `json:"mitre_m,omitempty"` // 클릭 시 참조할 MITRE mitigation 코드
+}
+
 // PodScenarioResult — pod 1개의 최종 출력 (페이지 렌더용)
 type PodScenarioResult struct {
 	ClusterName string  `json:"cluster_name"`
@@ -69,6 +83,9 @@ type PodScenarioResult struct {
 	// ★ 페이지에 그대로 출력되는 줄글
 	AttackScenario string `json:"attack_scenario"`
 	Mitigation     string `json:"mitigation"`
+
+	// 보완대책 구조화 (프론트 클릭 → 백엔드 조치 분기용). Mitigation 줄글과 1:1 대응.
+	Mitigations []ScenarioMitigation `json:"mitigations"`
 
 	// 구조화 (UI 칩/패널용)
 	Findings   []ScenarioFinding `json:"findings"`
@@ -177,10 +194,13 @@ func joinSentences(fs []ScenarioFinding) string {
 	return strings.Join(parts, " ")
 }
 
-// composeMitigation — technique 중복 제거 후 번호 매겨 보완대책 줄글 생성
-func composeMitigation(fs []ScenarioFinding) string {
+// collectMitigations — technique 중복 제거 후 구조화된 보완 항목 리스트 생성.
+//
+// 각 항목은 프론트에서 클릭 시 Key(ms_ta, VULN은 "VULN")로 백엔드 조치 로직을
+// 분기할 수 있도록 finding과 분리한다. 줄글(composeMitigationText)과 1:1 대응.
+func collectMitigations(fs []ScenarioFinding) []ScenarioMitigation {
 	seen := map[string]bool{}
-	items := make([]string, 0, len(fs))
+	out := make([]ScenarioMitigation, 0, len(fs))
 	for _, f := range fs {
 		key := f.MSTA
 		if key == "" {
@@ -190,23 +210,38 @@ func composeMitigation(fs []ScenarioFinding) string {
 			continue
 		}
 		seen[key] = true
-		tag := ""
-		if len(f.MitreM) > 0 {
-			tag = " (MITRE " + strings.Join(f.MitreM, "/") + ")"
-		}
-		items = append(items, f.Mitigation+tag)
+		out = append(out, ScenarioMitigation{
+			Key:    key,
+			MSTA:   f.MSTA,
+			MitreT: f.MitreT,
+			Bucket: f.Bucket,
+			CVE:    f.CVE,
+			Text:   f.Mitigation,
+			MitreM: f.MitreM,
+		})
 	}
+	return out
+}
+
+// composeMitigationText — 구조화 보완 항목을 사람이 읽는 줄글로 조립.
+// 단일 항목은 한 줄, 여러 항목은 개조식(번호 + 줄바꿈). MITRE 코드는 괄호 태그로 부기.
+func composeMitigationText(items []ScenarioMitigation) string {
 	if len(items) == 0 {
 		return "추가로 식별된 보완 조치가 없습니다."
 	}
-	// 단일 항목은 한 줄, 여러 항목은 개조식(번호 + 줄바꿈)으로 출력.
+	line := func(m ScenarioMitigation) string {
+		if len(m.MitreM) > 0 {
+			return m.Text + " (MITRE " + strings.Join(m.MitreM, "/") + ")"
+		}
+		return m.Text
+	}
 	if len(items) == 1 {
-		return "다음 조치를 권장합니다. " + items[0]
+		return "다음 조치를 권장합니다. " + line(items[0])
 	}
 	var b strings.Builder
 	b.WriteString("다음 조치를 권장합니다.")
 	for i, it := range items {
-		b.WriteString(fmt.Sprintf("\n%d. %s", i+1, it))
+		fmt.Fprintf(&b, "\n%d. %s", i+1, line(it))
 	}
 	return b.String()
 }
