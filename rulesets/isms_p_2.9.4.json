@@ -41,10 +41,18 @@
           "require_encryption": true
         },
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.9.4", "match_strength": "direct" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.9.4",
+            "match_strength": "direct"
+          }
         ],
         "kisa_defect_case_refs": [
-          { "case_number": null, "description": "감사로그 미수집 또는 로그 위·변조 방지(무결성 검증) 미적용", "match": "direct" }
+          {
+            "case_number": null,
+            "description": "감사로그 미수집 또는 로그 위·변조 방지(무결성 검증) 미적용",
+            "match": "direct"
+          }
         ],
         "automation_coverage": {
           "percentage": 75,
@@ -63,12 +71,25 @@
         "applies_when": "fail",
         "absorbed_from": "CT-2.9.4-01",
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.9.4", "match_strength": "direct" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.9.4",
+            "match_strength": "direct"
+          }
         ],
         "offcluster_satisfaction_conditions": [
           "CloudTrail 외 SIEM·중앙 로그 수집 체계로 사용자 접속기록·시스템 로그가 위·변조 방지되어 안전하게 보존·관리됨",
           "감사로그 활성·무결성검증·암호화 여부"
         ]
+      },
+      "remediation": {
+        "source": {
+          "framework": "CIS AWS Foundations Benchmark",
+          "version": "v5.0.0",
+          "reference": "§3 Logging — CloudTrail 전 리전 활성",
+          "url": "https://www.cisecurity.org/benchmark/amazon_web_services"
+        },
+        "action": "CloudTrail을 전 리전 활성화하고 로그 파일 무결성 검증·암호화·접근통제를 적용한다."
       }
     },
     {
@@ -84,6 +105,15 @@
           "description": "수집 대상 로그 유형·보존기간·보존방법을 정의하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.9.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"사용자 접속기록, 시스템 로그, 권한 부여 내역 등의 로그 유형과 보존기간·보존방법을 정의한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.9.4",
@@ -113,6 +143,15 @@
           "description": "로그의 위·변조·도난·분실 방지 및 안전한 보존 대책을 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.9.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"시스템 로그 및 접속기록이 위·변조, 도난, 분실되지 않도록 안전하게 보존·관리한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.9.4",
@@ -142,6 +181,15 @@
           "description": "개인정보처리시스템 접속기록을 법정 최소 보존기간 이상 보존하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.9.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"개인정보처리시스템의 접속기록을 법령에서 정한 최소 기간(원칙 1년, 5만명 이상·고유식별정보·민감정보 처리 시 2년) 이상 보존한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.9.4",

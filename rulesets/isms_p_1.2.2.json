@@ -1,86 +1,104 @@
 ﻿{
-    "schema_version":  "4.0.0",
-    "isms_p_revision":  "2023.11",
-    "item":  {
-                 "id":  "1.2.2",
-                 "name":  "현황 및 흐름분석",
-                 "category_path":  "1. 관리체계 수립 및 운영 \u003e 1.2 위험 관리 \u003e 1.2.2 현황 및 흐름분석",
-                 "description":  "관리체계 범위 내 정보서비스 및 개인정보 처리 현황을 분석하고, 업무절차와 흐름을 파악하여 정보서비스 흐름도, 개인정보 흐름도 등을 작성하여야 한다."
-             },
-    "legal_references":  [
-                             {
-                                 "law":  "정보통신망법",
-                                 "article":  "제47조",
-                                 "summary":  "정보보호 관리체계 인증 기준"
-                             },
-                             {
-                                 "law":  "개인정보 보호법",
-                                 "article":  "제29조",
-                                 "summary":  "안전조치의무"
-                             }
-                         ],
-    "rules":  [
-                  {
-                      "rule_id":  "R-1.2.2-GL01",
-                      "name":  "정보서비스·개인정보 흐름도 작성",
-                      "judgment_source":  "text_extraction",
-                      "extraction_method":  "rag",
-                      "keywords":  [
-                                       "관리체계 범위 내 정보서비스 및 개인정보 처리 현황을 분석하고 정보서비스 흐름도·개인정보 흐름도 등으로 문서화한다."
-                                   ],
-                      "compliance_indicators":  [
-                                                    {
-                                                        "description":  "업무절차와 흐름을 파악하여 정보서비스 흐름도·개인정보 흐름도로 문서화하도록 규정"
-                                                    }
-                                                ],
-                      "source_reference":  {
-                                               "framework":  "ISMS-P",
-                                               "item":  "1.2.2",
-                                               "basis":  "안내서 주요 확인사항/인증기준"
-                                           },
-                      "judgment_logic":  {
-                                             "type":  "semantic_match",
-                                             "method":  "llm_rag_entailment",
-                                             "match_criteria":  "sentence_semantic_equivalence",
-                                             "verdict_states":  [
-                                                                    "충족",
-                                                                    "미충족",
-                                                                    "확인불가"
-                                                                ]
-                                         }
-                  },
-                  {
-                      "rule_id":  "R-1.2.2-GL02",
-                      "name":  "흐름도 최신성 유지",
-                      "judgment_source":  "text_extraction",
-                      "extraction_method":  "rag",
-                      "keywords":  [
-                                       "서비스·업무·정보자산의 변화에 따라 업무절차 및 개인정보 흐름을 주기적으로 검토하여 흐름도 등 관련 문서의 최신성을 유지한다."
-                                   ],
-                      "compliance_indicators":  [
-                                                    {
-                                                        "description":  "변화에 따라 흐름도 등 관련 문서를 주기적으로 검토·갱신하도록 규정"
-                                                    }
-                                                ],
-                      "source_reference":  {
-                                               "framework":  "ISMS-P",
-                                               "item":  "1.2.2",
-                                               "basis":  "안내서 주요 확인사항/인증기준"
-                                           },
-                      "judgment_logic":  {
-                                             "type":  "semantic_match",
-                                             "method":  "llm_rag_entailment",
-                                             "match_criteria":  "sentence_semantic_equivalence",
-                                             "verdict_states":  [
-                                                                    "충족",
-                                                                    "미충족",
-                                                                    "확인불가"
-                                                                ]
-                                         }
-                  }
-              ],
-    "evaluation_strategy":  {
-                                "overall_verdict_logic":  "any_fail_is_non_compliant",
-                                "description":  "ExternalName Service에 외부 의존성 라벨 + Ingress에 흐름도 등록 annotation이 모두 존재해야 PASS"
-                            }
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "1.2.2",
+    "name": "현황 및 흐름분석",
+    "category_path": "1. 관리체계 수립 및 운영 > 1.2 위험 관리 > 1.2.2 현황 및 흐름분석",
+    "description": "관리체계 범위 내 정보서비스 및 개인정보 처리 현황을 분석하고, 업무절차와 흐름을 파악하여 정보서비스 흐름도, 개인정보 흐름도 등을 작성하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "정보통신망법",
+      "article": "제47조",
+      "summary": "정보보호 관리체계 인증 기준"
+    },
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-1.2.2-GL01",
+      "name": "정보서비스·개인정보 흐름도 작성",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "관리체계 범위 내 정보서비스 및 개인정보 처리 현황을 분석하고 정보서비스 흐름도·개인정보 흐름도 등으로 문서화한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "업무절차와 흐름을 파악하여 정보서비스 흐름도·개인정보 흐름도로 문서화하도록 규정"
+        }
+      ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 1.2.2 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"관리체계 범위 내 정보서비스 및 개인정보 처리 현황을 분석하고 정보서비스 흐름도·개인정보 흐름도 등으로 문서화한다.\""
+      },
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-1.2.2-GL02",
+      "name": "흐름도 최신성 유지",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "서비스·업무·정보자산의 변화에 따라 업무절차 및 개인정보 흐름을 주기적으로 검토하여 흐름도 등 관련 문서의 최신성을 유지한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "변화에 따라 흐름도 등 관련 문서를 주기적으로 검토·갱신하도록 규정"
+        }
+      ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 1.2.2 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"서비스·업무·정보자산의 변화에 따라 업무절차 및 개인정보 흐름을 주기적으로 검토하여 흐름도 등 관련 문서의 최신성을 유지한다.\""
+      },
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.2",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "ExternalName Service에 외부 의존성 라벨 + Ingress에 흐름도 등록 annotation이 모두 존재해야 PASS"
+  }
 }

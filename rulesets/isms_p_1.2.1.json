@@ -1,144 +1,180 @@
 ﻿{
-    "schema_version":  "4.0.0",
-    "isms_p_revision":  "2023.11",
-    "item":  {
-                 "id":  "1.2.1",
-                 "name":  "정보자산 식별",
-                 "category_path":  "1. 관리체계 수립 및 운영 \u003e 1.2 위험 관리 \u003e 1.2.1 정보자산 식별",
-                 "description":  "조직의 업무특성에 따라 정보자산 분류기준을 수립하여 관리체계 범위 내 모든 정보자산을 식별·분류하고, 중요도를 산정한 후 그 목록을 최신으로 관리하여야 한다."
-             },
-    "legal_references":  [
-                             {
-                                 "law":  "정보통신망법",
-                                 "article":  "제47조",
-                                 "summary":  "정보보호 관리체계 인증 기준"
-                             },
-                             {
-                                 "law":  "개인정보 보호법",
-                                 "article":  "제29조",
-                                 "summary":  "안전조치의무"
-                             }
-                         ],
-    "rules":  [
-                  {
-                      "rule_id":  "R-1.2.1-GL01",
-                      "name":  "정보자산 분류기준 수립",
-                      "judgment_source":  "text_extraction",
-                      "extraction_method":  "rag",
-                      "keywords":  [
-                                       "관리체계 범위 내 모든 정보자산을 식별·분류하기 위한 분류기준을 수립한다."
-                                   ],
-                      "compliance_indicators":  [
-                                                    {
-                                                        "description":  "조직의 업무특성에 따라 정보자산 분류기준을 수립하도록 규정"
-                                                    }
-                                                ],
-                      "source_reference":  {
-                                               "framework":  "ISMS-P",
-                                               "item":  "1.2.1",
-                                               "basis":  "안내서 주요 확인사항/인증기준"
-                                           },
-                      "judgment_logic":  {
-                                             "type":  "semantic_match",
-                                             "method":  "llm_rag_entailment",
-                                             "match_criteria":  "sentence_semantic_equivalence",
-                                             "verdict_states":  [
-                                                                    "충족",
-                                                                    "미충족",
-                                                                    "확인불가"
-                                                                ]
-                                         }
-                  },
-                  {
-                      "rule_id":  "R-1.2.1-GL02",
-                      "name":  "중요도 산정 및 보안등급 부여",
-                      "judgment_source":  "text_extraction",
-                      "extraction_method":  "rag",
-                      "keywords":  [
-                                       "식별된 정보자산에 대하여 법적 요구사항 및 업무 영향도를 고려하여 중요도를 산정하고 보안등급을 부여한다."
-                                   ],
-                      "compliance_indicators":  [
-                                                    {
-                                                        "description":  "정보자산의 중요도를 결정하고 보안등급을 부여하도록 규정"
-                                                    }
-                                                ],
-                      "source_reference":  {
-                                               "framework":  "ISMS-P",
-                                               "item":  "1.2.1",
-                                               "basis":  "안내서 주요 확인사항/인증기준"
-                                           },
-                      "judgment_logic":  {
-                                             "type":  "semantic_match",
-                                             "method":  "llm_rag_entailment",
-                                             "match_criteria":  "sentence_semantic_equivalence",
-                                             "verdict_states":  [
-                                                                    "충족",
-                                                                    "미충족",
-                                                                    "확인불가"
-                                                                ]
-                                         }
-                  },
-                  {
-                      "rule_id":  "R-1.2.1-GL03",
-                      "name":  "정보자산 목록 최신 유지",
-                      "judgment_source":  "text_extraction",
-                      "extraction_method":  "rag",
-                      "keywords":  [
-                                       "정기적으로 정보자산 현황을 조사하여 정보자산 목록을 최신 상태로 유지한다."
-                                   ],
-                      "compliance_indicators":  [
-                                                    {
-                                                        "description":  "정기적으로 정보자산 현황을 조사하여 목록을 최신으로 유지하도록 규정"
-                                                    }
-                                                ],
-                      "source_reference":  {
-                                               "framework":  "ISMS-P",
-                                               "item":  "1.2.1",
-                                               "basis":  "안내서 주요 확인사항/인증기준"
-                                           },
-                      "judgment_logic":  {
-                                             "type":  "semantic_match",
-                                             "method":  "llm_rag_entailment",
-                                             "match_criteria":  "sentence_semantic_equivalence",
-                                             "verdict_states":  [
-                                                                    "충족",
-                                                                    "미충족",
-                                                                    "확인불가"
-                                                                ]
-                                         }
-                  },
-                  {
-                      "rule_id":  "R-1.2.1-GL04",
-                      "name":  "분류기준 정책의 버전·승인·갱신 관리",
-                      "judgment_source":  "text_extraction",
-                      "extraction_method":  "rag",
-                      "keywords":  [
-                                       "정보자산 분류기준 정책에는 버전·승인자·승인일자를 명시하고 최소 1년에 한 번 이상 갱신하도록 규정한다."
-                                   ],
-                      "compliance_indicators":  [
-                                                    {
-                                                        "description":  "분류기준 정책에 버전·승인자·승인일자가 명시되고 정기적으로(연 1회 이상) 갱신하도록 규정"
-                                                    }
-                                                ],
-                      "source_reference":  {
-                                               "framework":  "ISMS-P",
-                                               "item":  "1.2.1",
-                                               "basis":  "안내서 주요 확인사항/인증기준"
-                                           },
-                      "judgment_logic":  {
-                                             "type":  "semantic_match",
-                                             "method":  "llm_rag_entailment",
-                                             "match_criteria":  "sentence_semantic_equivalence",
-                                             "verdict_states":  [
-                                                                    "충족",
-                                                                    "미충족",
-                                                                    "확인불가"
-                                                                ]
-                                         }
-                  }
-              ],
-    "evaluation_strategy":  {
-                                "overall_verdict_logic":  "any_fail_is_non_compliant",
-                                "description":  "namespace에 3개 필수 라벨(분류등급·책임자·중요도)이 붙어 있는지는 R-1.2.1-01이 실측하되, 라벨이 없다는 사실만으로 미준수로 단정하지 않도록 \u0027검토필요(needs_review)\u0027로 둔다. 분류기준 정책 문서가 실제로 있는지와 그 내용·갱신 상태는 지침서를 보는 GL 룰(R-1.2.1-GL01~04)이 판단한다."
-                            }
+  "schema_version": "4.0.0",
+  "isms_p_revision": "2023.11",
+  "item": {
+    "id": "1.2.1",
+    "name": "정보자산 식별",
+    "category_path": "1. 관리체계 수립 및 운영 > 1.2 위험 관리 > 1.2.1 정보자산 식별",
+    "description": "조직의 업무특성에 따라 정보자산 분류기준을 수립하여 관리체계 범위 내 모든 정보자산을 식별·분류하고, 중요도를 산정한 후 그 목록을 최신으로 관리하여야 한다."
+  },
+  "legal_references": [
+    {
+      "law": "정보통신망법",
+      "article": "제47조",
+      "summary": "정보보호 관리체계 인증 기준"
+    },
+    {
+      "law": "개인정보 보호법",
+      "article": "제29조",
+      "summary": "안전조치의무"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "R-1.2.1-GL01",
+      "name": "정보자산 분류기준 수립",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "관리체계 범위 내 모든 정보자산을 식별·분류하기 위한 분류기준을 수립한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "조직의 업무특성에 따라 정보자산 분류기준을 수립하도록 규정"
+        }
+      ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 1.2.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"관리체계 범위 내 모든 정보자산을 식별·분류하기 위한 분류기준을 수립한다.\""
+      },
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-1.2.1-GL02",
+      "name": "중요도 산정 및 보안등급 부여",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "식별된 정보자산에 대하여 법적 요구사항 및 업무 영향도를 고려하여 중요도를 산정하고 보안등급을 부여한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "정보자산의 중요도를 결정하고 보안등급을 부여하도록 규정"
+        }
+      ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 1.2.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"식별된 정보자산에 대하여 법적 요구사항 및 업무 영향도를 고려하여 중요도를 산정하고 보안등급을 부여한다.\""
+      },
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-1.2.1-GL03",
+      "name": "정보자산 목록 최신 유지",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정기적으로 정보자산 현황을 조사하여 정보자산 목록을 최신 상태로 유지한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "정기적으로 정보자산 현황을 조사하여 목록을 최신으로 유지하도록 규정"
+        }
+      ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 1.2.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"정기적으로 정보자산 현황을 조사하여 정보자산 목록을 최신 상태로 유지한다.\""
+      },
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    },
+    {
+      "rule_id": "R-1.2.1-GL04",
+      "name": "분류기준 정책의 버전·승인·갱신 관리",
+      "judgment_source": "text_extraction",
+      "extraction_method": "rag",
+      "keywords": [
+        "정보자산 분류기준 정책에는 버전·승인자·승인일자를 명시하고 최소 1년에 한 번 이상 갱신하도록 규정한다."
+      ],
+      "compliance_indicators": [
+        {
+          "description": "분류기준 정책에 버전·승인자·승인일자가 명시되고 정기적으로(연 1회 이상) 갱신하도록 규정"
+        }
+      ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 1.2.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"정보자산 분류기준 정책에는 버전·승인자·승인일자를 명시하고 최소 1년에 한 번 이상 갱신하도록 규정한다.\""
+      },
+      "source_reference": {
+        "framework": "ISMS-P",
+        "item": "1.2.1",
+        "basis": "안내서 주요 확인사항/인증기준"
+      },
+      "judgment_logic": {
+        "type": "semantic_match",
+        "method": "llm_rag_entailment",
+        "match_criteria": "sentence_semantic_equivalence",
+        "verdict_states": [
+          "충족",
+          "미충족",
+          "확인불가"
+        ]
+      }
+    }
+  ],
+  "evaluation_strategy": {
+    "overall_verdict_logic": "any_fail_is_non_compliant",
+    "description": "namespace에 3개 필수 라벨(분류등급·책임자·중요도)이 붙어 있는지는 R-1.2.1-01이 실측하되, 라벨이 없다는 사실만으로 미준수로 단정하지 않도록 '검토필요(needs_review)'로 둔다. 분류기준 정책 문서가 실제로 있는지와 그 내용·갱신 상태는 지침서를 보는 GL 룰(R-1.2.1-GL01~04)이 판단한다."
+  }
 }

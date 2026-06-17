@@ -28,6 +28,15 @@
           "description": "0.0.0.0/0 전체 허용이 아닌 특정 IP 대역으로 제한됨"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "자체 정책 (표준 미대응)",
+          "version": null,
+          "reference": "LB source ranges 제한",
+          "url": null
+        },
+        "action": "Service에 loadBalancerSourceRanges로 허용 IP 대역을 명시하고 0.0.0.0/0 전체 개방을 제거한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -52,6 +61,15 @@
           "description": "공개 Ingress에 WAF(AWS WAFv2 ACL 또는 ModSecurity) annotation 존재"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "보안 best-practice",
+          "version": null,
+          "reference": "AWS WAFv2/ModSecurity 연동",
+          "url": null
+        },
+        "action": "공개 Ingress에 AWS WAFv2(또는 ModSecurity) 연동 annotation을 추가한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -75,6 +93,15 @@
           "description": "NodePort Service에 공개 의도 라벨(exposure-intent) 존재 — 의도적 노출임을 명시"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "자체 정책 (표준 미대응)",
+          "version": null,
+          "reference": "노출 의도 라벨(exposure-intent)",
+          "url": null
+        },
+        "action": "NodePort Service에 exposure-intent 라벨(public/internal-only/debug)을 부여하고, 불필요한 NodePort는 ClusterIP로 전환한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -118,6 +145,15 @@
           "description": "공개 Ingress에 rate limit annotation 설정됨 — DDoS/과다요청 방어"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "자체 정책 (표준 미대응)",
+          "version": null,
+          "reference": "rate limit(과다요청·DDoS 방어)",
+          "url": null
+        },
+        "action": "공개 Ingress에 rate-limit annotation(예: nginx limit-rps)을 설정한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -146,6 +182,15 @@
           "description": "internal LB annotation 또는 public exposure-intent 라벨 중 하나 존재"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "자체 정책 (표준 미대응)",
+          "version": null,
+          "reference": "노출 의도 라벨(exposure-intent)",
+          "url": null
+        },
+        "action": "LoadBalancer Service에 exposure-intent 라벨 또는 internal LB annotation을 부여해 노출 의도를 명시한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -165,15 +210,36 @@
         ],
         "condition": {
           "operator": "sg_sensitive_port_world_open",
-          "forbidden_cidrs": ["0.0.0.0/0", "::/0"],
-          "sensitive_ports": [22, 3389, 3306, 5432, 6379, 27017, 9200, 11211, 6443],
+          "forbidden_cidrs": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "sensitive_ports": [
+            22,
+            3389,
+            3306,
+            5432,
+            6379,
+            27017,
+            9200,
+            11211,
+            6443
+          ],
           "flag_all_ports": true
         },
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.10.3", "match_strength": "direct" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.10.3",
+            "match_strength": "direct"
+          }
         ],
         "kisa_defect_case_refs": [
-          { "case_number": null, "description": "공개서버의 관리·DB 포트가 인터넷에 직접 노출", "match": "direct" }
+          {
+            "case_number": null,
+            "description": "공개서버의 관리·DB 포트가 인터넷에 직접 노출",
+            "match": "direct"
+          }
         ],
         "automation_coverage": {
           "percentage": 90,
@@ -191,11 +257,24 @@
         "applies_when": "fail",
         "absorbed_from": "SG-2.10.3-01",
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.10.3", "match_strength": "direct" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.10.3",
+            "match_strength": "direct"
+          }
         ],
         "offcluster_satisfaction_conditions": [
           "노출된 관리 포트(22/3389)·DB 포트(3306/5432 등)가 의도된 공개인지"
         ]
+      },
+      "remediation": {
+        "source": {
+          "framework": "CIS AWS Foundations Benchmark",
+          "version": "v5.0.0",
+          "reference": "§5 Networking — 보안그룹 포트 노출 제한",
+          "url": "https://www.cisecurity.org/benchmark/amazon_web_services"
+        },
+        "action": "공개서버 Security Group에서 민감·관리 포트의 외부 노출을 제거하고 필요한 서비스 포트만 허용한다."
       }
     },
     {
@@ -211,6 +290,15 @@
           "description": "공개서버를 내부망과 분리하고 강화된 보호대책을 수립·이행하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.10.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"외부에 공개되는 서버는 내부 네트워크와 분리하고, 취약점 점검·접근통제·이상징후 모니터링 등 강화된 보호대책을 수립·이행한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.10.3",
@@ -240,6 +328,15 @@
           "description": "공개서버 게시·저장 시 책임자 승인 등 허가·게시 절차를 수립·이행하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.10.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"공개서버에 개인정보 및 중요정보를 게시·저장해야 하는 경우 책임자 승인 등 허가 및 게시 절차를 수립·이행한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.10.3",
@@ -269,6 +366,15 @@
           "description": "웹을 통한 중요정보 노출을 주기적으로 점검하고 인지 시 즉시 차단하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.10.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"조직의 중요정보가 웹사이트·웹서버를 통해 노출되는지 주기적으로 확인하고, 노출을 인지한 경우 즉시 차단 등의 조치를 취한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.10.3",

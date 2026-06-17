@@ -36,6 +36,15 @@
           "description": "특수 권한 검토 주기를 분기 이내로 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.5 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"특수 권한 현황을 분기 이내 주기로 정기 검토하고 불필요한 권한을 회수하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -54,6 +63,15 @@
           "description": "불필요한 특수 권한 발견 시 즉시 회수 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.5 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"불필요한 특수 권한을 발견 즉시 회수하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -72,6 +90,15 @@
           "description": "특수 계정 사용 시 로그 기록 및 감사 수행 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.5 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"특수 계정 사용 시 로그 기록 및 감사를 통해 책임추적성을 확보하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -90,6 +117,15 @@
           "description": "특수 계정 목록을 최신 상태로 유지·관리 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.5 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"특수 계정 목록을 별도로 식별하여 최신 상태로 관리하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -108,6 +144,15 @@
           "description": "특수 권한 부여 시 승인 절차(신청·결재) 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.5 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"특수 권한 부여 시 신청·승인(결재) 절차를 거치도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -126,6 +171,15 @@
           "description": "특수 계정의 공동 사용 금지 및 개인별 계정 부여 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.5 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"특수 계정의 공동 사용을 금지하고 개인별로 계정을 부여하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -156,6 +210,15 @@
           "description": "클러스터 전체 Secret 접근 권한 없음"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§4 RBAC — cluster-admin·wildcard 최소화",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "cluster-admin·와일드카드(verbs:*/resources:*)·클러스터 전역 Secret 접근 바인딩을 제거하고 최소권한 Role로 대체한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required"
@@ -277,6 +340,15 @@
           "description": "위험 verb 조합 미보유"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§4 RBAC — 위험 verb 최소화",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "위험 verb 조합(bind/escalate/impersonate, create pods+secrets get 등)을 가진 Role을 분리·축소한다."
+      },
       "exception_check": {
         "annotation": "rbac-exception/justification",
         "system_namespaces": [

@@ -28,24 +28,55 @@
       "verdict_type": "potential_finding",
       "manual_meta": {
         "target_resource": "Pod/Workload",
-        "required_data": ["cluster_pods.labels", "cluster_pods.annotations"],
+        "required_data": [
+          "cluster_pods.labels",
+          "cluster_pods.annotations"
+        ],
         "condition": {
           "operator": "any_owner_indicator_exists",
           "fields": [
-            "labels.team", "labels.owner", "labels.cost-center",
+            "labels.team",
+            "labels.owner",
+            "labels.cost-center",
             "labels.app.kubernetes.io/part-of",
-            "annotations.owner", "annotations.owner-team"
+            "annotations.owner",
+            "annotations.owner-team"
           ]
         },
-        "compliance_mappings": [{ "framework": "ISMS-P", "item": "2.1.3", "match_strength": "indirect" }],
-        "offcluster_satisfaction_conditions": ["책임자 라벨이 없는 워크로드를 외부 자산 관리대장/CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 대조해 책임소재 확정"],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.1.3",
+            "match_strength": "indirect"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "책임자 라벨이 없는 워크로드를 외부 자산 관리대장/CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 대조해 책임소재 확정"
+        ],
         "k8s_only_check": false,
         "deferred": false
       },
       "manual_check_output": {
         "applies_when": "always",
-        "compliance_mappings": [{ "framework": "ISMS-P", "item": "2.1.3", "match_strength": "indirect" }],
-        "offcluster_satisfaction_conditions": ["책임자 라벨이 없는 워크로드를 외부 자산 관리대장/CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 대조해 책임소재 확정"]
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.1.3",
+            "match_strength": "indirect"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "책임자 라벨이 없는 워크로드를 외부 자산 관리대장/CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 대조해 책임소재 확정"
+        ]
+      },
+      "remediation": {
+        "source": {
+          "framework": "자체 정책 (표준 미대응)",
+          "version": null,
+          "reference": "라벨 거버넌스(조직 컨벤션 키)",
+          "url": null
+        },
+        "action": "모든 워크로드에 조직 컨벤션 라벨(team/owner/cost-center 등)을 부여하고, 외부 CMDB·CODEOWNERS와 대조해 누락을 메운다."
       }
     },
     {
@@ -56,14 +87,32 @@
       "verdict_type": "potential_finding",
       "manual_meta": {
         "target_resource": "Kyverno ClusterPolicy / Gatekeeper Constraint",
-        "required_data": ["kyverno_clusterpolicies", "gatekeeper_constraints"],
+        "required_data": [
+          "kyverno_clusterpolicies",
+          "gatekeeper_constraints"
+        ],
         "condition": {
           "operator": "required_label_policy_enforced",
-          "required_label_keys": ["team", "owner", "cost-center"],
-          "policy_kinds": ["ClusterPolicy", "K8sRequiredLabels"]
+          "required_label_keys": [
+            "team",
+            "owner",
+            "cost-center"
+          ],
+          "policy_kinds": [
+            "ClusterPolicy",
+            "K8sRequiredLabels"
+          ]
         },
-        "compliance_mappings": [{ "framework": "ISMS-P", "item": "2.1.3", "match_strength": "indirect" }],
-        "offcluster_satisfaction_conditions": ["책임자 라벨이 없는 워크로드를 외부 자산 관리대장/CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 대조해 책임소재 확정"],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.1.3",
+            "match_strength": "indirect"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "책임자 라벨이 없는 워크로드를 외부 자산 관리대장/CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 대조해 책임소재 확정"
+        ],
         "k8s_only_check": false,
         "deferred": false
       },
@@ -71,8 +120,25 @@
       "manual_check_output": {
         "applies_when": "fail",
         "absorbed_from": "LBL-2.1.3-02",
-        "compliance_mappings": [{ "framework": "ISMS-P", "item": "2.1.3", "match_strength": "indirect" }],
-        "offcluster_satisfaction_conditions": ["책임자 라벨이 없는 워크로드를 외부 자산 관리대장/CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 대조해 책임소재 확정"]
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.1.3",
+            "match_strength": "indirect"
+          }
+        ],
+        "offcluster_satisfaction_conditions": [
+          "책임자 라벨이 없는 워크로드를 외부 자산 관리대장/CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 대조해 책임소재 확정"
+        ]
+      },
+      "remediation": {
+        "source": {
+          "framework": "Kyverno best-practice: require-labels (+OPA Gatekeeper)",
+          "version": null,
+          "reference": "require-labels / Gatekeeper Constraint",
+          "url": "https://kyverno.io/policies/best-practices/require-labels/require-labels/"
+        },
+        "action": "Kyverno ClusterPolicy(require-labels) 또는 Gatekeeper Constraint로 배포 시점에 책임소재 라벨을 강제한다."
       }
     },
     {
@@ -88,6 +154,15 @@
           "description": "보안등급에 따른 취급절차와 보호대책을 정의·이행하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.1.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"정보자산의 보안등급에 따른 취급절차 및 보호대책을 정의하고 이행한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.1.3",
@@ -117,6 +192,15 @@
           "description": "식별된 정보자산에 책임자 및 관리자를 지정하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.1.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"식별된 정보자산에 대하여 책임자 및 관리자를 지정한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.1.3",

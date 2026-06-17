@@ -77,6 +77,15 @@
           "description": "유효한 KMS 키 ARN 존재"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§5 — Secret KMS envelope 암호화",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "EKS Secret을 KMS envelope 암호화로 설정한다(encryptionConfig에 secrets 포함 + 유효 KMS 키)."
+      },
       "judgment_logic": {
         "type": "manual_evidence_match",
         "method": "vlm_extract_then_structured_match",
@@ -119,6 +128,15 @@
           "description": "Pod가 참조하는 ConfigMap에 평문 비밀값 없음"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "보안 best-practice",
+          "version": null,
+          "reference": "Secrets management — ConfigMap 평문 금지",
+          "url": null
+        },
+        "action": "ConfigMap에 담긴 비밀값을 Secret 또는 외부 비밀관리(Secrets Manager/External Secrets)로 이전한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -202,6 +220,15 @@
           "description": "KISA 안내서 기준 알고리즘 사용 (AES-256 또는 RSA-2048 이상)"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "AWS KMS best-practice",
+          "version": null,
+          "reference": "KMS 키 로테이션·승인 알고리즘 (KISA 암호 기준)",
+          "url": "https://docs.aws.amazon.com/kms/latest/developerguide/rotate-keys.html"
+        },
+        "action": "KMS 키를 활성 상태로 유지하고 자동 로테이션을 켜며 승인 알고리즘(AES-256/RSA-2048 이상)을 사용한다."
+      },
       "judgment_logic": {
         "type": "manual_evidence_match",
         "method": "vlm_extract_then_structured_match",
@@ -222,6 +249,15 @@
           "description": "암호화 대상·강도·사용 정책을 포함한 암호정책을 수립하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.7.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"법적 요구사항을 반영한 암호화 대상, 암호 강도, 암호 사용 등이 포함된 암호정책을 수립한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.7.1",
@@ -251,6 +287,15 @@
           "description": "암호키 생성·보관·폐기·변경 등 키 관리 절차를 수립·이행하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.7.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"암호키의 생성·이용·보관·폐기·변경(로테이션) 등 키 관리 절차를 수립·이행한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.7.1",

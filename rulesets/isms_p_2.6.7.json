@@ -39,6 +39,15 @@
           "description": "namespace에 Egress default-deny NetworkPolicy 존재"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§5 Policies — egress NetworkPolicy / 대체통제(NAT·프록시·Cilium FQDN)",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "네임스페이스에 egress default-deny NetworkPolicy를 두고 허용 도메인/대역만 화이트리스트한다."
+      },
       "exception_check": {
         "annotation": "security-exception/egress-justification",
         "system_namespaces": [
@@ -130,6 +139,15 @@
         "offcluster_satisfaction_conditions": [
           "K8s 외 VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제되고 있다면 결함이 아닙니다."
         ]
+      },
+      "remediation": {
+        "source": {
+          "framework": "런타임 보안(Falco/Tetragon)",
+          "version": null,
+          "reference": "아웃바운드 도메인 통제(eBPF/프록시)",
+          "url": "https://falco.org/docs/"
+        },
+        "action": "eBPF(Cilium/Tetragon)로 아웃바운드 도메인 접속을 관찰하거나 프록시·NAT 화이트리스트로 통제한다."
       }
     },
     {
@@ -145,14 +163,25 @@
         ],
         "condition": {
           "operator": "sg_unrestricted_egress",
-          "forbidden_cidrs": ["0.0.0.0/0", "::/0"],
+          "forbidden_cidrs": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
           "match_all_ports_only": true
         },
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.6.7", "match_strength": "direct" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.7",
+            "match_strength": "direct"
+          }
         ],
         "kisa_defect_case_refs": [
-          { "case_number": null, "description": "아웃바운드 전체 허용 — 인터넷 자유 접속(유출·C2 경로)", "match": "direct" }
+          {
+            "case_number": null,
+            "description": "아웃바운드 전체 허용 — 인터넷 자유 접속(유출·C2 경로)",
+            "match": "direct"
+          }
         ],
         "automation_coverage": {
           "percentage": 80,
@@ -170,11 +199,24 @@
         "applies_when": "fail",
         "absorbed_from": "SG-2.6.7-01",
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.6.7", "match_strength": "direct" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.7",
+            "match_strength": "direct"
+          }
         ],
         "offcluster_satisfaction_conditions": [
           "K8s 외 VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제되고 있다면 결함이 아닙니다."
         ]
+      },
+      "remediation": {
+        "source": {
+          "framework": "CIS AWS Foundations Benchmark",
+          "version": "v5.0.0",
+          "reference": "§5 Networking — egress 제한",
+          "url": "https://www.cisecurity.org/benchmark/amazon_web_services"
+        },
+        "action": "Security Group egress 전체 개방을 제거하고 필요한 목적지만 허용한다."
       }
     },
     {
@@ -190,6 +232,15 @@
           "description": "인터넷 접속 통제 정책을 수립·이행하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.7 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"업무용 단말기 등에서 인터넷 접속 시 정보유출 등 보안사고를 예방하기 위한 인터넷 접속 통제 정책을 수립·이행한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.7",
@@ -219,6 +270,15 @@
           "description": "주요 정보시스템의 불필요한 외부 인터넷 접속을 통제하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.7 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"주요 정보시스템(DB 서버 등)에서 불필요한 외부 인터넷 접속을 통제한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.7",
@@ -248,6 +308,15 @@
           "description": "법령상 인터넷망 차단 의무 대상자를 식별하고 차단 조치를 적용하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.7 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"관련 법령에 따라 인터넷망 차단 의무가 부과된 경우 대상자를 식별하여 안전한 방식으로 인터넷망 차단 조치를 적용한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.7",
