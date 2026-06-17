@@ -35,6 +35,7 @@ func newRouter(
 	breakdownH *handler.BreakdownHandler,
 	podDetail *handler.PodDetailHandler,
 	awsReader *handler.AwsReaderHandler,
+	scenario *handler.ScenarioHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -119,6 +120,9 @@ func newRouter(
 		api.GET("/scoring/attack-path/pods/:pod_uid", attackPath.GetByPod)
 		api.POST("/scoring/attack-path/pods/:pod_uid", attackPath.ComputeForPod)
 		api.GET("/scoring/attack-path/clusters/:cluster_name", attackPath.GetByCluster)
+
+		// ── Scenario (공격 시나리오/보완 줄글) ──
+		api.GET("/scoring/scenarios/pods/:pod_uid", scenario.GetByPod)
 
 		// ── Local Score (작업 B-2) ──
 		api.POST("/scoring/local/compute", localScoring.Compute)
