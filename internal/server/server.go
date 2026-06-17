@@ -236,16 +236,18 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 			clusterName = "vara-eks-test"
 		}
 
-		analysisInterval := 5 * time.Minute
+		analysisInterval := 40 * time.Minute
 		if envInterval := os.Getenv("ANALYSIS_INTERVAL_MINUTES"); envInterval != "" {
 			if mins, err := strconv.Atoi(envInterval); err == nil && mins > 0 {
 				analysisInterval = time.Duration(mins) * time.Minute
 			}
 		}
 
+		blastEdgesRepo := postgres.NewBlastEdgesRepo(pg)
 		analysisScheduler := scheduler.NewAnalysisScheduler(
 			analysisSvc,
 			edgesRepo,
+			blastEdgesRepo,
 			imageGlobalCacheSvc,
 			sbomRepo,
 			exposureSvc,
