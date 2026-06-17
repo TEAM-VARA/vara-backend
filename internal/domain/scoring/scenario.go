@@ -199,10 +199,14 @@ func composeMitigation(fs []ScenarioFinding) string {
 	if len(items) == 0 {
 		return "추가로 식별된 보완 조치가 없습니다."
 	}
-	var b strings.Builder
-	b.WriteString("다음 조치를 권장합니다. ")
-	for i, it := range items {
-		b.WriteString(fmt.Sprintf("(%d) %s ", i+1, it))
+	// 단일 항목은 한 줄, 여러 항목은 개조식(번호 + 줄바꿈)으로 출력.
+	if len(items) == 1 {
+		return "다음 조치를 권장합니다. " + items[0]
 	}
-	return strings.TrimSpace(b.String())
+	var b strings.Builder
+	b.WriteString("다음 조치를 권장합니다.")
+	for i, it := range items {
+		b.WriteString(fmt.Sprintf("\n%d. %s", i+1, it))
+	}
+	return b.String()
 }
