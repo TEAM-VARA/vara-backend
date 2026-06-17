@@ -114,8 +114,9 @@ func (r *FinalScoringRepo) LoadInputsForCluster(ctx context.Context, clusterName
 		LEFT JOIN sboms s ON s.image = c.value->>'image'
 		LEFT JOIN image_global_scores igs ON igs.image_digest = s.image_digest
 		LEFT JOIN LATERAL (
-			SELECT local_score, snapshot_at
-			FROM local_scores
+			-- Risk Score 2번째 인자 = 인터넷 노출(0/100). attack_path 제외로 local_scores 대신 exposure_scores 사용.
+			SELECT CASE WHEN exposed THEN 100.0 ELSE 0.0 END AS local_score, snapshot_at
+			FROM exposure_scores
 			WHERE cluster_name = $1 AND pod_uid = p.pod_uid
 			ORDER BY snapshot_at DESC LIMIT 1
 		) ls ON TRUE
@@ -247,8 +248,9 @@ func (r *FinalScoringRepo) LoadInputByPodUID(
 		LEFT JOIN sboms s ON s.image = c.value->>'image'
 		LEFT JOIN image_global_scores igs ON igs.image_digest = s.image_digest
 		LEFT JOIN LATERAL (
-			SELECT local_score, snapshot_at
-			FROM local_scores
+			-- Risk Score 2번째 인자 = 인터넷 노출(0/100). attack_path 제외로 local_scores 대신 exposure_scores 사용.
+			SELECT CASE WHEN exposed THEN 100.0 ELSE 0.0 END AS local_score, snapshot_at
+			FROM exposure_scores
 			WHERE cluster_name = $1 AND pod_uid = p.pod_uid
 			ORDER BY snapshot_at DESC LIMIT 1
 		) ls ON TRUE

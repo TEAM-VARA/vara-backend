@@ -18,7 +18,7 @@ import (
 //     a. 가장 위험한 컨테이너 이미지 채택
 //     b. Local Score 가져오기
 //     c. Toxic Multiplier 적용
-//     d. Final = (0.6 × Global + 0.4 × Local) × Toxic
+//     d. Final = (0.7 × Global + 0.3 × Exposure) × Toxic  (Attack Path 제외)
 //     e. 4단계 분류 (emergency/warning/caution/safe)
 //  4. final_scores에 저장
 type FinalScoringService struct {

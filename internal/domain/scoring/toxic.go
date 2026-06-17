@@ -10,7 +10,7 @@ import "time"
 // Final Score에 multiplier를 곱합니다.
 //
 // 매칭 시:
-//   Final = (0.6 × Global + 0.4 × Local) × multiplier
+//   Final = (0.7 × Global + 0.3 × Exposure) × multiplier
 //   multiplier ∈ [1.0, 1.5]
 
 // ─────────────────────────────────────────

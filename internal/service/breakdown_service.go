@@ -41,11 +41,12 @@ func (s *BreakdownService) GetBreakdown(ctx context.Context, clusterName, podUID
 	}
 
 	// cap 전 원값 재계산 — 상한(100)이 적용된 경우 formula에 투명하게 표기
-	rawFinal := (f.GlobalImageScore*0.6 + f.LocalScore*0.4) * f.ToxicMultiplier
-	formula := fmt.Sprintf("(%.2f × 0.6 + %.2f × 0.4) × %.2f = %.2f",
+	// 공식: (Global × 0.7 + Exposure × 0.3) × Toxic  (Attack Path는 Risk Score에서 제외)
+	rawFinal := (f.GlobalImageScore*0.7 + f.LocalScore*0.3) * f.ToxicMultiplier
+	formula := fmt.Sprintf("(%.2f × 0.7 + %.2f × 0.3) × %.2f = %.2f",
 		f.GlobalImageScore, f.LocalScore, f.ToxicMultiplier, f.FinalScore)
 	if rawFinal > 100 {
-		formula = fmt.Sprintf("(%.2f × 0.6 + %.2f × 0.4) × %.2f = %.2f → 상한 적용 %.2f",
+		formula = fmt.Sprintf("(%.2f × 0.7 + %.2f × 0.3) × %.2f = %.2f → 상한 적용 %.2f",
 			f.GlobalImageScore, f.LocalScore, f.ToxicMultiplier, rawFinal, f.FinalScore)
 	}
 
@@ -62,7 +63,7 @@ func (s *BreakdownService) GetBreakdown(ctx context.Context, clusterName, podUID
 	bd.Global = scoring.BreakdownSection{
 		Label:          "Global Score",
 		RawScore:       f.GlobalImageScore,
-		Weight:         0.6,
+		Weight:         0.7,
 		Contribution:   f.GlobalContribution,
 		Description:    descGlobal,
 		Interpretation: interpretGlobal(f.GlobalImageScore, f.UsedTopCVE),
@@ -104,11 +105,11 @@ func (s *BreakdownService) GetBreakdown(ctx context.Context, clusterName, podUID
 		}
 	}
 
-	// 3. Local section
+	// 3. Exposure section (구 Local — attack_path 제외, 인터넷 노출만)
 	bd.Local = scoring.BreakdownSection{
-		Label:        "Local Score",
-		RawScore:     f.LocalScore,
-		Weight:       0.4,
+		Label:        "Exposure Score",
+		RawScore:     f.LocalScore, // 0/100 (노출 여부)
+		Weight:       0.3,
 		Contribution: f.LocalContribution,
 		Description:  descLocal,
 	}
