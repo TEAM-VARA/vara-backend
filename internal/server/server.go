@@ -159,7 +159,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	awsReaderH := handler.NewAwsReaderHandler(awsReaderRepo)
 
 	// ── Scenario (공격 시나리오/보완 줄글, attack-path 신호 기반) ──
-	scenarioSvc := service.NewScenarioService(attackPathSvc)
+	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo)
 	scenarioH := handler.NewScenarioHandler(scenarioSvc)
 
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
