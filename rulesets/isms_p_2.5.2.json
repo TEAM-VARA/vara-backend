@@ -45,6 +45,15 @@
           "description": "ServiceAccount 이름이 추측 불가능한 고유 식별명 사용"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "자체 정책 (표준 미대응)",
+          "version": null,
+          "reference": "네이밍 규칙 (Kyverno metadata-match-regex로 형식 강제)",
+          "url": null
+        },
+        "action": "ServiceAccount 이름을 워크로드·기능 식별이 가능한 고유 명명규칙으로 변경한다(Kyverno 정규식 정책으로 형식 강제 가능)."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -92,6 +101,15 @@
           "description": "ServiceAccount 이름이 워크로드·기능을 식별할 수 있는 명명규칙 준수"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "자체 정책 (표준 미대응)",
+          "version": null,
+          "reference": "네이밍 규칙",
+          "url": null
+        },
+        "action": "default/sa/test 같은 일반 명명 대신 조직 명명규칙을 적용한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -125,6 +143,15 @@
           "description": "사용자별로 고유하게 식별 가능한 유일 식별자를 부여하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.2 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"정보시스템 및 개인정보·중요정보에 대한 접근을 사용자별로 고유하게 식별할 수 있도록 유일한 식별자를 부여한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.5.2",
@@ -154,6 +181,15 @@
           "description": "추측하기 쉬운 식별자 사용을 제한하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.2 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"추측하기 쉬운 식별자(root, admin, test 등)의 사용을 제한한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.5.2",
@@ -183,6 +219,15 @@
           "description": "식별자 공유 시 사유·타당성 검토와 보완대책, 책임자 승인을 받도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.2 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"불가피하게 동일한 식별자를 공유하는 경우 그 사유와 타당성을 검토하고 보완대책을 마련하여 책임자의 승인을 받는다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.5.2",

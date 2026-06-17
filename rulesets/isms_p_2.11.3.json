@@ -39,6 +39,15 @@
           "description": "운영 환경 namespace에서 Pod exec 활동 미탐지 — 비인가 shell 접근 없음"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "런타임 보안(Falco/Tetragon)",
+          "version": null,
+          "reference": "운영 exec 통제(RBAC pods/exec)",
+          "url": "https://falco.org/docs/"
+        },
+        "action": "운영 네임스페이스 Pod의 exec/shell 접근을 RBAC(pods/exec 제한)로 차단하고, 접근은 SSM/Teleport 등 감사경로로만 허용한다."
+      },
       "alert_on_detection": {
         "severity": "high",
         "description": "운영 환경 Pod exec는 긴급 장애 대응 외 허용되지 않음 — 즉시 조사 필요"
@@ -123,6 +132,15 @@
             "match_strength": "indirect"
           }
         ]
+      },
+      "remediation": {
+        "source": {
+          "framework": "런타임 보안(Falco/Tetragon)",
+          "version": null,
+          "reference": "eBPF 탐지 / 대체통제(SSM·Teleport·PAM)",
+          "url": "https://falco.org/docs/"
+        },
+        "action": "eBPF 런타임 모니터링(Falco/Tetragon)으로 shell 활동을 탐지하거나 SSM/Teleport/PAM으로 감사된 접근만 허용한다."
       }
     },
     {
@@ -138,6 +156,15 @@
           "description": "이상행위 탐지·분석을 위한 모니터링 체계를 구축하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.11.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"네트워크 및 시스템의 이상행위를 탐지·분석하기 위한 모니터링 체계를 구축한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.11.3",
@@ -167,6 +194,15 @@
           "description": "이상행위 판단 기준·임계치를 정의하고 적시 후속 조치가 이루어지도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.11.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"침해시도, 개인정보 유출시도, 부정행위 등을 판단하기 위한 기준 및 임계치를 정의하고, 이에 따라 이상행위의 판단·조사 등 후속 조치가 적시에 이루어지도록 한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.11.3",
@@ -196,6 +232,15 @@
           "description": "이상행위 발생 시 적시 대응(분석·에스컬레이션·차단·보고·복구)할 수 있는 대응 절차를 수립·이행하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.11.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"이상행위(침해시도·개인정보 유출시도·부정행위 등) 발생 시 분석·에스컬레이션·차단·보고·복구 등 적시에 대응할 수 있는 절차를 수립하고 이행한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.11.3",
@@ -235,6 +280,15 @@
           "description": "운영 namespace에 eBPF 런타임 텔레메트리 수집 중 — 이상행위 탐지 데이터 확보"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "런타임 보안(Falco/Tetragon)",
+          "version": null,
+          "reference": "eBPF 텔레메트리 수집",
+          "url": "https://falco.org/docs/"
+        },
+        "action": "운영 네임스페이스에 eBPF 텔레메트리 수집기를 배포해 이상행위 탐지 데이터를 확보한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required"

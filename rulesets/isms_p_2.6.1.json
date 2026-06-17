@@ -45,6 +45,15 @@
           "description": "hostIPC 비활성"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "Kubernetes Pod Security Standards",
+          "version": null,
+          "reference": "Baseline: Host Namespaces — CIS EKS §5 대응",
+          "url": "https://kubernetes.io/docs/concepts/security/pod-security-standards/"
+        },
+        "action": "Pod spec의 hostNetwork·hostPID·hostIPC를 false(미설정)로 두고, 불가피하면 사유 annotation으로 예외 관리한다."
+      },
       "exception_check": {
         "annotation": "security-exception/justification",
         "system_namespaces": [
@@ -78,6 +87,15 @@
           "description": "Pod에 매칭되는 허용 NetworkPolicy 존재"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§5 Policies — NetworkPolicy default-deny (Kyverno)",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "네임스페이스에 default-deny(Ingress+Egress) NetworkPolicy를 두고 워크로드별 허용 정책을 추가한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -155,6 +173,15 @@
           "description": "aws-vpc-cni 경우 aws-node DaemonSet env에 ENABLE_NETWORK_POLICY=true 설정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§5 Policies — policy-capable CNI",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "NetworkPolicy 강제 가능한 CNI를 사용한다(aws-vpc-cni면 ENABLE_NETWORK_POLICY=true, 또는 Calico/Cilium)."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -193,6 +220,15 @@
           "description": "Pod에 매칭되는 egress NetworkPolicy로 cross-namespace 통신 통제"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§5 Policies — egress NetworkPolicy",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "Pod에 egress NetworkPolicy를 적용해 네임스페이스 간 통신을 통제한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -231,14 +267,28 @@
         ],
         "condition": {
           "operator": "sg_world_open_ingress",
-          "forbidden_cidrs": ["0.0.0.0/0", "::/0"],
-          "allowed_public_ports": [80, 443]
+          "forbidden_cidrs": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "allowed_public_ports": [
+            80,
+            443
+          ]
         },
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.6.1", "match_strength": "direct" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.1",
+            "match_strength": "direct"
+          }
         ],
         "kisa_defect_case_refs": [
-          { "case_number": null, "description": "서버팜/사무망 미분리 — 광범위 인바운드 허용", "match": "direct" }
+          {
+            "case_number": null,
+            "description": "서버팜/사무망 미분리 — 광범위 인바운드 허용",
+            "match": "direct"
+          }
         ],
         "automation_coverage": {
           "percentage": 85,
@@ -257,12 +307,25 @@
         "applies_when": "fail",
         "absorbed_from": "SG-2.6.1-01",
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.6.1", "match_strength": "direct" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.1",
+            "match_strength": "direct"
+          }
         ],
         "offcluster_satisfaction_conditions": [
           "0.0.0.0/0 인바운드가 의도된 공개 서비스(80/443)인지 확인하세요.",
           "허용 출발지를 특정 SG/CIDR로 제한했는지"
         ]
+      },
+      "remediation": {
+        "source": {
+          "framework": "CIS AWS Foundations Benchmark",
+          "version": "v5.0.0",
+          "reference": "§5 Networking — 인바운드 0.0.0.0/0 제한",
+          "url": "https://www.cisecurity.org/benchmark/amazon_web_services"
+        },
+        "action": "Security Group 인바운드의 0.0.0.0/0 전체 개방을 제거하고 필요한 포트·대역만 허용한다."
       }
     },
     {
@@ -278,6 +341,15 @@
           "description": "IP 관리·단말 인증 등 비인가 네트워크 접근 통제 절차를 수립·이행하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"네트워크에 대한 비인가 접근을 통제하기 위해 IP 관리, 단말 인증 등 관리절차를 수립·이행한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.1",
@@ -307,6 +379,15 @@
           "description": "대역별 IP 부여 기준 마련 및 외부 연결 불필요 시스템의 사설 IP 할당을 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"네트워크 대역별 IP 주소 부여 기준을 마련하고, 외부 연결이 필요하지 않은 시스템(DB 서버 등)에는 사설 IP를 할당한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.1",
@@ -336,6 +417,15 @@
           "description": "업무 목적·중요도에 따라 네트워크를 영역별로 분리하고 접근통제를 적용하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"업무 목적 및 중요도에 따라 네트워크를 영역별(DMZ, 서버팜, DB존, 개발존 등)로 분리하고 접근통제를 적용한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.1",
@@ -365,6 +455,15 @@
           "description": "원거리 네트워크 연결 시 전송구간 보호대책을 마련하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"물리적으로 떨어진 IDC·지사·대리점 등과의 네트워크 연결 시 전송구간 보호대책을 마련한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.1",

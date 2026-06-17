@@ -28,25 +28,15 @@
           "description": "최신 ReplicaSet에 change-cause annotation 전파됨"
         }
       ],
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      }
-    },
-    {
-      "rule_id": "R-2.9.1-02",
-      "name": "revisionHistoryLimit=0 (롤백 불가)",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "compliance_indicators": [
-        {
-          "field": "deployment.spec.revisionHistoryLimit",
-          "op": ">",
-          "value": 0,
-          "description": "revisionHistoryLimit > 0 — 이전 ReplicaSet 보존으로 롤백 가능"
-        }
-      ],
+      "remediation": {
+        "source": {
+          "framework": "자체 정책 (표준 미대응)",
+          "version": null,
+          "reference": "변경 이력(kubernetes.io/change-cause)",
+          "url": null
+        },
+        "action": "배포 시 kubernetes.io/change-cause annotation에 변경 사유를 기록한다(매니페스트 명시 또는 배포 파이프라인에서 주입)."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -66,6 +56,15 @@
           "description": "정보시스템 변경 절차를 수립하고 변경 이력을 관리하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.9.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"정보시스템 변경(OS, 미들웨어, 응용프로그램, 네트워크 장비 등)에 대한 절차를 수립하여 변경 이력을 관리한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.9.1",
@@ -95,6 +94,15 @@
           "description": "변경 전 시스템에 미치는 성능·보안 영향을 분석하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.9.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"정보시스템 관련 자산 변경을 수행하기 전에 성능 및 보안에 미치는 영향을 분석한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.9.1",
@@ -114,6 +122,6 @@
   ],
   "evaluation_strategy": {
     "overall_verdict_logic": "any_fail_is_non_compliant",
-    "description": "Deployment에 change-cause annotation이 존재하고, revisionHistoryLimit > 0으로 롤백 가능 상태여야 PASS"
+    "description": "Deployment에 change-cause annotation이 존재하면 PASS"
   }
 }

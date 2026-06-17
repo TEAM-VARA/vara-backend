@@ -44,6 +44,15 @@
           "description": "외부에서 정보시스템에 접근하는 모든 Ingress에 인증(안전한 접근수단)이 적용됨"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "보안 best-practice",
+          "version": null,
+          "reference": "안전한 접근수단(Ingress 인증/Bastion/VPN/SSM)",
+          "url": null
+        },
+        "action": "외부 Ingress에 인증(auth-url/auth-type)을 적용하거나 Bastion/VPN/SSM 등 안전한 접근수단으로 제한한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -57,7 +66,11 @@
           "AWS SSM Session Manager"
         ],
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.6.2", "match_strength": "indirect" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.2",
+            "match_strength": "indirect"
+          }
         ],
         "offcluster_satisfaction_conditions": [
           "Ingress 인증이 없더라도 Bastion/VPN/SSM 등 안전한 접근수단과 IAM·세션 통제로 정보시스템 접근이 제한되는지"

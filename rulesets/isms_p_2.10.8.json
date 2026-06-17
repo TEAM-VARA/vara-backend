@@ -26,6 +26,15 @@
           "description": "Node kubeletVersion이 AWS EKS 지원 버전 범위 내 — 보안 패치 제공 대상"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "보안 best-practice",
+          "version": null,
+          "reference": "EKS 버전 지원 정책(패치관리)",
+          "url": null
+        },
+        "action": "노드 kubelet을 AWS EKS 지원 버전 범위로 업그레이드한다(EKS는 minor 약 14개월 지원)."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -75,6 +84,15 @@
           "description": "모든 컨테이너 이미지가 버전 고정 태그 또는 digest 사용 — 패치 추적 가능"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "Kyverno best-practice: disallow-latest-tag",
+          "version": null,
+          "reference": "disallow-latest-tag",
+          "url": "https://kyverno.io/policies/best-practices/disallow-latest-tag/disallow-latest-tag/"
+        },
+        "action": "이미지를 :latest/가변 태그 대신 고정 버전 태그로 배포한다. Kyverno disallow-latest-tag로 강제 가능."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -109,6 +127,15 @@
           "description": "모든 컨테이너 이미지가 @sha256: digest로 고정됨 — 동일 빌드 보장, 패치 무결성 확인 가능"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "Kyverno: verify image digest",
+          "version": null,
+          "reference": "이미지 digest 고정",
+          "url": "https://kyverno.io/docs/policy-types/image-validating-policy/"
+        },
+        "action": "이미지를 @sha256: digest로 고정한다. Kyverno require-image-digest로 강제 가능."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -194,6 +221,15 @@
           "digest가 아니어도 CI/CD 빌드 추적 시스템으로 실제 배포 이미지·패치 시점 추적 가능한가",
           "이미지 무결성을 다른 방식으로 보장하는가"
         ]
+      },
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§5 Managed Services — ECR 이미지 스캔",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "ECR 이미지 스캔(또는 Trivy)으로 취약점을 점검하고 임계 이상 CVE 이미지는 패치·교체한다."
       }
     },
     {
@@ -209,6 +245,15 @@
           "description": "보안 패치 적용 절차를 수립하고 정기적으로 패치를 적용하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.10.8 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"소프트웨어, 운영체제, 보안장비 등의 보안 패치 적용 절차를 수립하고 정기적으로 패치를 적용한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.10.8",
@@ -238,6 +283,15 @@
           "description": "최신 패치 적용이 어려운 경우 보완대책을 마련하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.10.8 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"서비스 영향도 등으로 최신 패치 적용이 어려운 경우 보완대책을 마련한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.10.8",
@@ -267,6 +321,15 @@
           "description": "주요 시스템의 공개 인터넷을 통한 패치를 제한하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.10.8 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"주요 서버·네트워크시스템·보안시스템 등은 공개 인터넷 접속을 통한 패치를 제한한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.10.8",
@@ -296,6 +359,15 @@
           "description": "패치관리시스템 활용 시 접근통제 등 보호대책을 마련하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.10.8 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"패치관리시스템(PMS)을 활용하는 경우 접근통제 등 충분한 보호대책을 마련한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.10.8",

@@ -33,14 +33,28 @@
         ],
         "condition": {
           "operator": "sg_sensitive_port_world_open",
-          "forbidden_cidrs": ["0.0.0.0/0", "::/0"],
-          "sensitive_ports": [22, 3389]
+          "forbidden_cidrs": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "sensitive_ports": [
+            22,
+            3389
+          ]
         },
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.6.6", "match_strength": "direct" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.6.6",
+            "match_strength": "direct"
+          }
         ],
         "kisa_defect_case_refs": [
-          { "case_number": null, "description": "원격 서버 관리 포트(SSH 22/RDP 3389)가 인터넷(0.0.0.0/0)에 직접 노출", "match": "direct" }
+          {
+            "case_number": null,
+            "description": "원격 서버 관리 포트(SSH 22/RDP 3389)가 인터넷(0.0.0.0/0)에 직접 노출",
+            "match": "direct"
+          }
         ],
         "automation_coverage": {
           "percentage": 85,
@@ -58,6 +72,15 @@
       },
       "manual_check_output": {
         "applies_when": "fail"
+      },
+      "remediation": {
+        "source": {
+          "framework": "CIS AWS Foundations Benchmark",
+          "version": "v5.0.0",
+          "reference": "§5.3 — 0.0.0.0/0→SSH(22)/RDP(3389) 금지",
+          "url": "https://www.cisecurity.org/benchmark/amazon_web_services"
+        },
+        "action": "Security Group에서 SSH(22)·RDP(3389)의 0.0.0.0/0 인바운드를 제거하고 SSM/Bastion/VPN 경유로 전환한다."
       }
     },
     {
@@ -73,6 +96,15 @@
           "description": "보호구역 외 장소에서의 정보시스템 관리·개인정보 처리를 원칙적으로 금지하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.6 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"보호구역 이외의 장소에서 정보시스템 관리 및 개인정보 처리를 원칙적으로 금지한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.6",
@@ -102,6 +134,15 @@
           "description": "원격접근 허용 시 책임자 승인과 접근 허용 범위·기간 설정을 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.6 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"불가피한 사유로 원격접근을 허용하는 경우 책임자의 승인을 받고 접근 허용 범위 및 기간을 설정한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.6",
@@ -131,6 +172,15 @@
           "description": "원격접근 단말 지정 및 접속단말 보안대책 적용을 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.6 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"원격접근에 사용하는 단말을 지정하고 접속단말에 대한 보안대책(백신·자료유출 방지 등)을 적용한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.6",
@@ -160,6 +210,15 @@
           "description": "원격접근 시 강화된 인증(다중 인증 등) 적용을 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.6 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"원격접근 시 다중 인증 등 강화된 인증수단을 적용한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.6",
@@ -189,6 +248,15 @@
           "description": "원격접근 전송구간 암호화(VPN 등) 적용을 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.6 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"원격접근 시 전송구간을 암호화(VPN 등)하여 보호한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.6",

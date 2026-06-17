@@ -33,6 +33,15 @@
           "description": "Pod가 전용 ServiceAccount를 사용 (default SA 미사용)"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§4 RBAC & SA — default SA 미사용 (Kyverno disallow-default-namespace)",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "Pod에 전용 ServiceAccount를 지정하고 default SA 사용을 금지한다(automountServiceAccountToken: false 권장)."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -89,25 +98,15 @@
           "description": "ServiceAccount에 용도(purpose) 라벨 존재"
         }
       ],
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      }
-    },
-    {
-      "rule_id": "R-2.5.1-03",
-      "name": "팀 간 ServiceAccount 공유",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "compliance_indicators": [
-        {
-          "field": "sa_shared_across_teams",
-          "op": "==",
-          "value": false,
-          "description": "동일 ServiceAccount를 서로 다른 팀의 워크로드가 공유하지 않음"
-        }
-      ],
+      "remediation": {
+        "source": {
+          "framework": "자체 정책 (표준 미대응)",
+          "version": null,
+          "reference": "owner/purpose 라벨 (Kyverno require-labels로 강제)",
+          "url": null
+        },
+        "action": "ServiceAccount에 isms-p/owner·purpose 라벨을 부여한다(Kyverno require-labels로 강제 가능)."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -176,6 +175,15 @@
         "offcluster_satisfaction_conditions": [
           "default SA 사용에 대한 회사 정책상 예외 허용 사례인지 확인"
         ]
+      },
+      "remediation": {
+        "source": {
+          "framework": "kor (unused resource detection)",
+          "version": null,
+          "reference": "unused ServiceAccount 탐지",
+          "url": "https://github.com/yonahd/kor"
+        },
+        "action": "kor로 미사용 ServiceAccount를 식별해 회수·삭제한다(kube-janitor로 자동화 가능)."
       }
     },
     {
@@ -191,6 +199,15 @@
           "description": "사용자 등록·해지 및 접근권한 부여·변경·말소 공식 절차를 수립·이행하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"정보시스템 및 개인정보처리시스템의 사용자 등록·해지 및 접근권한 부여·변경·말소에 관한 공식적인 절차를 수립·이행한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.5.1",
@@ -220,6 +237,15 @@
           "description": "직무별 접근권한 분류체계에 따라 최소권한만 부여하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"사용자 등록·변경 시 직무별 접근권한 분류체계에 따라 업무상 필요한 최소한의 권한만 부여한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.5.1",
@@ -249,6 +275,15 @@
           "description": "계정 보안책임이 본인에게 있음을 인식시키도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.1 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"사용자에게 계정 및 접근권한을 부여할 때 해당 계정의 보안책임이 본인에게 있음을 명확히 인식시킨다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.5.1",
@@ -268,6 +303,6 @@
   ],
   "evaluation_strategy": {
     "overall_verdict_logic": "any_fail_is_non_compliant",
-    "description": "default SA 미사용 + SA owner/purpose 라벨 존재 + 팀 간 SA 미공유 시 PASS"
+    "description": "default SA 미사용 + SA owner/purpose 라벨 존재 시 PASS"
   }
 }

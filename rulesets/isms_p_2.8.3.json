@@ -38,6 +38,15 @@
           "description": "워크로드에 유효한 환경 구분(env) 라벨 존재"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "자체 정책 (표준 미대응)",
+          "version": null,
+          "reference": "환경 라벨(env) (Kyverno require-labels로 강제)",
+          "url": null
+        },
+        "action": "워크로드에 env 라벨(production/staging/development/test)을 부여한다(Kyverno require-labels로 강제 가능)."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -65,80 +74,6 @@
       }
     },
     {
-      "rule_id": "R-2.8.3-02",
-      "name": "namespace 내 prod/dev 워크로드 혼재",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "conflicting_env_pairs": [
-        [
-          "production",
-          "development"
-        ],
-        [
-          "production",
-          "test"
-        ],
-        [
-          "production",
-          "staging"
-        ]
-      ],
-      "compliance_indicators": [
-        {
-          "field": "namespace_has_mixed_envs",
-          "op": "==",
-          "value": false,
-          "description": "동일 namespace 내 운영(production)과 개발/시험 워크로드 미혼재"
-        }
-      ],
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      },
-      "manual_check_output": {
-        "applies_when": "fail",
-        "absorbed_from": "F-2.8.3-02",
-        "kisa_defect_case_refs": [
-          {
-            "case_number": null,
-            "description": "동일 시스템에서 운영/개발 병행",
-            "match": "direct"
-          }
-        ],
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.8.3",
-            "match_strength": "direct"
-          }
-        ],
-        "offcluster_satisfaction_conditions": [
-          "회사 환경 분리 정책이 cluster 단위이고 그 수준에서 분리되는지",
-          "env 라벨이 없어도 별도 클러스터/별도 VPC/namespace 네이밍 컨벤션으로 환경 식별·분리됨"
-        ]
-      }
-    },
-    {
-      "rule_id": "R-2.8.3-03",
-      "name": "prod Secret이 dev에서 참조",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "compliance_indicators": [
-        {
-          "field": "prod_secret_used_by_dev",
-          "op": "==",
-          "value": false,
-          "description": "운영(production) 라벨 Secret이 개발/시험 워크로드에서 참조되지 않음"
-        }
-      ],
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      }
-    },
-    {
       "rule_id": "R-2.8.3-SG01",
       "name": "Security Group 환경 간(운영↔개발) 인바운드 허용 (환경 분리)",
       "judgment_source": "aws_api",
@@ -155,16 +90,35 @@
           "operator": "sg_cross_env_ingress",
           "env_tag_key": "env",
           "env_name_patterns": {
-            "prod": ["prod", "production", "prd"],
-            "nonprod": ["dev", "develop", "test", "stg", "staging", "qa"]
+            "prod": [
+              "prod",
+              "production",
+              "prd"
+            ],
+            "nonprod": [
+              "dev",
+              "develop",
+              "test",
+              "stg",
+              "staging",
+              "qa"
+            ]
           },
           "no_data_when_env_undeterminable": true
         },
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.8.3", "match_strength": "indirect" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.8.3",
+            "match_strength": "indirect"
+          }
         ],
         "kisa_defect_case_refs": [
-          { "case_number": null, "description": "운영·개발 환경 간 네트워크 미분리", "match": "partial" }
+          {
+            "case_number": null,
+            "description": "운영·개발 환경 간 네트워크 미분리",
+            "match": "partial"
+          }
         ],
         "automation_coverage": {
           "percentage": 60,
@@ -183,12 +137,25 @@
         "applies_when": "fail",
         "absorbed_from": "SG-2.8.3-01",
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.8.3", "match_strength": "indirect" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.8.3",
+            "match_strength": "indirect"
+          }
         ],
         "offcluster_satisfaction_conditions": [
           "회사 환경 분리 정책이 cluster 단위이고 그 수준에서 분리되는지",
           "env 라벨이 없어도 별도 클러스터/별도 VPC/namespace 네이밍 컨벤션으로 환경 식별·분리됨"
         ]
+      },
+      "remediation": {
+        "source": {
+          "framework": "CIS AWS Foundations Benchmark",
+          "version": "v5.0.0",
+          "reference": "§5 Networking — 환경 간 SG 차단",
+          "url": "https://www.cisecurity.org/benchmark/amazon_web_services"
+        },
+        "action": "운영↔개발 환경 간 Security Group 인바운드 허용을 제거해 환경을 분리한다."
       }
     },
     {
@@ -204,6 +171,15 @@
           "description": "개발·시험 시스템을 운영시스템과 원칙적으로 분리하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.8.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"개발 및 시험 시스템을 운영시스템과 원칙적으로 분리한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.8.3",
@@ -233,6 +209,15 @@
           "description": "환경 분리가 어려운 경우 상호검토·모니터링·변경승인·책임추적성 등 보완통제를 마련하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.8.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"불가피하게 개발과 운영 환경의 분리가 어려운 경우 상호검토, 상급자 모니터링, 변경 승인, 책임추적성 확보 등의 보안대책을 마련한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.8.3",
@@ -252,6 +237,6 @@
   ],
   "evaluation_strategy": {
     "overall_verdict_logic": "any_fail_is_non_compliant",
-    "description": "워크로드 env 라벨 존재 + namespace 내 prod/dev 미혼재 + prod Secret의 dev 교차 참조 없음 시 PASS"
+    "description": "워크로드 env 라벨 존재 + 환경 간(운영↔개발) Security Group 미허용 시 PASS"
   }
 }

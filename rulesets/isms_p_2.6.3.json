@@ -38,6 +38,15 @@
           "description": "사용자별 업무·정보 중요도에 따라 응용프로그램 접근권한을 제한하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"사용자별 업무 및 정보의 중요도에 따라 응용프로그램 접근권한을 제한한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.3",
@@ -67,6 +76,15 @@
           "description": "개인정보·중요정보 표시제한 보호조치 기준을 수립·적용하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"개인정보 및 중요정보의 표시제한 보호조치의 일관성을 확보할 수 있도록 관련 기준을 수립하여 적용한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.3",
@@ -96,6 +114,15 @@
           "description": "불필요한 정보 노출을 최소화하도록 응용프로그램을 구현·운영하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"개인정보 및 중요정보의 불필요한 노출(조회, 화면표시, 인쇄, 다운로드 등)을 최소화하도록 응용프로그램을 구현·운영한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.3",
@@ -125,6 +152,15 @@
           "description": "동시 세션 제한 및 미사용 세션 자동 차단을 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.6.3 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"동일 사용자의 동시 접속 세션 수를 제한하고 일정시간 미사용 시 세션을 자동 차단한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.6.3",
@@ -173,6 +209,15 @@
           "description": "Pod/워크로드 직접 create 권한 미보유 (응용프로그램 접근권한 최소화)"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§4 RBAC — Minimize access to create pods",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "pods/워크로드 직접 create 권한을 최소화하고 배포는 컨트롤러·파이프라인 경유로 제한한다."
+      },
       "exception_check": {
         "annotation": "rbac-exception/justification",
         "system_namespaces": [

@@ -28,6 +28,15 @@
           "description": "Ingress의 모든 host가 TLS secretName에 의해 커버됨"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "보안 best-practice",
+          "version": null,
+          "reference": "전송 암호화(Ingress TLS/HTTPS)",
+          "url": null
+        },
+        "action": "Ingress .spec.tls에 모든 host를 커버하는 인증서(secretName)를 설정해 HTTPS 전송을 강제한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -78,6 +87,15 @@
           "description": "ExternalName Service의 외부 endpoint가 TLS 사용 (HTTPS endpoint 또는 tls-verified annotation 존재)"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "자체 정책 (표준 미대응)",
+          "version": null,
+          "reference": "전송 암호화(ExternalName TLS)",
+          "url": null
+        },
+        "action": "ExternalName Service의 외부 endpoint를 HTTPS로 지정하거나 tls-verified annotation으로 검증한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -115,6 +133,15 @@
           "description": "개인정보·중요정보 전송 시 안전한 전송 정책과 기술적 보호대책을 적용하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.10.5 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"업무 목적으로 개인정보 및 중요정보를 전송할 때 안전한 전송 정책을 수립하고 전송 중 보호를 위한 기술적 대책을 적용한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.10.5",
@@ -144,6 +171,15 @@
           "description": "조직 간 정보 교환 시 협약 체결 등 보호대책을 수립·이행하도록 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.10.5 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"업무상 조직 간에 개인정보 및 중요정보를 상호교환하는 경우 안전한 전송을 위한 협약 체결 등 보호대책을 수립·이행한다.\""
+      },
       "source_reference": {
         "framework": "ISMS-P",
         "item": "2.10.5",

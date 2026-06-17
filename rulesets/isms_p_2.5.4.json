@@ -94,6 +94,15 @@
           "description": "특수문자 강제 포함"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -145,6 +154,15 @@
           ]
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -205,6 +223,15 @@
           "value": 4
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -256,6 +283,15 @@
           "value": 8
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -299,6 +335,15 @@
           "value": 8
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "all_compliance_required",
@@ -350,6 +395,15 @@
           "description": "짧은 비밀번호 입력 시 가입 거부 동작"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "vlm_behavioral_analysis",
@@ -395,6 +449,15 @@
           "description": "변경주기 도래 시 강제 변경 로그 확인"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "aggregated_statistics",
         "method": "per_account_check",
@@ -430,6 +493,15 @@
           "description": "강제 변경 후에만 정상 세션 발급"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "code_pattern_match",
         "method": "regex_and_ast",
@@ -460,6 +532,15 @@
           "description": "변경 전까지 다른 페이지 접근 불가"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "vlm_behavioral_analysis",
@@ -490,6 +571,15 @@
           "description": "미변경 시 자동 잠금 정책 존재"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "aggregated_statistics",
         "method": "count_violations",
@@ -538,6 +628,15 @@
           "description": "SHA-256/512 + salt 컬럼 동반 (64/128 hex)"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "regex_match",
         "method": "any_sample_violation_fails",
@@ -600,6 +699,15 @@
           "description": "인증수단별 적용 대상 명시 (관리자=하드웨어 토큰, 일반=TOTP 등)"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "structured_match",
         "aggregation": "admin_mfa_required_and_all_users_recommended",
@@ -656,6 +764,15 @@
           "description": "2단계 인증 단계 존재"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "개인정보의 안전성 확보조치 기준(개인정보위/KISA)",
+          "version": null,
+          "reference": "인증·접근 통제(비밀번호 정책 설정값)",
+          "url": "https://www.law.go.kr"
+        },
+        "action": "해당 시스템 패스워드 정책 설정값을 기준(최소 길이·최대 유효기간·복잡도·재사용 제한·계정 잠금 임계치)에 맞춰 조정한다."
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "vlm_behavioral_analysis",
@@ -676,6 +793,15 @@
           "description": "지침서에 비밀번호 생성규칙, 변경주기, 저장방법이 모두 명시"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"비밀번호 관리 정책 문서가 존재하며 비밀번호 생성 규칙·변경 주기·저장 방법을 포함하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -697,6 +823,15 @@
           "description": "비밀번호 최소 8자 이상 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"비밀번호 최소 길이를 8자 이상으로 설정하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -718,6 +853,15 @@
           "description": "비밀번호 최대 사용기간 90일 이하 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"비밀번호 최대 사용 기간을 90일 이하로 설정하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -736,6 +880,15 @@
           "description": "초기/임시 비밀번호 발급 시 최초 로그인 시 강제 변경 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"초기(임시) 비밀번호 발급 시 최초 로그인 시 변경을 강제하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -754,6 +907,15 @@
           "description": "비밀번호 일방향 암호화 저장 및 평문 저장 금지 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"비밀번호를 일방향(단방향) 암호화(bcrypt, argon2, PBKDF2 등)하여 저장하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -775,6 +937,15 @@
           "description": "5회 이내 입력 오류 시 계정 잠금 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"비밀번호 입력 오류가 일정 횟수 누적되면 계정을 잠금 처리하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -793,6 +964,15 @@
           "description": "관리자·중요 시스템 접근 시 다중인증(MFA) 적용 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"관리자 계정 및 중요 시스템 접근 시 다중인증(MFA)을 적용하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -811,6 +991,15 @@
           "description": "로그인 실패 시 아이디·비밀번호 구분 정보 미노출 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"로그인 실패 메시지에서 아이디·비밀번호 구분 노출을 금지하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -829,6 +1018,15 @@
           "description": "추측하기 쉬운 비밀번호 사용 금지 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"생일·전화번호·아이디처럼 추측하기 쉬운 비밀번호를 쓰지 못하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -847,6 +1045,15 @@
           "description": "반복·연속 문자 비밀번호 제한 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"같은 문자 반복이나 연속된 숫자로 된 비밀번호를 제한하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -865,6 +1072,15 @@
           "description": "비밀번호 입력 시 화면 가림(마스킹) 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"비밀번호를 입력하거나 변경할 때 화면에 마스킹 처리하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -883,6 +1099,15 @@
           "description": "비밀번호 기록·보관 제한 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"비밀번호를 종이·파일·모바일 등에 기록·보관하는 것을 제한하고 부득이하면 암호화하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -901,6 +1126,15 @@
           "description": "유출 의심 시 즉시 변경 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"비밀번호 노출이나 침해가 의심되면 지체 없이 변경하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -919,6 +1153,15 @@
           "description": "분실 시 본인확인 후 재발급 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"비밀번호 분실 시 본인 확인을 거쳐 안전하게 재발급하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
@@ -937,6 +1180,15 @@
           "description": "관리자 비밀번호 별도 강화 관리 규정"
         }
       ],
+      "remediation": {
+        "source": {
+          "framework": "ISMS-P 인증기준 안내서(KISA)",
+          "version": "2023.11",
+          "reference": "ISMS-P 2.5.4 인증기준 / 안내서 주요 확인사항",
+          "url": "https://isms.kisa.or.kr"
+        },
+        "action": "내부 정책·지침서에 다음을 명문화하고 책임자 승인 후 시행한다: \"관리자 비밀번호는 일반 사용자와 분리해 더 강한 기준으로 관리하도록 규정한다.\""
+      },
       "judgment_logic": {
         "type": "semantic_match",
         "method": "llm_rag_entailment"
