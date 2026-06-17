@@ -22,6 +22,7 @@ type VulnScheduler struct {
 	notifSvc *service.NotificationService
 	finalSvc *service.FinalScoringService
 	globalRepo *postgres.GlobalScoringRepo
+	edgeSvc  *service.EdgeService // 신규 CVE 알림에 Blast Radius 보강용
 
 	clusterName string
 	interval    time.Duration
@@ -42,6 +43,7 @@ func NewVulnScheduler(
 	notifSvc *service.NotificationService,
 	finalSvc *service.FinalScoringService,
 	globalRepo *postgres.GlobalScoringRepo,
+	edgeSvc *service.EdgeService,
 	clusterName string,
 	interval time.Duration,
 ) *VulnScheduler {
@@ -53,6 +55,7 @@ func NewVulnScheduler(
 		notifSvc:    notifSvc,
 		finalSvc:    finalSvc,
 		globalRepo:  globalRepo,
+		edgeSvc:     edgeSvc,
 		clusterName: clusterName,
 		interval:    interval,
 		enabled:     true,
@@ -204,6 +207,29 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		}
 		podRefs, podDisplay, podDigests, podCount := summarizeAffectedPods(affectedPods)
 
+		// Blast Radius 보강 — 영향 Pod이 침해됐을 때 어디까지 번지는지 (topology 1회 빌드)
+		maxBlast, maxBlastPod := 0, ""
+		if s.edgeSvc != nil && len(podRefs) > 0 {
+			uids := make([]string, 0, len(podRefs))
+			for _, p := range podRefs {
+				uids = append(uids, p.PodUID)
+			}
+			if blast, err := s.edgeSvc.BlastSummaryForPods(ctx, s.clusterName, uids); err != nil {
+				log.Printf("scheduler: blast summary failed for %s: %v", vulnID, err)
+			} else {
+				for i := range podRefs {
+					if b, ok := blast[podRefs[i].PodUID]; ok {
+						podRefs[i].BlastRadius = b.ReachableCount
+						podRefs[i].BlastScore = b.BlastScore
+						if b.ReachableCount > maxBlast {
+							maxBlast = b.ReachableCount
+							maxBlastPod = podRefs[i].PodName
+						}
+					}
+				}
+			}
+		}
+
 		// 알림 생성 (24h dedup 자동 적용)
 		meta := notification.NewCVEMetadata{
 			VulnID:          vulnID,
@@ -214,6 +240,8 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 			AffectedCount:   podCount,
 			TopCVE:          vulnID,
 			ImageDigests:    podDigests,
+			MaxBlastRadius:  maxBlast,
+			MaxBlastPodName: maxBlastPod,
 		}
 
 		notif, err := s.notifSvc.CreateNewCVE(ctx, s.clusterName, meta)
