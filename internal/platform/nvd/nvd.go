@@ -20,7 +20,7 @@ type Client struct {
 func NewClient(apiKey string) *Client {
 	return &Client{
 		apiKey: apiKey,
-		http:   &http.Client{Timeout: 10 * time.Second},
+		http:   &http.Client{Timeout: 30 * time.Second}, // NVD는 느림(20~30s 흔함) → 10s는 너무 짧아 타임아웃 빈발
 	}
 }
 
@@ -61,12 +61,39 @@ type CVEInfo struct {
 	Found        bool
 }
 
+// nvdMaxAttempts: NVD가 503/타임아웃을 자주 뱉으므로 일시적 오류는 백오프 후 재시도한다.
+const nvdMaxAttempts = 3
+
 func (c *Client) FetchCVE(ctx context.Context, cveID string) (*CVEInfo, error) {
 	url := fmt.Sprintf("https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=%s", cveID)
 
+	var lastErr error
+	for attempt := 1; attempt <= nvdMaxAttempts; attempt++ {
+		info, retryable, err := c.fetchOnce(ctx, url, cveID)
+		if err == nil {
+			return info, nil
+		}
+		lastErr = err
+		if !retryable {
+			return nil, err
+		}
+		// 일시적 오류(503/429/타임아웃) → 백오프(3s, 6s) 후 재시도. ctx 취소는 존중.
+		if attempt < nvdMaxAttempts {
+			select {
+			case <-time.After(time.Duration(attempt*3) * time.Second):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
+	return nil, lastErr
+}
+
+// fetchOnce는 NVD를 1회 호출한다. retryable=true면 일시적 오류(재시도 권장).
+func (c *Client) fetchOnce(ctx context.Context, url, cveID string) (info *CVEInfo, retryable bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if c.apiKey != "" {
 		req.Header.Set("apiKey", c.apiKey)
@@ -74,45 +101,50 @@ func (c *Client) FetchCVE(ctx context.Context, cveID string) (*CVEInfo, error) {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("nvd fetch: %w", err)
+		// 네트워크 오류/타임아웃 → 재시도 가능
+		return nil, true, fmt.Errorf("nvd fetch: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// 503(과부하)·429(rate limit)는 일시적 → 재시도
+	if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests {
+		return nil, true, fmt.Errorf("nvd status %d", resp.StatusCode)
+	}
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("nvd status %d", resp.StatusCode)
+		return nil, false, fmt.Errorf("nvd status %d", resp.StatusCode)
 	}
 
 	var data response
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, fmt.Errorf("nvd decode: %w", err)
+		return nil, false, fmt.Errorf("nvd decode: %w", err)
 	}
 
-	info := &CVEInfo{CVEID: cveID, Found: false}
+	out := &CVEInfo{CVEID: cveID, Found: false}
 	if len(data.Vulnerabilities) == 0 {
-		return info, nil
+		return out, false, nil
 	}
 
 	v := data.Vulnerabilities[0].CVE
-	info.Found = true
+	out.Found = true
 
 	for _, d := range v.Descriptions {
 		if d.Lang == "en" {
-			info.Description = d.Value
+			out.Description = d.Value
 			break
 		}
 	}
 
 	if len(v.Metrics.CVSSMetricV31) > 0 {
 		m := v.Metrics.CVSSMetricV31[0].CVSSData
-		info.CVSSScore = m.BaseScore
-		info.Severity = m.BaseSeverity
-		info.VectorString = m.VectorString
+		out.CVSSScore = m.BaseScore
+		out.Severity = m.BaseSeverity
+		out.VectorString = m.VectorString
 	} else if len(v.Metrics.CVSSMetricV30) > 0 {
 		m := v.Metrics.CVSSMetricV30[0].CVSSData
-		info.CVSSScore = m.BaseScore
-		info.Severity = m.BaseSeverity
-		info.VectorString = m.VectorString
+		out.CVSSScore = m.BaseScore
+		out.Severity = m.BaseSeverity
+		out.VectorString = m.VectorString
 	}
 
-	return info, nil
+	return out, false, nil
 }

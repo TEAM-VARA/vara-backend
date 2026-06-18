@@ -183,22 +183,50 @@ type CVEFromSBOM struct {
 //
 // 중복 CVE는 제거 (같은 이미지에 같은 CVE가 여러 패키지에서 나올 수 있음).
 func (r *GlobalScoringRepo) ListCVEsByImageDigest(ctx context.Context, imageDigest string) ([]CVEFromSBOM, error) {
+	// CVE 목록 = Trivy SBOM(sboms.raw_data) ∪ OSV(package_vulnerabilities).
+	// Trivy는 이미지 스캔 시점에 고정된 취약점, OSV는 매시간 갱신되는 신규 취약점.
+	// 둘을 합쳐야 신규 OSV CVE가 이미지 Global 점수(최댓값)에 반영된다.
+	// OSV vuln_id가 CVE-*면 그대로, 아니면 aliases의 CVE-*를 사용(NVD 스코어링 가능 대상만).
+	// CVE ID 기준 dedup(같은 CVE가 양쪽/여러 패키지에 있을 수 있음).
 	const q = `
-		SELECT DISTINCT ON (vuln->>'VulnerabilityID')
-			vuln->>'VulnerabilityID'  AS cve_id,
-			COALESCE(vuln->>'Severity', '')         AS severity,
-			COALESCE(vuln->>'PkgName', '')          AS pkg_name,
-			COALESCE(vuln->>'InstalledVersion', '') AS installed_version,
-			COALESCE(vuln->>'FixedVersion', '')     AS fixed_version
-		FROM sboms,
-		     jsonb_array_elements(raw_data->'Results') AS result,
-		     jsonb_array_elements(COALESCE(result->'Vulnerabilities', '[]'::jsonb)) AS vuln
-		WHERE image_digest = $1
-		  AND raw_data IS NOT NULL
-		  AND raw_data::text != 'null'
-		  AND vuln->>'VulnerabilityID' IS NOT NULL
-		  AND vuln->>'VulnerabilityID' != ''
-		ORDER BY vuln->>'VulnerabilityID'
+		SELECT DISTINCT ON (cve_id)
+			cve_id, severity, pkg_name, installed_version, fixed_version
+		FROM (
+			-- Trivy SBOM CVEs
+			SELECT
+				vuln->>'VulnerabilityID'                AS cve_id,
+				COALESCE(vuln->>'Severity', '')         AS severity,
+				COALESCE(vuln->>'PkgName', '')          AS pkg_name,
+				COALESCE(vuln->>'InstalledVersion', '') AS installed_version,
+				COALESCE(vuln->>'FixedVersion', '')     AS fixed_version
+			FROM sboms,
+			     jsonb_array_elements(raw_data->'Results') AS result,
+			     jsonb_array_elements(COALESCE(result->'Vulnerabilities', '[]'::jsonb)) AS vuln
+			WHERE image_digest = $1
+			  AND raw_data IS NOT NULL
+			  AND raw_data::text != 'null'
+			  AND vuln->>'VulnerabilityID' IS NOT NULL
+			  AND vuln->>'VulnerabilityID' != ''
+
+			UNION ALL
+
+			-- OSV CVEs (package_vulnerabilities → 같은 image_digest의 sbom_packages)
+			SELECT
+				CASE
+					WHEN pv.vuln_id LIKE 'CVE-%' THEN pv.vuln_id
+					ELSE (SELECT a FROM unnest(pv.aliases) AS a WHERE a LIKE 'CVE-%' LIMIT 1)
+				END                            AS cve_id,
+				''                             AS severity,
+				''                             AS pkg_name,
+				''                             AS installed_version,
+				COALESCE(pv.fixed_version, '') AS fixed_version
+			FROM package_vulnerabilities pv
+			JOIN sbom_packages sp ON sp.purl = pv.purl
+			WHERE sp.image_digest = $1
+			  AND pv.withdrawn_at IS NULL
+		) merged
+		WHERE cve_id LIKE 'CVE-%'
+		ORDER BY cve_id
 	`
 
 	rows, err := r.pool.Query(ctx, q, imageDigest)

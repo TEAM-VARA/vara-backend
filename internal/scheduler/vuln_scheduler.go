@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -22,6 +23,7 @@ type VulnScheduler struct {
 	notifSvc *service.NotificationService
 	finalSvc *service.FinalScoringService
 	globalRepo *postgres.GlobalScoringRepo
+	imageGlobalSvc *service.ImageGlobalCacheService // 신규 CVE 시 영향 이미지 Global 재계산용
 
 	clusterName string
 	interval    time.Duration
@@ -42,6 +44,7 @@ func NewVulnScheduler(
 	notifSvc *service.NotificationService,
 	finalSvc *service.FinalScoringService,
 	globalRepo *postgres.GlobalScoringRepo,
+	imageGlobalSvc *service.ImageGlobalCacheService,
 	clusterName string,
 	interval time.Duration,
 ) *VulnScheduler {
@@ -53,6 +56,7 @@ func NewVulnScheduler(
 		notifSvc:    notifSvc,
 		finalSvc:    finalSvc,
 		globalRepo:  globalRepo,
+		imageGlobalSvc: imageGlobalSvc,
 		clusterName: clusterName,
 		interval:    interval,
 		enabled:     true,
@@ -204,16 +208,51 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		}
 		podRefs, podDisplay, podDigests, podCount := summarizeAffectedPods(affectedPods)
 
-		// 알림 생성 (24h dedup 자동 적용)
+		// 24h dedup 선체크 — 이미 알린 CVE면 점수도 이미 반영됐으니 재계산까지 skip
+		if exists, derr := s.notifSvc.ExistsRecentNewCVE(ctx, s.clusterName, vulnID); derr == nil && exists {
+			continue
+		}
+
+		// 점수 변화(B) — 재계산 전 영향 Pod final_score 스냅샷
+		uids := make([]string, 0, len(podRefs))
+		for _, p := range podRefs {
+			uids = append(uids, p.PodUID)
+		}
+		before := s.snapshotScores(ctx, uids)
+
+		// 영향 이미지 Global 점수 재계산 — 신규 OSV CVE가 ListCVEsByImageDigest의
+		// union으로 이미지 CVE 목록에 들어왔으니, image_global_scores 캐시를 갱신해야 final에 반영된다.
+		// (이미지 캐시는 무시하고 재계산하되 per-CVE는 캐시 재사용 → 신규 CVE만 fetch, 기존 점수 안정)
+		s.recomputeImageGlobals(ctx, podDigests)
+		// Risk Scoring 자동 재계산 (위에서 갱신된 image_global_scores를 읽어 final 산출)
+		s.recalculateRiskScores(ctx, affected)
+
+		// 재계산 후 스냅샷 + 델타 산정 (이 CVE로 인한 점수 상승)
+		after := s.snapshotScores(ctx, uids)
+		maxDelta, maxDeltaPod := 0.0, ""
+		for i := range podRefs {
+			b, a := before[podRefs[i].PodUID], after[podRefs[i].PodUID]
+			podRefs[i].ScoreBefore = b
+			podRefs[i].ScoreAfter = a
+			podRefs[i].ScoreDelta = a - b
+			if d := a - b; d > maxDelta {
+				maxDelta = d
+				maxDeltaPod = podRefs[i].PodName
+			}
+		}
+
+		// 알림 생성 (점수 델타 포함, 24h dedup 자동 적용)
 		meta := notification.NewCVEMetadata{
-			VulnID:          vulnID,
-			SeverityScore:   score,
-			SeverityLabel:   label,
-			AffectedPods:    podDisplay,
-			AffectedPodList: podRefs,
-			AffectedCount:   podCount,
-			TopCVE:          vulnID,
-			ImageDigests:    podDigests,
+			VulnID:               vulnID,
+			SeverityScore:        score,
+			SeverityLabel:        label,
+			AffectedPods:         podDisplay,
+			AffectedPodList:      podRefs,
+			AffectedCount:        podCount,
+			TopCVE:               vulnID,
+			ImageDigests:         podDigests,
+			MaxScoreDelta:        maxDelta,
+			MaxScoreDeltaPodName: maxDeltaPod,
 		}
 
 		notif, err := s.notifSvc.CreateNewCVE(ctx, s.clusterName, meta)
@@ -221,17 +260,13 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 			log.Printf("scheduler: create notification failed for %s: %v", vulnID, err)
 			continue
 		}
-
 		if notif == nil {
-			continue // 24h dedup
+			continue // 경합으로 그 사이 생성됨
 		}
 
 		criticalHighCount++
-		log.Printf("scheduler: notification created for %s (id=%d, label=%s, score=%.1f, pods=%d, pkgs=%d)",
-			vulnID, notif.ID, label, score, podCount, len(affected))
-
-		// Risk Scoring 자동 재계산
-		s.recalculateRiskScores(ctx, affected)
+		log.Printf("scheduler: notification created for %s (id=%d, label=%s, score=%.1f, pods=%d, maxDelta=%.1f)",
+			vulnID, notif.ID, label, score, podCount, maxDelta)
 	}
 
 	log.Printf("scheduler: %d critical/high notifications processed", criticalHighCount)
@@ -327,6 +362,131 @@ func normalizeSeverityLabel(label string) string {
 	}
 }
 // recalculateRiskScores는 영향받는 Pod의 final_score를 재계산합니다.
+// recomputeImageGlobals는 주어진 이미지 digest들의 Global 점수를 강제 재계산(force)하여
+// image_global_scores 캐시를 갱신합니다. 신규 OSV CVE가 union을 통해 CVE 목록에 들어왔으니,
+// 이 갱신이 있어야 final 점수 재계산 시 새 CVE가 반영됩니다.
+// DemoResult는 RunDemoForVuln 응답입니다 (발표 데모용).
+type DemoResult struct {
+	VulnID               string                        `json:"vuln_id"`
+	SeverityLabel        string                        `json:"severity_label"`
+	AffectedCount        int                           `json:"affected_count"`
+	MaxScoreDelta        float64                       `json:"max_score_delta"`
+	MaxScoreDeltaPodName string                        `json:"max_score_delta_pod_name"`
+	NotificationID       int64                         `json:"notification_id"`
+	Pods                 []notification.AffectedPodRef `json:"pods"`
+}
+
+// RunDemoForVuln은 주어진 vuln_id에 대해 신규 CVE 처리(영향 파드 역추적 + 점수 재계산 + 델타 + 알림)를
+// dedup 없이 즉시 실행합니다. 발표 실연 전용 — "CVE 추가 → 알림에 +N점" 시연용.
+// 운영 자동 경로(processNewVulns)와 동일 로직이되, "이번 스캔 신규" 필터를 건너뜁니다.
+func (s *VulnScheduler) RunDemoForVuln(ctx context.Context, vulnID string) (*DemoResult, error) {
+	affected, err := s.vulnSvc.SearchByVulnID(ctx, vulnID)
+	if err != nil {
+		return nil, fmt.Errorf("search vuln %s: %w", vulnID, err)
+	}
+	if len(affected) == 0 {
+		return nil, fmt.Errorf("vuln_id %s가 package_vulnerabilities에 없습니다 (먼저 주입 필요)", vulnID)
+	}
+
+	score, label := s.resolveSeverity(ctx, selectTopVuln(affected))
+
+	affectedPods, err := s.vulnSvc.SearchPodsByVulnID(ctx, s.clusterName, vulnID)
+	if err != nil {
+		affectedPods = nil
+	}
+	podRefs, podDisplay, podDigests, podCount := summarizeAffectedPods(affectedPods)
+
+	uids := make([]string, 0, len(podRefs))
+	for _, p := range podRefs {
+		uids = append(uids, p.PodUID)
+	}
+	before := s.snapshotScores(ctx, uids)
+
+	s.recomputeImageGlobals(ctx, podDigests)
+	s.recalculateRiskScores(ctx, affected)
+
+	after := s.snapshotScores(ctx, uids)
+	maxDelta, maxDeltaPod := 0.0, ""
+	for i := range podRefs {
+		b, a := before[podRefs[i].PodUID], after[podRefs[i].PodUID]
+		podRefs[i].ScoreBefore = b
+		podRefs[i].ScoreAfter = a
+		podRefs[i].ScoreDelta = a - b
+		if d := a - b; d > maxDelta {
+			maxDelta = d
+			maxDeltaPod = podRefs[i].PodName
+		}
+	}
+
+	meta := notification.NewCVEMetadata{
+		VulnID:               vulnID,
+		SeverityScore:        score,
+		SeverityLabel:        label,
+		AffectedPods:         podDisplay,
+		AffectedPodList:      podRefs,
+		AffectedCount:        podCount,
+		TopCVE:               vulnID,
+		ImageDigests:         podDigests,
+		MaxScoreDelta:        maxDelta,
+		MaxScoreDeltaPodName: maxDeltaPod,
+	}
+	notif, err := s.notifSvc.CreateNewCVEForce(ctx, s.clusterName, meta)
+	if err != nil {
+		return nil, fmt.Errorf("create notification: %w", err)
+	}
+
+	log.Printf("scheduler: DEMO new_cve for %s (label=%s, pods=%d, maxDelta=%.1f)", vulnID, label, podCount, maxDelta)
+
+	res := &DemoResult{
+		VulnID:               vulnID,
+		SeverityLabel:        label,
+		AffectedCount:        podCount,
+		MaxScoreDelta:        maxDelta,
+		MaxScoreDeltaPodName: maxDeltaPod,
+		Pods:                 podRefs,
+	}
+	if notif != nil {
+		res.NotificationID = notif.ID
+	}
+	return res, nil
+}
+
+// snapshotScores는 주어진 Pod들의 현재 final_score를 map으로 반환합니다 (없으면 미포함).
+// 점수 델타(B) 산정 시 재계산 전/후 비교용.
+func (s *VulnScheduler) snapshotScores(ctx context.Context, podUIDs []string) map[string]float64 {
+	out := make(map[string]float64, len(podUIDs))
+	if s.finalSvc == nil {
+		return out
+	}
+	for _, uid := range podUIDs {
+		if uid == "" {
+			continue
+		}
+		if r, err := s.finalSvc.GetByPodUID(ctx, s.clusterName, uid); err == nil && r != nil {
+			out[uid] = r.FinalScore
+		}
+	}
+	return out
+}
+
+func (s *VulnScheduler) recomputeImageGlobals(ctx context.Context, imageDigests []string) {
+	if s.imageGlobalSvc == nil || len(imageDigests) == 0 {
+		return
+	}
+	seen := make(map[string]bool, len(imageDigests))
+	for _, digest := range imageDigests {
+		if digest == "" || seen[digest] {
+			continue
+		}
+		seen[digest] = true
+		// RecomputeAndStore: 이미지 캐시는 무시(재계산)하되 per-CVE는 캐시 재사용 →
+		// 신규 CVE만 새로 fetch, 기존 점수는 안정 유지(외부 API 실패 출렁임 방지).
+		if _, err := s.imageGlobalSvc.RecomputeAndStore(ctx, digest); err != nil {
+			log.Printf("scheduler: image global recompute failed for %s: %v", digest, err)
+		}
+	}
+}
+
 func (s *VulnScheduler) recalculateRiskScores(ctx context.Context, affected []sbom.PackageVulnerability) {
 	// affected에 직접 pod_uid가 없음. 영향받는 Pod 식별을 위해 추가 로직 필요.
 	// 일단 PURL → image_digest → pod_uid 매핑은 복잡하므로,

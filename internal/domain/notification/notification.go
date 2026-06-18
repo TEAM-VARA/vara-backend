@@ -97,6 +97,11 @@ type AffectedPodRef struct {
 	Namespace   string `json:"namespace"`
 	PackageName string `json:"package_name"` // 어떤 패키지 때문에 취약한지
 	Version     string `json:"version"`
+
+	// 점수 변화 — 이 신규 CVE 반영 전/후 Pod final_score
+	ScoreBefore float64 `json:"score_before,omitempty"`
+	ScoreAfter  float64 `json:"score_after,omitempty"`
+	ScoreDelta  float64 `json:"score_delta,omitempty"` // after - before (상승분)
 }
 
 // NewCVEMetadata는 new_cve 카테고리의 metadata 구조입니다.
@@ -109,6 +114,10 @@ type NewCVEMetadata struct {
 	AffectedCount int              `json:"affected_count"`            // 영향받는 고유 Pod 수
 	TopCVE        string           `json:"top_cve,omitempty"`
 	ImageDigests  []string         `json:"image_digests,omitempty"`
+
+	// 점수 변화 요약 — 영향 Pod들 중 가장 크게 오른 폭 (알림 메시지용)
+	MaxScoreDelta        float64 `json:"max_score_delta,omitempty"`
+	MaxScoreDeltaPodName string  `json:"max_score_delta_pod_name,omitempty"`
 }
 
 // RiskChangeMetadata는 risk_change 카테고리의 metadata 구조입니다.
