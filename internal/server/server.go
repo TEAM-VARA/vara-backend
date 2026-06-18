@@ -161,11 +161,13 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	// ── Scenario (공격 시나리오/보완 줄글, attack-path 신호 기반) ──
 	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo)
 	scenarioH := handler.NewScenarioHandler(scenarioSvc)
+	blastGraph := &service.BlastGraphHandler{Pool: pg}
 
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, depsDevH, ebpfH, edgeH, podRefreshH,
 		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH, scenarioH)
+	r.GET("/api/v1/scoring/blast-graph", blastGraph.Handle)
 	// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
 	// ENV로 ON/OFF, 기본 활성
 	if os.Getenv("DISABLE_VULN_SCANNER") != "true" {
@@ -248,6 +250,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		}
 
 		blastEdgesRepo := postgres.NewBlastEdgesRepo(pg)
+		criticalitySvc := service.NewCriticalityService(blastEdgesRepo)
 		analysisScheduler := scheduler.NewAnalysisScheduler(
 			analysisSvc,
 			edgesRepo,
@@ -259,6 +262,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 			localScoringSvc,
 			toxicSvc,
 			finalScoringSvc,
+			criticalitySvc,
 			clusterName,
 			analysisInterval,
 		)
