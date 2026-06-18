@@ -162,6 +162,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	// ── Scenario (공격 시나리오/보완 줄글, attack-path 신호 기반) ──
 	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo)
 	scenarioH := handler.NewScenarioHandler(scenarioSvc)
+	blastGraph := &service.BlastGraphHandler{Pool: pg}
 
 	// ── Auth (로그인 + TOTP MFA) ──
 	authSecret := os.Getenv("AUTH_JWT_SECRET")
@@ -185,6 +186,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, depsDevH, ebpfH, edgeH, podRefreshH,
 		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH, scenarioH, authH)
+	r.GET("/api/v1/scoring/blast-graph", blastGraph.Handle)
 	// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
 	// ENV로 ON/OFF, 기본 활성
 	if os.Getenv("DISABLE_VULN_SCANNER") != "true" {
