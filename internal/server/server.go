@@ -250,7 +250,6 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		}
 
 		blastEdgesRepo := postgres.NewBlastEdgesRepo(pg)
-		criticalitySvc := service.NewCriticalityService(blastEdgesRepo)
 		analysisScheduler := scheduler.NewAnalysisScheduler(
 			analysisSvc,
 			edgesRepo,
@@ -262,7 +261,6 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 			localScoringSvc,
 			toxicSvc,
 			finalScoringSvc,
-			criticalitySvc,
 			clusterName,
 			analysisInterval,
 		)
