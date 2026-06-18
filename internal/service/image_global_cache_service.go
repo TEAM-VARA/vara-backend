@@ -58,29 +58,49 @@ func (s *ImageGlobalCacheService) ComputeAndStore(ctx context.Context, imageDige
 		return nil, fmt.Errorf("compute image score: %w", err)
 	}
 
-	// 3. 결과를 ImageGlobalRecord로 변환
-	//    작업 B-1의 ImageGlobalScore에 없는 필드는 0으로 둠.
-	//    (이미지 단위 평균/severity 분포는 추후 보강 가능)
+	return s.persist(ctx, imgScore)
+}
+
+// RecomputeAndStore는 이미지 캐시를 무시하고 항상 재계산하되, per-CVE 점수는 캐시를 재사용한다.
+// (ComputeImage force=false → 기존 CVE는 cve_global_scores 캐시 재사용, 미캐시(신규) CVE만 외부 fetch)
+//
+// 신규 CVE를 반영하면서도, force=true처럼 모든 CVE를 외부 재호출(KEV/NVD/EPSS)하다가
+// 일부 fetch 실패로 기존 CVE 점수가 출렁(예: KEV 실패 → SSVC Active→None, -30점)이는 것을 막는다.
+// 신규 CVE 감지 시 영향 이미지 Global 갱신 용도.
+func (s *ImageGlobalCacheService) RecomputeAndStore(ctx context.Context, imageDigest string) (*scoring.ImageGlobalRecord, error) {
+	if imageDigest == "" {
+		return nil, fmt.Errorf("image_digest is required")
+	}
+	fmt.Printf("info: image_global recompute (cve-cache 재사용) digest=%s\n", imageDigest)
+	imgScore, err := s.globalSvc.ComputeImage(ctx, imageDigest, false)
+	if err != nil {
+		return nil, fmt.Errorf("compute image score: %w", err)
+	}
+	return s.persist(ctx, imgScore)
+}
+
+// persist는 ImageGlobalScore를 ImageGlobalRecord로 변환·저장하고 등급을 매겨 반환한다.
+func (s *ImageGlobalCacheService) persist(ctx context.Context, imgScore *scoring.ImageGlobalScore) (*scoring.ImageGlobalRecord, error) {
+	// ImageGlobalScore에 없는 필드는 0으로 둠 (이미지 단위 평균/severity 분포는 추후 보강).
 	now := time.Now()
 	rec := scoring.ImageGlobalRecord{
 		ImageDigest:   imgScore.ImageDigest,
 		Image:         imgScore.Image,
 		CVECount:      imgScore.CVECount,
 		MaxScore:      imgScore.MaxScore,
-		AvgScore:      0, // 작업 B-1 도메인에 없음 — 추후 보강
+		AvgScore:      0,
 		TopCVE:        imgScore.TopCVE,
 		CriticalCount: imgScore.CriticalCount,
 		HighCount:     imgScore.HighCount,
-		MediumCount:   0, // 작업 B-1 도메인에 없음
-		LowCount:      0, // 작업 B-1 도메인에 없음
+		MediumCount:   0,
+		LowCount:      0,
 		ActiveCount:   imgScore.ActiveCount,
-		POCCount:      0, // 작업 B-1 도메인에 없음 (필드명 mismatch 가능)
-		NoneCount:     0, // 작업 B-1 도메인에 없음
+		POCCount:      0,
+		NoneCount:     0,
 		ComputedAt:    now,
 		ExpiresAt:     now.Add(scoring.ImageGlobalCacheTTL),
 	}
 
-	// 4. 저장
 	if err := s.repo.Upsert(ctx, rec); err != nil {
 		return nil, fmt.Errorf("save image_global: %w", err)
 	}

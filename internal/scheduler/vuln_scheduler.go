@@ -233,9 +233,9 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		log.Printf("scheduler: notification created for %s (id=%d, label=%s, score=%.1f, pods=%d, pkgs=%d)",
 			vulnID, notif.ID, label, score, podCount, len(affected))
 
-		// 영향 이미지 Global 점수 재계산 (force) — 신규 OSV CVE가 ListCVEsByImageDigest의
-		// union으로 이미지 CVE 목록에 들어왔으니, 캐시를 강제 갱신해야 final에 반영된다.
-		// 이게 없으면 image_global_scores가 옛 값이라 final 점수가 안 바뀜.
+		// 영향 이미지 Global 점수 재계산 — 신규 OSV CVE가 ListCVEsByImageDigest의
+		// union으로 이미지 CVE 목록에 들어왔으니, image_global_scores 캐시를 갱신해야 final에 반영된다.
+		// (이미지 캐시는 무시하고 재계산하되 per-CVE는 캐시 재사용 → 신규 CVE만 fetch, 기존 점수 안정)
 		s.recomputeImageGlobals(ctx, podDigests)
 
 		// Risk Scoring 자동 재계산 (위에서 갱신된 image_global_scores를 읽어 final 산출)
@@ -348,7 +348,9 @@ func (s *VulnScheduler) recomputeImageGlobals(ctx context.Context, imageDigests 
 			continue
 		}
 		seen[digest] = true
-		if _, err := s.imageGlobalSvc.ComputeAndStore(ctx, digest, true); err != nil {
+		// RecomputeAndStore: 이미지 캐시는 무시(재계산)하되 per-CVE는 캐시 재사용 →
+		// 신규 CVE만 새로 fetch, 기존 점수는 안정 유지(외부 API 실패 출렁임 방지).
+		if _, err := s.imageGlobalSvc.RecomputeAndStore(ctx, digest); err != nil {
 			log.Printf("scheduler: image global recompute failed for %s: %v", digest, err)
 		}
 	}
