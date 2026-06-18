@@ -94,7 +94,24 @@ func (s *NotificationService) CreateNewCVE(
 	if exists {
 		return nil, nil // 24시간 내 동일 알림 존재 → skip
 	}
+	return s.createNewCVE(ctx, clusterName, meta)
+}
 
+// CreateNewCVEForce는 dedup 없이 new_cve 알림을 생성합니다 (발표 데모용 — 같은 CVE 반복 실연).
+func (s *NotificationService) CreateNewCVEForce(
+	ctx context.Context,
+	clusterName string,
+	meta notification.NewCVEMetadata,
+) (*notification.Notification, error) {
+	return s.createNewCVE(ctx, clusterName, meta)
+}
+
+// createNewCVE는 dedup을 제외한 알림 생성 로직입니다.
+func (s *NotificationService) createNewCVE(
+	ctx context.Context,
+	clusterName string,
+	meta notification.NewCVEMetadata,
+) (*notification.Notification, error) {
 	// 메타 직렬화
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
