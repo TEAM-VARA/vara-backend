@@ -111,6 +111,10 @@ func (s *NotificationService) CreateNewCVE(
 	if meta.AffectedCount == 0 {
 		message = "패키지에 신규 CVE 발견 (영향 Pod 없음)"
 	}
+	// 점수 변화 문구 (B): 이 CVE로 가장 크게 오른 Pod의 상승폭
+	if meta.MaxScoreDelta > 0 {
+		message += fmt.Sprintf(" · 위험도 최대 +%.1f점 상승(%s)", meta.MaxScoreDelta, meta.MaxScoreDeltaPodName)
+	}
 
 	return s.repo.Create(ctx, notification.CreateRequest{
 		ClusterName: clusterName,
@@ -120,6 +124,12 @@ func (s *NotificationService) CreateNewCVE(
 		Message:     message,
 		Metadata:    metaJSON,
 	})
+}
+
+// ExistsRecentNewCVE는 24시간 내 동일 vuln_id의 new_cve 알림이 이미 있는지 반환합니다.
+// 스케줄러가 재계산(점수 델타 산정) 전에 미리 dedup을 확인해 불필요한 재계산을 건너뛰는 용도.
+func (s *NotificationService) ExistsRecentNewCVE(ctx context.Context, clusterName, vulnID string) (bool, error) {
+	return s.repo.ExistsRecentByVulnID(ctx, clusterName, notification.CategoryNewCVE, vulnID, 24*time.Hour)
 }
 
 // CreateRiskChange는 Pod 위험도 변경 알림을 생성합니다 (1h dedup).
