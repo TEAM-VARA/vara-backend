@@ -218,84 +218,128 @@ paths:
   # Auth
   # ──────────────────────────────────────────────────────────────
 
+  # 인증 흐름: login → (최초)mfa/setup(QR 등록) → mfa/verify → 세션 토큰.
+  # 응답은 평문 JSON(Envelope 미사용) — FE 계약과 1:1.
   /api/v1/auth/login:
     post:
       tags: [auth]
-      summary: 로그인 — access/refresh 토큰 발급
+      summary: 1단계 — 사번/비밀번호 검증 후 mfa ticket 발급
       operationId: authLogin
       security: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/LoginRequest" }
-            examples:
-              admin:
-                value: { email: "admin@example.com", password: "********" }
+            schema:
+              type: object
+              required: [employee_id, password]
+              properties:
+                employee_id: { type: string, example: "admin" }
+                password: { type: string, format: password, example: "********" }
       responses:
         "200":
-          description: 로그인 성공
+          description: 검증 성공 — mfa 단계로
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/Envelope"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/LoginResponse" }
+                type: object
+                required: [mfa, ticket]
+                properties:
+                  mfa:
+                    type: string
+                    enum: [setup, required]
+                    description: setup=최초 등록(QR) 필요 / required=6자리 입력
+                  ticket:
+                    type: string
+                    description: 약 5분 수명의 단기 JWT (저장 X, 단계 간 state 로만 전달)
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429":
+          description: 시도 횟수 초과 (rate-limit)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
-  /api/v1/auth/refresh:
+  /api/v1/auth/mfa/setup:
     post:
       tags: [auth]
-      summary: refresh_token 으로 access_token 재발급
-      operationId: authRefresh
+      summary: 2단계(최초) — TOTP secret 발급 (QR 렌더용)
+      operationId: authMfaSetup
       security: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/RefreshRequest" }
+            schema:
+              type: object
+              required: [ticket]
+              properties:
+                ticket: { type: string }
       responses:
         "200":
-          description: 재발급 성공
+          description: secret 발급 (미확정 — 첫 verify 통과 시 확정)
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/Envelope"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/LoginResponse" }
+                type: object
+                required: [otpauth_url, secret]
+                properties:
+                  otpauth_url:
+                    type: string
+                    example: "otpauth://totp/VARA:admin?secret=BASE32...&issuer=VARA"
+                  secret:
+                    type: string
+                    description: 수동 입력 대체용 BASE32
         "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/auth/mfa/verify:
+    post:
+      tags: [auth]
+      summary: 3단계 — 6자리 코드 검증 후 세션 토큰 발급 (등록 확인 & 로그인 공용)
+      operationId: authMfaVerify
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ticket, code]
+              properties:
+                ticket: { type: string }
+                code: { type: string, example: "123456" }
+      responses:
+        "200":
+          description: 인증 성공 — 세션 토큰 발급
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, employee_id]
+                properties:
+                  token: { type: string, description: 세션 JWT }
+                  employee_id: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429":
+          description: 시도 횟수 초과 (rate-limit)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/auth/logout:
     post:
       tags: [auth]
-      summary: 로그아웃 (서버측 refresh_token 무효화)
+      summary: 로그아웃
       operationId: authLogout
-      responses:
-        "204":
-          description: 로그아웃 완료
-        "401": { $ref: "#/components/responses/Unauthorized" }
-
-  /api/v1/auth/me:
-    get:
-      tags: [auth]
-      summary: 현재 로그인된 사용자 정보
-      operationId: authMe
+      security: []
       responses:
         "200":
-          description: ok
+          description: 로그아웃 완료
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/Envelope"
-                  - type: object
-                    properties:
-                      data: { $ref: "#/components/schemas/User" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
+                type: object
+                properties:
+                  ok: { type: boolean }
 
   # ──────────────────────────────────────────────────────────────
   # Tenant
@@ -1394,3 +1438,4 @@ components:
       properties:
         risk_level: { $ref: "#/components/schemas/RiskLevel" }
         count:      { type: integer }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
