@@ -17,6 +17,7 @@ import (
 	"github.com/vara/backend/internal/handler"
 	"github.com/vara/backend/internal/platform/embedding"
 	"github.com/vara/backend/internal/platform/epss"
+	"github.com/vara/backend/internal/platform/jwtutil"
 	"github.com/vara/backend/internal/platform/exploitdb"
 	"github.com/vara/backend/internal/platform/kev"
 	"github.com/vara/backend/internal/platform/nvd"
@@ -163,10 +164,28 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	scenarioH := handler.NewScenarioHandler(scenarioSvc)
 	blastGraph := &service.BlastGraphHandler{Pool: pg}
 
+	// ── Auth (로그인 + TOTP MFA) ──
+	authSecret := os.Getenv("AUTH_JWT_SECRET")
+	if authSecret == "" {
+		authSecret = os.Getenv("JWT_SECRET")
+	}
+	if authSecret == "" {
+		authSecret = "vara-dev-insecure-secret-change-me"
+		fmt.Printf("warn: AUTH_JWT_SECRET/JWT_SECRET empty, using insecure dev secret (set in prod)\n")
+	}
+	authIssuer := os.Getenv("AUTH_ISSUER")
+	if authIssuer == "" {
+		authIssuer = "VARA"
+	}
+	authRepo := postgres.NewAuthRepo(pg)
+	jwtMgr := jwtutil.NewManager(authSecret, authIssuer)
+	authSvc := service.NewAuthService(authRepo, jwtMgr, rdb, authIssuer)
+	authH := handler.NewAuthHandler(authSvc)
+
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, depsDevH, ebpfH, edgeH, podRefreshH,
-		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH, scenarioH)
+		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH, scenarioH, authH)
 	r.GET("/api/v1/scoring/blast-graph", blastGraph.Handle)
 	// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
 	// ENV로 ON/OFF, 기본 활성
