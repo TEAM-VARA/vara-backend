@@ -97,10 +97,6 @@ type AffectedPodRef struct {
 	Namespace   string `json:"namespace"`
 	PackageName string `json:"package_name"` // 어떤 패키지 때문에 취약한지
 	Version     string `json:"version"`
-
-	// Blast Radius — 이 Pod이 침해됐을 때 도달 가능한 노드 수/점수 (hop 무제한)
-	BlastRadius int     `json:"blast_radius,omitempty"` // 도달 가능 노드 수
-	BlastScore  float64 `json:"blast_score,omitempty"`
 }
 
 // NewCVEMetadata는 new_cve 카테고리의 metadata 구조입니다.
@@ -113,10 +109,6 @@ type NewCVEMetadata struct {
 	AffectedCount int              `json:"affected_count"`            // 영향받는 고유 Pod 수
 	TopCVE        string           `json:"top_cve,omitempty"`
 	ImageDigests  []string         `json:"image_digests,omitempty"`
-
-	// Blast Radius 요약 — 영향 Pod들 중 최대 확산 범위 (알림 메시지용)
-	MaxBlastRadius  int    `json:"max_blast_radius,omitempty"`   // 가장 크게 번지는 Pod의 도달 수
-	MaxBlastPodName string `json:"max_blast_pod_name,omitempty"` // 그 Pod 이름
 }
 
 // RiskChangeMetadata는 risk_change 카테고리의 metadata 구조입니다.

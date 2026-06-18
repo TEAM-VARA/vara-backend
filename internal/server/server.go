@@ -207,7 +207,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 			notifSvc,
 			finalScoringSvc,
 			globalScoringRepo,
-			edgeSvc,
+			imageGlobalCacheSvc,
 			clusterName,
 			scanInterval,
 		)

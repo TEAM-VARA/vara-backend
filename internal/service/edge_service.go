@@ -337,40 +337,6 @@ func (s *EdgeService) BuildBlastRadius(ctx context.Context, cluster, source stri
 	}, nil
 }
 
-// BlastPodSummary는 한 Pod의 폭발 반경 요약입니다 (알림 enrichment용).
-type BlastPodSummary struct {
-	PodUID         string
-	ReachableCount int     // 도달 가능한 노드 수 (hop 무제한)
-	BlastScore     float64 // 가중 blast score
-}
-
-// BlastSummaryForPods는 여러 Pod의 폭발 반경을 topology 1회 빌드로 한꺼번에 계산합니다.
-//
-// hop 제한 없이 도달 끝까지 BFS. 신규 CVE 알림에 "이 파드 뚫리면 N개로 번짐"을 채우는 용도.
-func (s *EdgeService) BlastSummaryForPods(ctx context.Context, cluster string, podUIDs []string) (map[string]BlastPodSummary, error) {
-	out := make(map[string]BlastPodSummary, len(podUIDs))
-	if len(podUIDs) == 0 {
-		return out, nil
-	}
-
-	topo, err := s.repo.BuildTopology(ctx, cluster)
-	if err != nil {
-		return nil, err
-	}
-	adj := buildAdjacency(topo.Edges)
-
-	const unlimitedHops = 1 << 30 // 사실상 무제한 — 도달 끝까지
-	for _, uid := range podUIDs {
-		reachable := bfsKHop(adj, uid, unlimitedHops)
-		out[uid] = BlastPodSummary{
-			PodUID:         uid,
-			ReachableCount: len(reachable),
-			BlastScore:     computeBlastScore(reachable),
-		}
-	}
-	return out, nil
-}
-
 // computePageRank: gonum의 진짜 PageRank 알고리즘 사용
 func computePageRank(bg *BlastGraph) map[string]float64 {
 	g := bg.GonumGraph()

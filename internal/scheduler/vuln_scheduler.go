@@ -22,7 +22,7 @@ type VulnScheduler struct {
 	notifSvc *service.NotificationService
 	finalSvc *service.FinalScoringService
 	globalRepo *postgres.GlobalScoringRepo
-	edgeSvc  *service.EdgeService // 신규 CVE 알림에 Blast Radius 보강용
+	imageGlobalSvc *service.ImageGlobalCacheService // 신규 CVE 시 영향 이미지 Global 재계산용
 
 	clusterName string
 	interval    time.Duration
@@ -43,7 +43,7 @@ func NewVulnScheduler(
 	notifSvc *service.NotificationService,
 	finalSvc *service.FinalScoringService,
 	globalRepo *postgres.GlobalScoringRepo,
-	edgeSvc *service.EdgeService,
+	imageGlobalSvc *service.ImageGlobalCacheService,
 	clusterName string,
 	interval time.Duration,
 ) *VulnScheduler {
@@ -55,7 +55,7 @@ func NewVulnScheduler(
 		notifSvc:    notifSvc,
 		finalSvc:    finalSvc,
 		globalRepo:  globalRepo,
-		edgeSvc:     edgeSvc,
+		imageGlobalSvc: imageGlobalSvc,
 		clusterName: clusterName,
 		interval:    interval,
 		enabled:     true,
@@ -207,29 +207,6 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		}
 		podRefs, podDisplay, podDigests, podCount := summarizeAffectedPods(affectedPods)
 
-		// Blast Radius 보강 — 영향 Pod이 침해됐을 때 어디까지 번지는지 (topology 1회 빌드)
-		maxBlast, maxBlastPod := 0, ""
-		if s.edgeSvc != nil && len(podRefs) > 0 {
-			uids := make([]string, 0, len(podRefs))
-			for _, p := range podRefs {
-				uids = append(uids, p.PodUID)
-			}
-			if blast, err := s.edgeSvc.BlastSummaryForPods(ctx, s.clusterName, uids); err != nil {
-				log.Printf("scheduler: blast summary failed for %s: %v", vulnID, err)
-			} else {
-				for i := range podRefs {
-					if b, ok := blast[podRefs[i].PodUID]; ok {
-						podRefs[i].BlastRadius = b.ReachableCount
-						podRefs[i].BlastScore = b.BlastScore
-						if b.ReachableCount > maxBlast {
-							maxBlast = b.ReachableCount
-							maxBlastPod = podRefs[i].PodName
-						}
-					}
-				}
-			}
-		}
-
 		// 알림 생성 (24h dedup 자동 적용)
 		meta := notification.NewCVEMetadata{
 			VulnID:          vulnID,
@@ -240,8 +217,6 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 			AffectedCount:   podCount,
 			TopCVE:          vulnID,
 			ImageDigests:    podDigests,
-			MaxBlastRadius:  maxBlast,
-			MaxBlastPodName: maxBlastPod,
 		}
 
 		notif, err := s.notifSvc.CreateNewCVE(ctx, s.clusterName, meta)
@@ -258,7 +233,12 @@ func (s *VulnScheduler) processNewVulns(ctx context.Context, scanStart time.Time
 		log.Printf("scheduler: notification created for %s (id=%d, label=%s, score=%.1f, pods=%d, pkgs=%d)",
 			vulnID, notif.ID, label, score, podCount, len(affected))
 
-		// Risk Scoring 자동 재계산
+		// 영향 이미지 Global 점수 재계산 (force) — 신규 OSV CVE가 ListCVEsByImageDigest의
+		// union으로 이미지 CVE 목록에 들어왔으니, 캐시를 강제 갱신해야 final에 반영된다.
+		// 이게 없으면 image_global_scores가 옛 값이라 final 점수가 안 바뀜.
+		s.recomputeImageGlobals(ctx, podDigests)
+
+		// Risk Scoring 자동 재계산 (위에서 갱신된 image_global_scores를 읽어 final 산출)
 		s.recalculateRiskScores(ctx, affected)
 	}
 
@@ -355,6 +335,25 @@ func normalizeSeverityLabel(label string) string {
 	}
 }
 // recalculateRiskScores는 영향받는 Pod의 final_score를 재계산합니다.
+// recomputeImageGlobals는 주어진 이미지 digest들의 Global 점수를 강제 재계산(force)하여
+// image_global_scores 캐시를 갱신합니다. 신규 OSV CVE가 union을 통해 CVE 목록에 들어왔으니,
+// 이 갱신이 있어야 final 점수 재계산 시 새 CVE가 반영됩니다.
+func (s *VulnScheduler) recomputeImageGlobals(ctx context.Context, imageDigests []string) {
+	if s.imageGlobalSvc == nil || len(imageDigests) == 0 {
+		return
+	}
+	seen := make(map[string]bool, len(imageDigests))
+	for _, digest := range imageDigests {
+		if digest == "" || seen[digest] {
+			continue
+		}
+		seen[digest] = true
+		if _, err := s.imageGlobalSvc.ComputeAndStore(ctx, digest, true); err != nil {
+			log.Printf("scheduler: image global recompute failed for %s: %v", digest, err)
+		}
+	}
+}
+
 func (s *VulnScheduler) recalculateRiskScores(ctx context.Context, affected []sbom.PackageVulnerability) {
 	// affected에 직접 pod_uid가 없음. 영향받는 Pod 식별을 위해 추가 로직 필요.
 	// 일단 PURL → image_digest → pod_uid 매핑은 복잡하므로,
