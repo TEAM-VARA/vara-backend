@@ -92,8 +92,10 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		MaxConcurrent: 1,
 	})
 	exposureSvc := service.NewExposureService(exposureRepo, ebpfRepo, clusterNodesRepo)
+	vlmClient := vlm.NewClient(os.Getenv("VLM_SERVER_URL"), os.Getenv("VLM_MODEL")) // CVSS 결측 보완(AI) + GRC 공용
 	globalScoringSvc := service.NewGlobalScoringService(
 		nvdClient, epssClient, kevClient, exploitDBClient, globalScoringRepo,
+		packageVulnRepo, vlmClient,
 	)
 	attackPathSvc := service.NewAttackPathService(attackPathRepo, ebpfRepo, clusterNodesRepo)
 	localScoringSvc := service.NewLocalScoringService(localScoringRepo)
@@ -118,7 +120,6 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	grcRepo := postgres.NewGRCRepo(pg)
 	rulesetStore := service.NewRulesetStore("rulesets")
 	embClient := embedding.NewClient(os.Getenv("EMBEDDING_SERVER_URL"))
-	vlmClient := vlm.NewClient(os.Getenv("VLM_SERVER_URL"), os.Getenv("VLM_MODEL"))
 	grcSvc := service.NewGRCService(grcRepo, clusterReaderRepo, rulesetStore, embClient, vlmClient)
 	// 이전 컨테이너 재시작으로 중단된 running/queued 체크를 failed로 초기화
 	{

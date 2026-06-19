@@ -58,7 +58,8 @@ func (r *GlobalScoringRepo) Upsert(
 			global_score,
 			cvss_contribution, epss_contribution, ssvc_contribution,
 			computed_at, expires_at,
-			raw_nvd, raw_epss, raw_kev, raw_exploitdb
+			raw_nvd, raw_epss, raw_kev, raw_exploitdb,
+			cvss_imputed, imputation_source, imputation_confidence
 		) VALUES (
 			$1,
 			$2, $3, $4, $5,
@@ -67,7 +68,8 @@ func (r *GlobalScoringRepo) Upsert(
 			$13,
 			$14, $15, $16,
 			NOW(), $17,
-			$18, $19, $20, $21
+			$18, $19, $20, $21,
+			$22, $23, $24
 		)
 		ON CONFLICT (cve_id) DO UPDATE SET
 			cvss_score        = EXCLUDED.cvss_score,
@@ -90,18 +92,22 @@ func (r *GlobalScoringRepo) Upsert(
 			raw_nvd           = EXCLUDED.raw_nvd,
 			raw_epss          = EXCLUDED.raw_epss,
 			raw_kev           = EXCLUDED.raw_kev,
-			raw_exploitdb     = EXCLUDED.raw_exploitdb
+			raw_exploitdb     = EXCLUDED.raw_exploitdb,
+			cvss_imputed          = EXCLUDED.cvss_imputed,
+			imputation_source     = EXCLUDED.imputation_source,
+			imputation_confidence = EXCLUDED.imputation_confidence
 	`
 
 	_, err := r.pool.Exec(ctx, q,
 		score.CVEID,
-		nullableFloat(score.CVSSScore, score.CVSSFound), score.CVSSSeverity, score.CVSSVector, score.CVSSFound,
+		nullableFloat(score.CVSSScore, score.CVSSFound || score.CVSSImputed || score.ImputationSource != ""), score.CVSSSeverity, score.CVSSVector, score.CVSSFound,
 		nullableFloat(score.EPSSScore, score.EPSSFound), nullableFloat(score.EPSSPercentile, score.EPSSFound), score.EPSSFound,
 		score.SSVCExploitation, score.SSVCSource, score.InKEV, score.InExploitDB,
 		score.GlobalScore,
 		score.CVSSContribution, score.EPSSContribution, score.SSVCContribution,
 		expiresAt,
 		rawNVDJSON, rawEPSSJSON, rawKEVJSON, rawExploitDBJSON,
+		score.CVSSImputed, score.ImputationSource, score.ImputationConfidence,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert cve_global_scores %s: %w", score.CVEID, err)
@@ -128,7 +134,8 @@ func (r *GlobalScoringRepo) getByCVEIDInternal(ctx context.Context, cveID string
 			COALESCE(epss_score, 0), COALESCE(epss_percentile, 0), epss_found,
 			ssvc_exploitation, ssvc_source, in_kev, in_exploitdb,
 			global_score, cvss_contribution, epss_contribution, ssvc_contribution,
-			computed_at, expires_at
+			computed_at, expires_at,
+			COALESCE(cvss_imputed, false), COALESCE(imputation_source, ''), COALESCE(imputation_confidence, 0)
 		FROM cve_global_scores
 		WHERE cve_id = $1
 	`
@@ -144,6 +151,7 @@ func (r *GlobalScoringRepo) getByCVEIDInternal(ctx context.Context, cveID string
 		&s.SSVCExploitation, &s.SSVCSource, &s.InKEV, &s.InExploitDB,
 		&s.GlobalScore, &s.CVSSContribution, &s.EPSSContribution, &s.SSVCContribution,
 		&s.ComputedAt, &s.ExpiresAt,
+		&s.CVSSImputed, &s.ImputationSource, &s.ImputationConfidence,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

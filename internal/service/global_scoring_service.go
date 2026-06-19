@@ -12,6 +12,7 @@ import (
 	"github.com/vara/backend/internal/platform/exploitdb"
 	"github.com/vara/backend/internal/platform/kev"
 	"github.com/vara/backend/internal/platform/nvd"
+	"github.com/vara/backend/internal/platform/vlm"
 	"github.com/vara/backend/internal/repository/postgres"
 )
 
@@ -31,27 +32,34 @@ import (
 //   - Vulnrichment 클라이언트 통합 (SSVC 1차 소스)
 //   - Redis 캐싱 (현재는 DB만 사용)
 type GlobalScoringService struct {
-	nvd       *nvd.Client
-	epss      *epss.Client
-	kev       *kev.Client
-	exploitDB *exploitdb.Client
-	repo      *postgres.GlobalScoringRepo
+	nvd         *nvd.Client
+	epss        *epss.Client
+	kev         *kev.Client
+	exploitDB   *exploitdb.Client
+	repo        *postgres.GlobalScoringRepo
+	pkgVulnRepo *postgres.PackageVulnerabilityRepo // CVSS 결측 시 OSV severity/summary 조회
+	vlm         *vlm.Client                        // CVSS 결측 시 AI 추정
 }
 
 // NewGlobalScoringService는 GlobalScoringService를 생성합니다.
+// pkgVulnRepo·vlm은 CVSS 결측 보완(NVD→OSV→AI)용. nil이면 해당 단계 생략.
 func NewGlobalScoringService(
 	nvd *nvd.Client,
 	epss *epss.Client,
 	kev *kev.Client,
 	exploitDB *exploitdb.Client,
 	repo *postgres.GlobalScoringRepo,
+	pkgVulnRepo *postgres.PackageVulnerabilityRepo,
+	vlmClient *vlm.Client,
 ) *GlobalScoringService {
 	return &GlobalScoringService{
-		nvd:       nvd,
-		epss:      epss,
-		kev:       kev,
-		exploitDB: exploitDB,
-		repo:      repo,
+		nvd:         nvd,
+		epss:        epss,
+		kev:         kev,
+		exploitDB:   exploitDB,
+		repo:        repo,
+		pkgVulnRepo: pkgVulnRepo,
+		vlm:         vlmClient,
 	}
 }
 
@@ -275,9 +283,16 @@ func (s *GlobalScoringService) fetchAndCompute(ctx context.Context, cveID string
 	score.SSVCExploitation = exploitation
 	score.SSVCSource = source
 
+	// CVSS 결측 보완: NVD에 없으면 OSV severity → AI 추정 순으로 채운다.
+	// (AI 추정만 confidence 페널티가 점수에 반영됨 — raw 값은 CVSSScore에 보존)
+	cvssForScore := score.CVSSScore
+	if !score.CVSSFound {
+		cvssForScore = s.imputeCVSS(ctx, &score)
+	}
+
 	// Global Score 계산
 	total, cvssC, epssC, ssvcC := scoring.ComputeGlobalScore(
-		score.CVSSScore, score.EPSSScore, ssvcValue,
+		cvssForScore, score.EPSSScore, ssvcValue,
 	)
 	score.GlobalScore = total
 	score.CVSSContribution = cvssC
@@ -289,4 +304,64 @@ func (s *GlobalScoringService) fetchAndCompute(ctx context.Context, cveID string
 	score.ExpiresAt = now.Add(scoring.CacheTTL)
 
 	return score, raw
+}
+
+// imputeCVSS는 NVD에 CVSS가 없을 때 OSV severity → AI 추정 순으로 보완한다.
+// score(raw 값/메타)를 갱신하고, 점수 계산에 쓸 "유효 CVSS"를 반환한다.
+// (AI 추정은 confidence 페널티를 곱한 값을 반환 — raw 추정치는 score.CVSSScore에 보존)
+func (s *GlobalScoringService) imputeCVSS(ctx context.Context, score *scoring.GlobalScore) float64 {
+	if s.pkgVulnRepo == nil {
+		return score.CVSSScore
+	}
+	sev, summary, found, err := s.pkgVulnRepo.GetSeveritySummaryByVulnID(ctx, score.CVEID)
+	if err != nil {
+		fmt.Printf("warn: osv severity lookup %s: %v\n", score.CVEID, err)
+	}
+
+	// 1) OSV severity_score (실제 점수 — '추정' 아님, 페널티 없음)
+	if found && sev > 0 {
+		score.CVSSScore = sev
+		score.CVSSSeverity = severityLabelFromScore(sev)
+		score.CVSSImputed = false
+		score.ImputationSource = "osv"
+		score.ImputationConfidence = 1.0
+		fmt.Printf("info: cvss imputed from OSV for %s = %.1f\n", score.CVEID, sev)
+		return sev
+	}
+
+	// 2) AI 추정 (OSV summary를 설명으로). confidence 페널티는 점수에만 적용.
+	if s.vlm != nil && s.vlm.Available() && summary != "" {
+		// Qwen 7B는 CPU에서 1회 추론 ~4분 → 단일 보완은 수용, 대량은 좁은 게이팅으로 제한.
+		// (추후 Claude API 교체 시 이 지연 사라짐 — todo-llm-claude-api)
+		aiCtx, cancel := context.WithTimeout(ctx, 280*time.Second)
+		est, _ := s.vlm.EstimateCVSS(aiCtx, score.CVEID, summary)
+		cancel()
+		if est != nil && est.CVSS > 0 {
+			score.CVSSScore = est.CVSS
+			score.CVSSSeverity = severityLabelFromScore(est.CVSS)
+			score.CVSSImputed = true
+			score.ImputationSource = "ai"
+			score.ImputationConfidence = est.Confidence
+			fmt.Printf("info: cvss imputed by AI for %s = %.1f (conf=%.2f)\n", score.CVEID, est.CVSS, est.Confidence)
+			return est.CVSS * est.Confidence // 점수엔 confidence 페널티
+		}
+	}
+
+	// 보완 실패 → CVSS 기여 0
+	return 0
+}
+
+// severityLabelFromScore는 CVSS 점수를 NVD 스타일 라벨로 변환합니다.
+func severityLabelFromScore(s float64) string {
+	switch {
+	case s >= 9.0:
+		return "CRITICAL"
+	case s >= 7.0:
+		return "HIGH"
+	case s >= 4.0:
+		return "MEDIUM"
+	case s > 0:
+		return "LOW"
+	}
+	return ""
 }

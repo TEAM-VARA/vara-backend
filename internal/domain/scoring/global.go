@@ -58,6 +58,13 @@ type GlobalScore struct {
 	CVSSVector   string  `json:"cvss_vector,omitempty"`
 	CVSSFound    bool    `json:"cvss_found"`
 
+	// CVSS 결측 보완 (NVD에 없을 때 OSV/AI로 채움)
+	//   imputation_source: "" (NVD 직접) | "osv" (OSV severity) | "ai" (LLM 추정)
+	//   ai일 때만 confidence 페널티가 점수에 적용됨
+	CVSSImputed          bool    `json:"cvss_imputed"`
+	ImputationSource     string  `json:"imputation_source,omitempty"`
+	ImputationConfidence float64 `json:"imputation_confidence,omitempty"`
+
 	// EPSS (FIRST.org)
 	EPSSScore      float64 `json:"epss_score"`
 	EPSSPercentile float64 `json:"epss_percentile"`
