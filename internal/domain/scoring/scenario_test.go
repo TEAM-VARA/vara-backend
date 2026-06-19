@@ -83,14 +83,25 @@ func TestBuildPodScenario_BlastOutgoing(t *testing.T) {
 	for _, f := range r.Outgoing {
 		byMSTA[f.MSTA] = f
 	}
-	// 3개 technique으로 묶여야 함: 9034(network+portforward 병합)·9006(exec)·9018(host).
-	if len(r.Outgoing) != 3 {
-		t.Fatalf("outgoing = %d, want 3 (9034/9006/9018): %+v", len(r.Outgoing), r.Outgoing)
+	// blast 3 technique: 9034(network+portforward 병합)·9006(exec)·9018(host)
+	// + SA 능력 기반 9016(CanExec=true → blast 유무와 무관하게 항상 평가). 총 4건.
+	if len(r.Outgoing) != 4 {
+		t.Fatalf("outgoing = %d, want 4 (9034/9006/9018/9016): %+v", len(r.Outgoing), r.Outgoing)
 	}
-	for _, want := range []string{"MS-TA9034", "MS-TA9006", "MS-TA9018"} {
+	for _, want := range []string{"MS-TA9034", "MS-TA9006", "MS-TA9018", "MS-TA9016"} {
 		if _, ok := byMSTA[want]; !ok {
 			t.Errorf("outgoing technique %s 누락", want)
 		}
+	}
+	// 9006은 blast(rbac-exec)에서 1번만 — 능력 기반 9006과 중복 방출되면 안 된다.
+	count9006 := 0
+	for _, f := range r.Outgoing {
+		if f.MSTA == "MS-TA9006" {
+			count9006++
+		}
+	}
+	if count9006 != 1 {
+		t.Errorf("9006 중복 방출: %d건 (blast + 능력 dedup 실패)", count9006)
 	}
 
 	// 9034: blast 줄글(직접 도달)이어야 하고, 휴리스틱 줄글(NetworkPolicy 없음)이면 안 된다.
@@ -116,6 +127,36 @@ func TestBuildPodScenario_BlastOutgoing(t *testing.T) {
 	// 9006(rbac exec)은 도달 대상 이름을 포함한다.
 	if !strings.Contains(byMSTA["MS-TA9006"].Scenario, "admin-pod") {
 		t.Errorf("9006 타겟 누락: %q", byMSTA["MS-TA9006"].Scenario)
+	}
+}
+
+// rbac이 채널 경합(win_channel=host)에서 졌지만 p_rbac>0이면, 그 타겟이 9006(exec)에 합쳐진다.
+// (host로 가려진 rbac 측면이동 권한을 시나리오에서 복원)
+func TestBuildPodScenario_BlastRBACHiddenByHost(t *testing.T) {
+	in := ScenarioInput{
+		PodName: "p", PodUID: "u", Namespace: "prod", ServiceAccount: "svc-sa",
+		ReachEdges: []BlastEdge{
+			// host가 이긴 엣지(privileged 같은 노드)지만 rbac exec 권한도 있어 p_rbac=1.0.
+			{Channel: "host", Reason: "host: escape(privileged/hostPath) + same node n1",
+				TargetName: "victim-pod", RBACProb: 1.0},
+		},
+	}
+	r := BuildPodScenario(in)
+
+	byMSTA := map[string]ScenarioFinding{}
+	for _, f := range r.Outgoing {
+		byMSTA[f.MSTA] = f
+	}
+	// host 엣지 → 9018, 가려진 rbac → 9006(victim-pod 합쳐짐)
+	if _, ok := byMSTA["MS-TA9018"]; !ok {
+		t.Errorf("host 엣지 9018 누락")
+	}
+	ex, ok := byMSTA["MS-TA9006"]
+	if !ok {
+		t.Fatalf("가려진 rbac이 9006으로 복원되지 않음: %+v", r.Outgoing)
+	}
+	if !strings.Contains(ex.Scenario, "victim-pod") {
+		t.Errorf("9006에 rbac 타겟 누락: %q", ex.Scenario)
 	}
 }
 

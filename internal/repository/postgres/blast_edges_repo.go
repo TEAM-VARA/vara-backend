@@ -180,9 +180,11 @@ type BlastOutEdge struct {
 	TargetPodUID    string
 	TargetName      string
 	TargetNamespace string
-	WinChannel      string // host | rbac | network
+	WinChannel      string // host | rbac | network (= max 채널)
 	Reason          string
 	PEdge           float64
+	PRBAC           float64 // rbac 채널 확률. win_channel이 rbac이 아니어도(host/net에 가려져도)
+	//                         >0이면 측면이동 가능 RBAC 권한이 실재 — 시나리오 9006에 합친다.
 }
 
 // GetOutgoingBySource — 한 source pod에서 나가는 전파 엣지를 최신 snapshot 기준으로 읽는다.
@@ -191,7 +193,7 @@ type BlastOutEdge struct {
 func (r *BlastEdgesRepo) GetOutgoingBySource(ctx context.Context, cluster, sourcePodUID string) ([]BlastOutEdge, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT target_pod_uid, COALESCE(target_name, ''), COALESCE(target_namespace, ''),
-		       win_channel, COALESCE(reason, ''), p_edge
+		       win_channel, COALESCE(reason, ''), p_edge, COALESCE(p_rbac, 0)
 		FROM blast_edges
 		WHERE cluster_name = $1 AND source_pod_uid = $2
 		  AND snapshot_at = (
@@ -209,7 +211,7 @@ func (r *BlastEdgesRepo) GetOutgoingBySource(ctx context.Context, cluster, sourc
 	for rows.Next() {
 		var e BlastOutEdge
 		if err := rows.Scan(&e.TargetPodUID, &e.TargetName, &e.TargetNamespace,
-			&e.WinChannel, &e.Reason, &e.PEdge); err != nil {
+			&e.WinChannel, &e.Reason, &e.PEdge, &e.PRBAC); err != nil {
 			return nil, fmt.Errorf("blast: scan outgoing edge: %w", err)
 		}
 		out = append(out, e)

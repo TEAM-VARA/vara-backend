@@ -10,18 +10,20 @@ import (
 // Channel(win_channel)·Reason은 blast 모델이 이미 계산·분류한 값이고,
 // TargetName은 도달 대상 Pod의 실제 이름이다.
 type BlastEdge struct {
-	Channel    string // host | rbac | network
-	Reason     string // 드릴다운 설명 (예: "rbac: exec/attach/ephemeral ns=dev")
-	TargetName string // 도달 대상 Pod 이름
+	Channel    string  // host | rbac | network (= win_channel, max 채널)
+	Reason     string  // 드릴다운 설명 (예: "rbac: exec/attach/ephemeral ns=dev")
+	TargetName string  // 도달 대상 Pod 이름
+	RBACProb   float64 // p_rbac. win_channel이 host/network라도 >0이면 rbac 측면이동 권한이 실재.
 }
 
 // ScenarioInput — pod 1개의 "이미 수집되는" 신호 모음.
 //
 // 채워 넣는 소스 (scenario_handler.go 참고):
-//   MOUNT  : cluster_pods.containers(privileged)·volumes(type=hostPath)·host_network·host_pid
-//   RBAC   : rbacchain effective permissions (verb·resource)
-//   NET    : attack_path_scores.NetworkDetails(isolation) + exposure_scores + edges(network)
-//   VULN   : sbom/global_image + platform/kev + platform/epss + CVSS 벡터
+//
+//	MOUNT  : cluster_pods.containers(privileged)·volumes(type=hostPath)·host_network·host_pid
+//	RBAC   : rbacchain effective permissions (verb·resource)
+//	NET    : attack_path_scores.NetworkDetails(isolation) + exposure_scores + edges(network)
+//	VULN   : sbom/global_image + platform/kev + platform/epss + CVSS 벡터
 type ScenarioInput struct {
 	// 식별
 	PodName        string
@@ -52,6 +54,7 @@ type ScenarioInput struct {
 	CreateWorkloadPerms string
 	WriteWebhookPerms   string
 	DeleteEventsPerms   string
+	ExecPerms           string // 측면이동(exec into container) 근거 — 예: "create pods/exec, get pods/attach"
 
 	// NET
 	NetworkIsolation string // none|egress_only|both|deny_all|unknown
@@ -163,41 +166,46 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 	}
 
 	// ───────── 전파 (outgoing) ─────────
-	// blast_edges가 있으면 그 directed 전파 엣지(채널·이유·실제 타겟)로 outgoing을 구성하고,
-	// 없으면 기존 휴리스틱(NetworkIsolation/CanExec/...)으로 폴백한다.
+	// 네트워크 '도달'은 blast_edges(directed)가 있으면 그걸로(채널·이유·실제 타겟), 없으면
+	// 휴리스틱(9034)으로 구성한다. 반면 SA '능력' 기반 전파(exec/워크로드/토큰)는 네트워크
+	// 토폴로지와 무관하므로 blast 유무와 상관없이 항상 평가하되, blast가 이미 같은 technique을
+	// 낸 경우(예: rbac-exec 엣지→9006)에만 중복을 피한다.
+	emitted := map[string]bool{}
 	if len(in.ReachEdges) > 0 {
-		fs = append(fs, buildOutgoingFromBlast(in.ReachEdges, sa)...)
-	} else {
-		if in.NetworkIsolation == "none" || in.NetworkIsolation == "" || in.NetworkIsolation == "unknown" {
-			reach := ""
-			if len(in.ReachablePods) > 0 {
-				reach = fmt.Sprintf("(예: %s)", strings.Join(trimN(in.ReachablePods, 3), ", "))
-			}
-			conf := "high"
-			caveat := ""
-			if in.NetworkIsolation == "" || in.NetworkIsolation == "unknown" {
-				conf, caveat = "heuristic", "NetworkPolicy 격리 상태 미상 — 보수적으로 도달 가능 가정"
-			}
-			fs = append(fs, mkFinding("MS-TA9034", DirOutgoing, TacticLateral,
-				fmt.Sprintf("이 Pod을 막는 NetworkPolicy가 없어, 공격자가 네트워크로 옆 Pod%s까지 옮겨갈 수 있습니다.", reach),
-				conf, caveat))
+		for _, f := range buildOutgoingFromBlast(in.ReachEdges, sa, in.ExecPerms) {
+			emitted[f.MSTA] = true
+			fs = append(fs, f)
 		}
-		if in.CanExec {
-			fs = append(fs, mkFinding("MS-TA9006", DirOutgoing, TacticExecution,
-				fmt.Sprintf("%s에 pods/exec 권한이 있어, 공격자가 다른 컨테이너 안으로 들어가 명령을 실행할 수 있습니다.", sa),
-				"high", ""))
+	} else if in.NetworkIsolation == "none" || in.NetworkIsolation == "" || in.NetworkIsolation == "unknown" {
+		reach := ""
+		if len(in.ReachablePods) > 0 {
+			reach = fmt.Sprintf("(예: %s)", strings.Join(trimN(in.ReachablePods, 3), ", "))
 		}
-		if in.CanCreateWorkload {
-			fs = append(fs, mkFinding("MS-TA9008", DirOutgoing, TacticExecution,
-				fmt.Sprintf("%s에 워크로드 생성 권한이 있어, 공격자가 새 컨테이너를 띄워 임의 코드를 실행할 수 있습니다.", sa),
-				"high", in.CreateWorkloadPerms))
+		conf := "high"
+		caveat := ""
+		if in.NetworkIsolation == "" || in.NetworkIsolation == "unknown" {
+			conf, caveat = "heuristic", "NetworkPolicy 격리 상태 미상 — 보수적으로 도달 가능 가정"
 		}
-		// 9016: SA 토큰이 과대권한이면 측면 이동 통로
-		if in.IsClusterAdmin || in.CanListSecrets || in.CanCreateWorkload || in.CanExec {
-			fs = append(fs, mkFinding("MS-TA9016", DirOutgoing, TacticLateral,
-				fmt.Sprintf("%s 토큰이 API 권한을 갖고 마운트돼 있어, 공격자가 그 토큰으로 API 서버에 인증해 다른 자원으로 이동할 수 있습니다.", sa),
-				"heuristic", "automountServiceAccountToken 기본값(true) 가정"))
-		}
+		fs = append(fs, mkFinding("MS-TA9034", DirOutgoing, TacticLateral,
+			fmt.Sprintf("이 Pod을 막는 NetworkPolicy가 없어, 공격자가 네트워크로 옆 Pod%s까지 옮겨갈 수 있습니다.", reach),
+			conf, caveat))
+	}
+	// SA 능력 기반 전파 — blast 유무와 무관하게 항상 평가(중복 technique만 회피).
+	if in.CanExec && !emitted["MS-TA9006"] {
+		fs = append(fs, mkFinding("MS-TA9006", DirOutgoing, TacticExecution,
+			fmt.Sprintf("%s에 pods/exec 권한이 있어, 공격자가 다른 컨테이너 안으로 들어가 명령을 실행할 수 있습니다.", sa),
+			"high", in.ExecPerms))
+	}
+	if in.CanCreateWorkload && !emitted["MS-TA9008"] {
+		fs = append(fs, mkFinding("MS-TA9008", DirOutgoing, TacticExecution,
+			fmt.Sprintf("%s에 워크로드 생성 권한이 있어, 공격자가 새 컨테이너를 띄워 임의 코드를 실행할 수 있습니다.", sa),
+			"high", in.CreateWorkloadPerms))
+	}
+	// 9016: SA 토큰이 과대권한이면 측면 이동 통로
+	if (in.IsClusterAdmin || in.CanListSecrets || in.CanCreateWorkload || in.CanExec) && !emitted["MS-TA9016"] {
+		fs = append(fs, mkFinding("MS-TA9016", DirOutgoing, TacticLateral,
+			fmt.Sprintf("%s 토큰이 API 권한을 갖고 마운트돼 있어, 공격자가 그 토큰으로 API 서버에 인증해 다른 자원으로 이동할 수 있습니다.", sa),
+			"heuristic", "automountServiceAccountToken 기본값(true) 가정"))
 	}
 
 	// ───────── 분류 + 줄글 조립 ─────────
@@ -274,7 +282,7 @@ func blastSentence(msta, sa, targets string) string {
 //
 // 같은 technique으로 매핑되는 엣지는 1건으로 묶고, 도달 대상 이름과 대표 reason(첫 엣지)을 모은다.
 // 입력은 호출부에서 p_edge desc 정렬되어 들어오므로 첫 reason이 가장 강한 근거다.
-func buildOutgoingFromBlast(edges []BlastEdge, sa string) []ScenarioFinding {
+func buildOutgoingFromBlast(edges []BlastEdge, sa, execPerms string) []ScenarioFinding {
 	type agg struct {
 		tactic  string
 		reason  string   // 대표 근거 (첫 엣지)
@@ -283,21 +291,40 @@ func buildOutgoingFromBlast(edges []BlastEdge, sa string) []ScenarioFinding {
 	}
 	order := []string{}
 	byTech := map[string]*agg{}
-	for _, e := range edges {
-		msta, tactic, ok := blastChannelTech(e.Channel, e.Reason)
-		if !ok {
-			continue
-		}
+	addTarget := func(msta, tactic, reason, target string) {
 		a := byTech[msta]
 		if a == nil {
-			a = &agg{tactic: tactic, reason: e.Reason, seen: map[string]bool{}}
+			a = &agg{tactic: tactic, reason: reason, seen: map[string]bool{}}
 			byTech[msta] = a
 			order = append(order, msta)
 		}
-		if e.TargetName != "" && !a.seen[e.TargetName] {
-			a.seen[e.TargetName] = true
-			a.targets = append(a.targets, e.TargetName)
+		if target != "" && !a.seen[target] {
+			a.seen[target] = true
+			a.targets = append(a.targets, target)
 		}
+	}
+
+	// 1) win_channel(= max 채널) 기준 매핑: network/portforward→9034, exec/nodes-proxy→9006, host→9018.
+	for _, e := range edges {
+		if msta, tactic, ok := blastChannelTech(e.Channel, e.Reason); ok {
+			addTarget(msta, tactic, e.Reason, e.TargetName)
+		}
+	}
+
+	// 2) rbac 채널이 win_channel 경합에서 host/network에 가려졌더라도(p_rbac>0) 측면이동 가능
+	//    RBAC 권한은 실재하므로, 그 타겟을 9006(exec into container)에 합친다.
+	//    win_channel=rbac 케이스는 (1)에서 이미 9006(exec)/9034(portforward)로 처리됐고,
+	//    여기서는 host/network가 이긴 엣지의 가려진 rbac 도달성을 복원한다. 타겟은 (1)과 dedup.
+	latentReason := "rbac: 측면이동 가능 권한(exec/attach 등) — 채널 경합에서 host/network에 가려짐"
+	if execPerms != "" {
+		// rbacchain에서 읽은 실제 권한을 부기 (가려진 채널이라 더 구체적으로).
+		latentReason = execPerms + " (채널 경합에서 host/network에 가려짐)"
+	}
+	for _, e := range edges {
+		if e.RBACProb <= 0 || e.Channel == "rbac" {
+			continue // rbac이 이미 이긴 엣지는 (1)에서 처리(portforward=9034 포함) — 중복 회피
+		}
+		addTarget("MS-TA9006", TacticExecution, latentReason, e.TargetName)
 	}
 
 	out := make([]ScenarioFinding, 0, len(order))

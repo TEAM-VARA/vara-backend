@@ -96,6 +96,7 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, cluster, podUID strin
 					Channel:    e.WinChannel,
 					Reason:     e.Reason,
 					TargetName: e.TargetName,
+					RBACProb:   e.PRBAC,
 				})
 			}
 		}
@@ -134,6 +135,10 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, cluster, podUID strin
 			in.CreateWorkloadPerms = joinPermsCap(ev.workloadPerms, 3)
 			in.WriteWebhookPerms = joinPermsCap(ev.webhookPerms, 3)
 			in.DeleteEventsPerms = joinPermsCap(ev.eventsPerms, 3)
+			// exec은 attack_path(coarse)보다 정밀 — rbacchain이 잡으면 켜고 근거 권한을 부기.
+			// (nodes/proxy 등 attack_path가 놓치는 측면이동 권한까지 포착)
+			in.CanExec = in.CanExec || ev.canExec
+			in.ExecPerms = joinPermsCap(ev.execPerms, 3)
 		}
 	}
 
@@ -159,7 +164,8 @@ func (s *ScenarioService) enrichCVE(ctx context.Context, in *scoring.ScenarioInp
 }
 
 // parseCVSSVector — CVSS v3.1/v4.0 벡터 문자열에서 시나리오 판정에 쓰는 플래그 추출.
-//   remote(AV:N) / availability(A:H|VA:H) / confidentiality(C:H|VC:H) / scopeChanged(S:C 또는 v4.0 후속시스템 영향)
+//
+//	remote(AV:N) / availability(A:H|VA:H) / confidentiality(C:H|VC:H) / scopeChanged(S:C 또는 v4.0 후속시스템 영향)
 //
 // "/" 로 토큰 분리 후 키:값 정확 매칭 → "AC:H"가 "C:H"로 오인되는 substring 버그 방지.
 func parseCVSSVector(vec string) (remote, availability, confidentiality, scopeChanged bool) {
@@ -232,8 +238,17 @@ var webhookResources = map[string]bool{
 // rbacEvidence — capability별 플래그 + 그 판정의 근거가 된 실제 verb/resource(중복 제거).
 // 근거는 finding의 caveat에 부기되어 심사 증적성을 높인다.
 type rbacEvidence struct {
-	canCreateWorkload, canWriteWebhook, canDeleteEvents bool
-	workloadPerms, webhookPerms, eventsPerms            []string
+	canCreateWorkload, canWriteWebhook, canDeleteEvents, canExec bool
+	workloadPerms, webhookPerms, eventsPerms, execPerms          []string
+}
+
+// lateralMoveResources — 다른 컨테이너로 들어가 명령 실행(측면이동, 9006)이 가능한 자원.
+// nodes/proxy는 kubelet API로 exec 가능. portforward는 포트 접근(9034)이라 제외.
+var lateralMoveResources = map[string]bool{
+	"pods/exec":                true,
+	"pods/attach":              true,
+	"pods/ephemeralcontainers": true,
+	"nodes/proxy":              true,
 }
 
 // deriveRBACFlags — SA 최종 권한 집합에서 시나리오용 정밀 플래그 3개 + 근거 권한을 도출한다.
@@ -241,7 +256,7 @@ type rbacEvidence struct {
 func deriveRBACFlags(perms []postgres.PermissionOut) rbacEvidence {
 	writeVerbs := map[string]bool{"create": true, "update": true, "patch": true}
 	var ev rbacEvidence
-	wlSeen, whSeen, evSeen := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	wlSeen, whSeen, evSeen, exSeen := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	addOnce := func(seen map[string]bool, list *[]string, repr string) {
 		if !seen[repr] {
 			seen[repr] = true
@@ -263,6 +278,11 @@ func deriveRBACFlags(perms []postgres.PermissionOut) rbacEvidence {
 		if (p.Verb == "delete" || verbAll) && (resAll || p.Resource == "events") {
 			ev.canDeleteEvents = true
 			addOnce(evSeen, &ev.eventsPerms, repr)
+		}
+		// exec/attach/ephemeral/nodes-proxy(또는 wildcard) → 측면이동(9006) 근거.
+		if resAll || lateralMoveResources[p.Resource] {
+			ev.canExec = true
+			addOnce(exSeen, &ev.execPerms, repr)
 		}
 	}
 	return ev
