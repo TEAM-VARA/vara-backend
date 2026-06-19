@@ -45,6 +45,7 @@ type GraphNode struct {
 	Label     string `json:"label"`     // 표시 이름 (없으면 uid 앞 8자)
 	Namespace string `json:"namespace"` // 4계층 띠 배치 등에 사용
 	ReachProb float64 `json:"reach_prob"` // A→이 노드 도달확률 (0~1, A 자신=1.0)
+	ChokeScore int `json:"choke_score"`// 이 노드 제거 시 A의 blast 감소량
 }
 
 
@@ -210,6 +211,12 @@ func (h *BlastGraphHandler) Handle(c *gin.Context) {
 
 	result := BuildBlastGraphFromPod(edges, pod)
 	result.TotalRisk = ComputeCriticalityMC(edges, pod, 5000, rand.New(rand.NewSource(42)))
+
+	chokeScores := ComputeChokeScores(edges, pod)
+	for i := range result.Nodes {
+		result.Nodes[i].ChokeScore = chokeScores[result.Nodes[i].ID]
+	}
+	
 	c.JSON(200, result)
 }
 
