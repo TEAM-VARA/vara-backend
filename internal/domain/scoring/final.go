@@ -202,8 +202,10 @@ func ComputeFinalScore(globalImage, exposure, toxic float64) (final, globalContr
 		toxic = FinalDefaultToxicMultiplier
 	}
 
-	globalContrib = globalImage * FinalWeightGlobal
-	exposureContrib = exposure * FinalWeightExposure
+	// 가중치는 전역 설정(CurrentWeights)에서 읽는다. 미설정 시 기본값(0.7/0.3).
+	w := CurrentWeights()
+	globalContrib = globalImage * w.FinalGlobal
+	exposureContrib = exposure * w.FinalExposure
 
 	weightedAvg := globalContrib + exposureContrib
 	final = weightedAvg * toxic

@@ -187,17 +187,24 @@ func EvaluateToxic(signals ToxicSignals) (multiplier float64, matched []MatchedR
 	multiplier = 1.0
 	matched = []MatchedRule{}
 
+	// 배수는 룰 고정값 대신 전역 설정(Severity별)에서 읽는다. 미설정 시 기본값(1.5/1.3/1.2).
+	w := CurrentWeights()
+
 	for _, rule := range AllToxicRules {
 		if rule.Match(signals) {
+			m := w.ToxicMultiplierForSeverity(rule.Severity)
+			if m < 1.0 {
+				m = rule.Multiplier // 안전장치: 설정에 없는 Severity는 룰 고정값
+			}
 			matched = append(matched, MatchedRule{
 				RuleID:     rule.RuleID,
 				Name:       rule.Name,
 				Severity:   rule.Severity,
-				Multiplier: rule.Multiplier,
+				Multiplier: m,
 				Reason:     rule.Reason(signals),
 			})
-			if rule.Multiplier > multiplier {
-				multiplier = rule.Multiplier
+			if m > multiplier {
+				multiplier = m
 			}
 		}
 	}

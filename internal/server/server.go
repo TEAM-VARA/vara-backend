@@ -199,6 +199,20 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		vulnClusterName, vulnScanInterval,
 	)
 
+	// ── Risk Scoring 가중치 (전역 단일 설정) ──
+	scoringWeightsRepo := postgres.NewScoringWeightsRepo(pg)
+	weightsSvc := service.NewWeightsService(scoringWeightsRepo, finalScoringSvc, toxicSvc, vulnClusterName)
+	weightsH := handler.NewWeightsHandler(weightsSvc)
+	{
+		loadCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := weightsSvc.LoadIntoRuntime(loadCtx); err != nil {
+			fmt.Printf("warn: load scoring weights failed (using defaults): %v\n", err)
+		} else {
+			log.Printf("server: scoring weights loaded into runtime")
+		}
+		cancel()
+	}
+
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, depsDevH, ebpfH, edgeH, podRefreshH,
@@ -219,6 +233,10 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		}
 		c.JSON(http.StatusOK, res)
 	})
+
+	// ── Risk Scoring 가중치 조회/설정 (전역 단일 설정) ──
+	r.GET("/api/v1/scoring/weights", weightsH.Get)
+	r.PUT("/api/v1/scoring/weights", weightsH.Update)
 
 	// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
 	// ENV로 ON/OFF, 기본 활성
