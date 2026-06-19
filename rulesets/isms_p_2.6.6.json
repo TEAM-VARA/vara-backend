@@ -24,8 +24,10 @@
       "rule_id": "R-2.6.6-01",
       "name": "Security Group 원격 관리 포트(SSH·RDP) 전체 개방 (원격접근 통제)",
       "judgment_source": "aws_api",
-      "extraction_method": "manual",
+      "extraction_method": "api",
       "verdict_type": "potential_finding",
+      "risk_scope": "account",
+      "fanout": "nodes_pods",
       "manual_meta": {
         "target_resource": "AWS::EC2::SecurityGroup",
         "required_data": [
@@ -81,6 +83,13 @@
           "url": "https://www.cisecurity.org/benchmark/amazon_web_services"
         },
         "action": "Security Group에서 SSH(22)·RDP(3389)의 0.0.0.0/0 인바운드를 제거하고 SSM/Bastion/VPN 경유로 전환한다."
+      },
+      "verdict_policy": {
+        "pass": "충족",
+        "fail": "미충족",
+        "no_uncertain_fallback": true,
+        "_supersedes": "verdict_type:potential_finding",
+        "_decision": "SSH(22)·RDP(3389)에 0.0.0.0/0 인바운드 개방 탐지 시 미충족 확정."
       }
     },
     {

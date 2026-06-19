@@ -58,6 +58,14 @@
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
+      "verdict_policy": {
+        "na": "해당없음",
+        "pass": "충족",
+        "fail": "미충족",
+        "alternative_control_satisfies": true,
+        "no_uncertain_fallback": true,
+        "_decision": "Ingress 없으면 해당없음; Ingress 존재 시 인증·대체수단(Bastion/VPN/SSM) 미탐지면 미충족 확정."
+      },
       "manual_check_output": {
         "applies_when": "fail",
         "alternative_controls": [

@@ -62,7 +62,7 @@
       "rule_id": "R-2.11.3-02",
       "name": "운영 환경 Shell 활동 관찰 (eBPF)",
       "judgment_source": "k8s_api",
-      "extraction_method": "manual",
+      "extraction_method": "api",
       "verdict_type": "potential_finding",
       "manual_meta": {
         "target_resource": "eBPF process events",

@@ -101,6 +101,13 @@
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
+      "verdict_policy": {
+        "pass": "충족",
+        "fail": "미충족",
+        "alternative_control_satisfies": true,
+        "no_uncertain_fallback": true,
+        "_decision": "default-deny NetworkPolicy 미탐지 AND 대체통제(alternative_controls: VPC SG·Mesh 등) 미탐지 시 확인불가 없이 미충족 확정. 대체통제 탐지 시 충족."
+      },
       "manual_check_output": {
         "applies_when": "always",
         "absorbed_from": "F-2.6.1-01",
@@ -134,6 +141,8 @@
       "name": "CNI NetworkPolicy 강제 지원 점검",
       "judgment_source": "k8s_api",
       "extraction_method": "api",
+      "risk_scope": "cluster",
+      "fanout": "all_pods_in_cluster",
       "supported_cni_indicators": [
         {
           "name": "calico",
@@ -187,6 +196,13 @@
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
+      "verdict_policy": {
+        "pass": "충족",
+        "fail": "미충족",
+        "alternative_control_satisfies": true,
+        "no_uncertain_fallback": true,
+        "_decision": "정책 강제 가능 CNI 미탐지 AND 대체통제 미탐지 시 미충족 확정."
+      },
       "manual_check_output": {
         "applies_when": "always",
         "absorbed_from": "F-2.6.1-02",
@@ -234,6 +250,13 @@
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
       },
+      "verdict_policy": {
+        "pass": "충족",
+        "fail": "미충족",
+        "alternative_control_satisfies": true,
+        "no_uncertain_fallback": true,
+        "_decision": "cross-namespace egress 통제 미탐지 AND 대체통제 미탐지 시 미충족 확정."
+      },
       "manual_check_output": {
         "applies_when": "always",
         "absorbed_from": "F-2.6.1-03",
@@ -258,8 +281,10 @@
       "rule_id": "R-2.6.1-SG01",
       "name": "Security Group 인바운드 전체 개방 (영역 분리·비인가 접근)",
       "judgment_source": "aws_api",
-      "extraction_method": "manual",
+      "extraction_method": "api",
       "verdict_type": "potential_finding",
+      "risk_scope": "account",
+      "fanout": "nodes_pods",
       "manual_meta": {
         "target_resource": "AWS::EC2::SecurityGroup",
         "required_data": [

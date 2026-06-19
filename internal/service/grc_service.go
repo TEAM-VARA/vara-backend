@@ -458,6 +458,9 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 			def := ruleDef[grr.RuleID]
 			if def != nil {
 				enrichManualOutput(&grr, def)
+				// cluster/account 스코프 룰(CNI·etcd 등)은 pod마다 평가되므로 canonical_id를
+				// 찍어 클러스터 합산 시 1회로 dedup + pod에 fan-out되게 한다.
+				stampInheritedScope(&grr, def, req.ClusterName)
 			}
 			// 통일된 강등 정책: 미준수 && (대체통제 || non-direct 매핑) → NEEDS_REVIEW.
 			applyReviewDemotion(&grr, def)
@@ -583,11 +586,20 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 			},
 		}
 
+		// 점수 dedup: 같은 canonical_id(cluster/account 결함이 여러 pod·자산에 투영된 경우)는 1회만 계상.
+		// canonical_id가 빈 결과(레거시/미태깅)는 각각 distinct로 취급해 기존 동작 보존.
+		seenCanonical := map[string]bool{}
 		for _, rr := range it.ruleResults {
 			// Stage 2: 리포트형 룰(LayerReport)은 합격률 분모에서 제외.
 			// 인벤토리/방증 출력이므로 충족/미충족 어디에도 포함하지 않는다.
 			if rr.Layer == grc.LayerReport {
 				continue
+			}
+			if rr.CanonicalID != "" {
+				if seenCanonical[rr.CanonicalID] {
+					continue // 동일 결함 재계상 방지 (blast-radius는 표시용, count는 1)
+				}
+				seenCanonical[rr.CanonicalID] = true
 			}
 			switch rr.Verdict {
 			case "준수", grc.VerdictMET:

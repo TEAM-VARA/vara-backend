@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+
+	"github.com/vara/backend/internal/domain/grc"
 )
 
 // ManualCheckOutput is attached to R-rules that absorbed a former F-finding rule (Stage 2).
@@ -85,6 +88,12 @@ type Rule struct {
 	JudgmentSource   string                      `json:"judgment_source"`   // "text_extraction" | "k8s_api" | "k8s_native" | "evidence_upload"
 	ExtractionMethod string                      `json:"extraction_method"` // "rag" | "api" | "manual"
 
+	// ── 결함 귀속 스코프 (cluster/account fan-out + dedup) ──
+	// risk_scope: 결함의 평가/점수 귀속 단위. fanout: 표시 시 영향 pod 투영 범위.
+	// 미지정 시 RuleRiskScope()가 rule_id로 추론(SG/aws→account, 그 외 pod).
+	RiskScope string `json:"risk_scope,omitempty"` // pod | pod_chain | cluster | account
+	Fanout    string `json:"fanout,omitempty"`     // self | asset_consumers | all_pods_in_cluster | all_pods_in_account | nodes_pods
+
 	// 검색/식별 키워드 (text_extraction 룰에서 사용)
 	Keywords             []string                    `json:"keywords,omitempty"`
 	ComplianceIndicators []Indicator                 `json:"compliance_indicators,omitempty"`
@@ -125,6 +134,33 @@ type Rule struct {
 
 // IsManual returns true if this rule requires manual judgment (F-finding).
 func (r *Rule) IsManual() bool { return r.ExtractionMethod == "manual" }
+
+// RiskScopeOf returns the rule's risk_scope, inferring a default from rule_id when
+// unset: SG/aws_api rules → account, others → pod (pod_chain은 명시 태깅 필요).
+func (r *Rule) RiskScopeOf() string {
+	if r.RiskScope != "" {
+		return r.RiskScope
+	}
+	if strings.Contains(r.RuleID, "-SG") || r.JudgmentSource == "aws_api" {
+		return grc.ScopeAccount
+	}
+	return grc.ScopePod
+}
+
+// FanoutOf returns the rule's fanout mode, defaulting per scope when unset.
+func (r *Rule) FanoutOf() string {
+	if r.Fanout != "" {
+		return r.Fanout
+	}
+	switch r.RiskScopeOf() {
+	case grc.ScopeCluster:
+		return grc.FanoutAllPodsCluster
+	case grc.ScopeAccount:
+		return grc.FanoutAllPodsAccount
+	default:
+		return grc.FanoutSelf
+	}
+}
 
 // IsTextExtraction returns true if this rule checks guideline/policy documents.
 func (r *Rule) IsTextExtraction() bool { return r.JudgmentSource == "text_extraction" }

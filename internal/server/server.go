@@ -158,8 +158,9 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	awsReaderRepo := postgres.NewAwsReaderRepo(pg)
 	awsReaderH := handler.NewAwsReaderHandler(awsReaderRepo)
 
-	// ── Scenario (공격 시나리오/보완 줄글, attack-path 신호 기반) ──
-	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo)
+	// ── Scenario (공격 시나리오/보완 줄글, attack-path 신호 + blast 전파 엣지 + 노출/정밀 RBAC 기반) ──
+	blastEdgesRepo := postgres.NewBlastEdgesRepo(pg)
+	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo, blastEdgesRepo, exposureSvc, rbacChainSvc)
 	scenarioH := handler.NewScenarioHandler(scenarioSvc)
 
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
@@ -247,7 +248,6 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 			}
 		}
 
-		blastEdgesRepo := postgres.NewBlastEdgesRepo(pg)
 		analysisScheduler := scheduler.NewAnalysisScheduler(
 			analysisSvc,
 			edgesRepo,

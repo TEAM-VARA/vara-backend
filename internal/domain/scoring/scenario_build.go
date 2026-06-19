@@ -5,6 +5,16 @@ import (
 	"strings"
 )
 
+// BlastEdge — blast_edges 한 행의 시나리오용 읽기 뷰 (source=이 Pod 기준 outgoing).
+//
+// Channel(win_channel)·Reason은 blast 모델이 이미 계산·분류한 값이고,
+// TargetName은 도달 대상 Pod의 실제 이름이다.
+type BlastEdge struct {
+	Channel    string // host | rbac | network
+	Reason     string // 드릴다운 설명 (예: "rbac: exec/attach/ephemeral ns=dev")
+	TargetName string // 도달 대상 Pod 이름
+}
+
 // ScenarioInput — pod 1개의 "이미 수집되는" 신호 모음.
 //
 // 채워 넣는 소스 (scenario_handler.go 참고):
@@ -37,11 +47,21 @@ type ScenarioInput struct {
 	CanDeleteEvents     bool
 	IsClusterAdmin      bool
 
+	// RBAC 근거 권한(verb/resource). 채워지면 해당 finding의 caveat에 부기한다(심사 증적성).
+	// 예: "create deployments, create jobs". 정밀(rbacchain) 경로에서만 채워짐.
+	CreateWorkloadPerms string
+	WriteWebhookPerms   string
+	DeleteEventsPerms   string
+
 	// NET
 	NetworkIsolation string // none|egress_only|both|deny_all|unknown
 	Exposed          bool
 	ExposedVia       string // "Service(LoadBalancer)" 등
 	ReachablePods    []string
+
+	// OUTGOING (blast_edges 전파 엣지). 채워지면 outgoing 섹션을 이걸로 대체하고,
+	// 비어있으면 기존 휴리스틱(NetworkIsolation/CanExec/...)으로 폴백한다.
+	ReachEdges []BlastEdge
 
 	// VULN (sbom/global + kev/epss + cvss 벡터)
 	TopCVE                   string
@@ -104,17 +124,17 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 	if in.CanCreateWorkload {
 		fs = append(fs, mkFinding("MS-TA9012", DirNode, TacticPersistence,
 			fmt.Sprintf("%s에 워크로드 생성 권한이 있어, 공격자가 악성 컨테이너를 상주시켜 재시작 후에도 잠복할 수 있습니다.", sa),
-			"high", ""))
+			"high", in.CreateWorkloadPerms))
 	}
 	if in.CanWriteWebhook {
 		fs = append(fs, mkFinding("MS-TA9015", DirNode, TacticPersistence,
 			fmt.Sprintf("%s에 admission 웹훅 구성 권한이 있어, 공격자가 가짜 검문 웹훅을 심어 모든 요청을 가로채며 잠복할 수 있습니다.", sa),
-			"high", ""))
+			"high", in.WriteWebhookPerms))
 	}
 	if in.CanDeleteEvents {
 		fs = append(fs, mkFinding("MS-TA9022", DirNode, TacticDefenseEvade,
 			fmt.Sprintf("%s에 events 삭제 권한이 있어, 공격자가 흔적(이벤트 로그)을 지워 탐지를 회피할 수 있습니다.", sa),
-			"high", ""))
+			"high", in.DeleteEventsPerms))
 	}
 	if in.IsClusterAdmin || in.CanBindClusterAdmin {
 		fs = append(fs, mkFinding("MS-TA9019", DirNode, TacticPrivEsc,
@@ -134,37 +154,50 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 		f.CVE = in.TopCVE
 		fs = append(fs, f)
 	}
+	if in.TopCVE != "" && in.CVEScopeChanged {
+		f := mkFinding("VULN", DirNode, TacticPrivEsc,
+			fmt.Sprintf("이미지 취약점(%s)이 컨테이너 권한 경계를 벗어나(CVSS Scope 변경), 공격자가 호스트/노드로 권한을 끌어올리거나 탈출할 수 있습니다.", cveLabel(in)),
+			"heuristic", "CVSS Scope:Changed(또는 v4.0 후속 시스템 영향) 기반")
+		f.CVE = in.TopCVE
+		fs = append(fs, f)
+	}
 
 	// ───────── 전파 (outgoing) ─────────
-	if in.NetworkIsolation == "none" || in.NetworkIsolation == "" || in.NetworkIsolation == "unknown" {
-		reach := ""
-		if len(in.ReachablePods) > 0 {
-			reach = fmt.Sprintf("(예: %s)", strings.Join(trimN(in.ReachablePods, 3), ", "))
+	// blast_edges가 있으면 그 directed 전파 엣지(채널·이유·실제 타겟)로 outgoing을 구성하고,
+	// 없으면 기존 휴리스틱(NetworkIsolation/CanExec/...)으로 폴백한다.
+	if len(in.ReachEdges) > 0 {
+		fs = append(fs, buildOutgoingFromBlast(in.ReachEdges, sa)...)
+	} else {
+		if in.NetworkIsolation == "none" || in.NetworkIsolation == "" || in.NetworkIsolation == "unknown" {
+			reach := ""
+			if len(in.ReachablePods) > 0 {
+				reach = fmt.Sprintf("(예: %s)", strings.Join(trimN(in.ReachablePods, 3), ", "))
+			}
+			conf := "high"
+			caveat := ""
+			if in.NetworkIsolation == "" || in.NetworkIsolation == "unknown" {
+				conf, caveat = "heuristic", "NetworkPolicy 격리 상태 미상 — 보수적으로 도달 가능 가정"
+			}
+			fs = append(fs, mkFinding("MS-TA9034", DirOutgoing, TacticLateral,
+				fmt.Sprintf("이 Pod을 막는 NetworkPolicy가 없어, 공격자가 네트워크로 옆 Pod%s까지 옮겨갈 수 있습니다.", reach),
+				conf, caveat))
 		}
-		conf := "high"
-		caveat := ""
-		if in.NetworkIsolation == "" || in.NetworkIsolation == "unknown" {
-			conf, caveat = "heuristic", "NetworkPolicy 격리 상태 미상 — 보수적으로 도달 가능 가정"
+		if in.CanExec {
+			fs = append(fs, mkFinding("MS-TA9006", DirOutgoing, TacticExecution,
+				fmt.Sprintf("%s에 pods/exec 권한이 있어, 공격자가 다른 컨테이너 안으로 들어가 명령을 실행할 수 있습니다.", sa),
+				"high", ""))
 		}
-		fs = append(fs, mkFinding("MS-TA9034", DirOutgoing, TacticLateral,
-			fmt.Sprintf("이 Pod을 막는 NetworkPolicy가 없어, 공격자가 네트워크로 옆 Pod%s까지 옮겨갈 수 있습니다.", reach),
-			conf, caveat))
-	}
-	if in.CanExec {
-		fs = append(fs, mkFinding("MS-TA9006", DirOutgoing, TacticExecution,
-			fmt.Sprintf("%s에 pods/exec 권한이 있어, 공격자가 다른 컨테이너 안으로 들어가 명령을 실행할 수 있습니다.", sa),
-			"high", ""))
-	}
-	if in.CanCreateWorkload {
-		fs = append(fs, mkFinding("MS-TA9008", DirOutgoing, TacticExecution,
-			fmt.Sprintf("%s에 워크로드 생성 권한이 있어, 공격자가 새 컨테이너를 띄워 임의 코드를 실행할 수 있습니다.", sa),
-			"high", ""))
-	}
-	// 9016: SA 토큰이 과대권한이면 측면 이동 통로
-	if in.IsClusterAdmin || in.CanListSecrets || in.CanCreateWorkload || in.CanExec {
-		fs = append(fs, mkFinding("MS-TA9016", DirOutgoing, TacticLateral,
-			fmt.Sprintf("%s 토큰이 API 권한을 갖고 마운트돼 있어, 공격자가 그 토큰으로 API 서버에 인증해 다른 자원으로 이동할 수 있습니다.", sa),
-			"heuristic", "automountServiceAccountToken 기본값(true) 가정"))
+		if in.CanCreateWorkload {
+			fs = append(fs, mkFinding("MS-TA9008", DirOutgoing, TacticExecution,
+				fmt.Sprintf("%s에 워크로드 생성 권한이 있어, 공격자가 새 컨테이너를 띄워 임의 코드를 실행할 수 있습니다.", sa),
+				"high", in.CreateWorkloadPerms))
+		}
+		// 9016: SA 토큰이 과대권한이면 측면 이동 통로
+		if in.IsClusterAdmin || in.CanListSecrets || in.CanCreateWorkload || in.CanExec {
+			fs = append(fs, mkFinding("MS-TA9016", DirOutgoing, TacticLateral,
+				fmt.Sprintf("%s 토큰이 API 권한을 갖고 마운트돼 있어, 공격자가 그 토큰으로 API 서버에 인증해 다른 자원으로 이동할 수 있습니다.", sa),
+				"heuristic", "automountServiceAccountToken 기본값(true) 가정"))
+		}
 	}
 
 	// ───────── 분류 + 줄글 조립 ─────────
@@ -199,6 +232,93 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 		res.Notes = append(res.Notes, "SA의 IRSA(IAM) 정보 미수집으로 클라우드 자원 접근(9020)은 평가에서 제외됨.")
 	}
 	return res
+}
+
+// blastChannelTech — blast_edges의 (win_channel, reason) → outgoing technique 매핑.
+//
+//	network                    → MS-TA9034 (Cluster internal networking, 측면 이동)
+//	rbac + portforward         → MS-TA9034 (포트 접근 = 네트워크 도달, 측면 이동)
+//	rbac + exec/nodes-proxy 등 → MS-TA9006 (Exec into container, 코드 실행)
+//	host (노드 공유 탈출)        → MS-TA9018 (Privileged container, 측면 이동)
+//
+// 매핑 안 되는 채널이면 ok=false.
+func blastChannelTech(channel, reason string) (msta, tactic string, ok bool) {
+	switch channel {
+	case "network":
+		return "MS-TA9034", TacticLateral, true
+	case "host":
+		return "MS-TA9018", TacticLateral, true
+	case "rbac":
+		if strings.Contains(reason, "portforward") {
+			return "MS-TA9034", TacticLateral, true
+		}
+		return "MS-TA9006", TacticExecution, true
+	}
+	return "", "", false
+}
+
+// blastSentence — technique별 전파 줄글. targets는 도달 대상 Pod 이름(최대 3개+외 N개).
+func blastSentence(msta, sa, targets string) string {
+	switch msta {
+	case "MS-TA9034":
+		return fmt.Sprintf("이 Pod에서 네트워크로 옆 Pod%s까지 직접 도달해 옮겨갈 수 있습니다.", targets)
+	case "MS-TA9006":
+		return fmt.Sprintf("%s 권한으로 다른 컨테이너%s 안에 들어가 명령을 실행할 수 있습니다.", sa, targets)
+	case "MS-TA9018":
+		return fmt.Sprintf("이 Pod이 노드(호스트)를 장악할 수 있어, 같은 노드의 다른 Pod%s까지 손을 뻗칠 수 있습니다.", targets)
+	}
+	return fmt.Sprintf("이 Pod에서 다른 Pod%s로 이동할 수 있습니다.", targets)
+}
+
+// buildOutgoingFromBlast — blast_edges 전파 엣지 → outgoing findings.
+//
+// 같은 technique으로 매핑되는 엣지는 1건으로 묶고, 도달 대상 이름과 대표 reason(첫 엣지)을 모은다.
+// 입력은 호출부에서 p_edge desc 정렬되어 들어오므로 첫 reason이 가장 강한 근거다.
+func buildOutgoingFromBlast(edges []BlastEdge, sa string) []ScenarioFinding {
+	type agg struct {
+		tactic  string
+		reason  string   // 대표 근거 (첫 엣지)
+		targets []string // 중복 제거된 타겟 이름
+		seen    map[string]bool
+	}
+	order := []string{}
+	byTech := map[string]*agg{}
+	for _, e := range edges {
+		msta, tactic, ok := blastChannelTech(e.Channel, e.Reason)
+		if !ok {
+			continue
+		}
+		a := byTech[msta]
+		if a == nil {
+			a = &agg{tactic: tactic, reason: e.Reason, seen: map[string]bool{}}
+			byTech[msta] = a
+			order = append(order, msta)
+		}
+		if e.TargetName != "" && !a.seen[e.TargetName] {
+			a.seen[e.TargetName] = true
+			a.targets = append(a.targets, e.TargetName)
+		}
+	}
+
+	out := make([]ScenarioFinding, 0, len(order))
+	for _, msta := range order {
+		a := byTech[msta]
+		targets := ""
+		if len(a.targets) > 0 {
+			targets = fmt.Sprintf("(예: %s%s)", strings.Join(trimN(a.targets, 3), ", "), moreN(len(a.targets), 3))
+		}
+		out = append(out, mkFinding(msta, DirOutgoing, a.tactic,
+			blastSentence(msta, sa, targets), "high", a.reason))
+	}
+	return out
+}
+
+// moreN — n개 중 앞 limit개만 노출할 때 " 외 N개" 꼬리표. 초과 없으면 빈 문자열.
+func moreN(n, limit int) string {
+	if n > limit {
+		return fmt.Sprintf(" 외 %d개", n-limit)
+	}
+	return ""
 }
 
 // cveLabel — "CVE-2025-1234, CVSS 9.8, KEV 등재" 형태의 라벨

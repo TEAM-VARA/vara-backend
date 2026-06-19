@@ -40,6 +40,16 @@ func NewAttackPathService(
 	}
 }
 
+// GetPodSpecByUID는 최신 snapshot에서 한 Pod의 컨테이너/볼륨 spec(실제 이름 포함)을 반환합니다.
+// 시나리오 정밀화(privileged 컨테이너·hostPath 볼륨 실제 이름)에 쓰입니다. 없으면 (nil, nil).
+func (s *AttackPathService) GetPodSpecByUID(ctx context.Context, cluster, podUID string) (*postgres.PodForAttackPath, error) {
+	snap, err := s.repo.GetLatestPodsSnapshot(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.GetPodForAttackPathByUID(ctx, cluster, snap, podUID)
+}
+
 // ComputeForCluster는 클러스터의 모든 Pod에 대해 공격 경로 범위를 계산합니다.
 func (s *AttackPathService) ComputeForCluster(ctx context.Context, clusterName string) (*scoring.AttackPathComputeResponse, error) {
 	if clusterName == "" {

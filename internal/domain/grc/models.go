@@ -128,6 +128,13 @@ type RuleResult struct {
 	EvidenceData  json.RawMessage `json:"evidence_data,omitempty"`
 	Layer         string          `json:"layer,omitempty"`
 
+	// ── 결함 귀속 스코프 / fan-out 투영 (cluster·account 결함을 pod에 표시하되 점수는 1회) ──
+	Scope       string   `json:"scope,omitempty"`        // pod | pod_chain | cluster | account
+	CanonicalID string   `json:"canonical_id,omitempty"` // 점수 dedup distinct 키
+	Inherited   bool     `json:"inherited,omitempty"`    // true=상속(클러스터/계정 공통) 결함, pod 직접 책임 아님
+	OwnerHint   string   `json:"owner_hint,omitempty"`   // 조치 주체 (workload | cluster-admin | account-admin)
+	AffectedPods []string `json:"affected_pods,omitempty"` // 이 결함이 걸리는 pod (blast-radius). count는 1.
+
 	// ── 통합 manual 판정 필드 ──
 	// judgment_mode: "auto" (기본값, 기존 R-rule) | "manual" (기존 F-finding)
 	JudgmentMode          string          `json:"judgment_mode,omitempty"`

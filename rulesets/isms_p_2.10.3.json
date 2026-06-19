@@ -201,8 +201,10 @@
       "rule_id": "R-2.10.3-SG01",
       "name": "Security Group 민감·관리 포트 외부 노출 (공개서버 강화)",
       "judgment_source": "aws_api",
-      "extraction_method": "manual",
+      "extraction_method": "api",
       "verdict_type": "potential_finding",
+      "risk_scope": "account",
+      "fanout": "nodes_pods",
       "manual_meta": {
         "target_resource": "AWS::EC2::SecurityGroup",
         "required_data": [

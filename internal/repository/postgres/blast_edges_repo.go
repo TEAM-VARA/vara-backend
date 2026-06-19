@@ -175,6 +175,48 @@ func (r *BlastEdgesRepo) LoadObservedFlows(ctx context.Context, cluster string) 
 	return out, rows.Err()
 }
 
+// BlastOutEdge — source pod 1개의 outgoing 전파 엣지 1건 (시나리오용 읽기 뷰).
+type BlastOutEdge struct {
+	TargetPodUID    string
+	TargetName      string
+	TargetNamespace string
+	WinChannel      string // host | rbac | network
+	Reason          string
+	PEdge           float64
+}
+
+// GetOutgoingBySource — 한 source pod에서 나가는 전파 엣지를 최신 snapshot 기준으로 읽는다.
+// p_edge 내림차순(강한 엣지 우선)으로 반환. 결과 없으면 빈 슬라이스.
+// 공격 시나리오의 outgoing(전파) 섹션을 구성하는 데 쓴다. (idx_blast_edges_source 사용)
+func (r *BlastEdgesRepo) GetOutgoingBySource(ctx context.Context, cluster, sourcePodUID string) ([]BlastOutEdge, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT target_pod_uid, COALESCE(target_name, ''), COALESCE(target_namespace, ''),
+		       win_channel, COALESCE(reason, ''), p_edge
+		FROM blast_edges
+		WHERE cluster_name = $1 AND source_pod_uid = $2
+		  AND snapshot_at = (
+		      SELECT MAX(snapshot_at) FROM blast_edges WHERE cluster_name = $1
+		  )
+		ORDER BY p_edge DESC`,
+		cluster, sourcePodUID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("blast: get outgoing by source: %w", err)
+	}
+	defer rows.Close()
+
+	var out []BlastOutEdge
+	for rows.Next() {
+		var e BlastOutEdge
+		if err := rows.Scan(&e.TargetPodUID, &e.TargetName, &e.TargetNamespace,
+			&e.WinChannel, &e.Reason, &e.PEdge); err != nil {
+			return nil, fmt.Errorf("blast: scan outgoing edge: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // Replace — 해당 (cluster, snapshot)의 blast_edges를 통째로 교체(삭제 후 일괄 삽입).
 // src/dst 표시용 name/namespace는 pods에서 채운다. 적재된 행 수를 반환.
 func (r *BlastEdgesRepo) Replace(
