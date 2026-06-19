@@ -24,7 +24,9 @@
       "rule_id": "R-2.9.4-01",
       "name": "CloudTrail 감사로그 활성·보호 점검",
       "judgment_source": "aws_api",
-      "extraction_method": "manual",
+      "extraction_method": "api",
+      "risk_scope": "account",
+      "fanout": "all_pods_in_account",
       "verdict_type": "potential_finding",
       "manual_meta": {
         "target_resource": "AWS::CloudTrail::Trail",
@@ -90,6 +92,13 @@
           "url": "https://www.cisecurity.org/benchmark/amazon_web_services"
         },
         "action": "CloudTrail을 전 리전 활성화하고 로그 파일 무결성 검증·암호화·접근통제를 적용한다."
+      },
+      "verdict_policy": {
+        "pass": "충족",
+        "fail": "미충족",
+        "no_uncertain_fallback": true,
+        "_supersedes": "verdict_type:potential_finding",
+        "_decision": "조직 레벨 트레일까지 조회 후 활성 CloudTrail 부재 시 미충족 확정(잠재결함 아님)."
       }
     },
     {

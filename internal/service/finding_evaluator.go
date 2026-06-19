@@ -64,6 +64,14 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 		VerdictType:  rule.VerdictType,
 	}
 
+	// ── 결함 귀속 스코프 / fan-out 메타 (cluster·account 결함을 pod에 투영하되 점수 1회) ──
+	// operator 핸들러는 base를 복사해 verdict 등만 바꾸므로 아래 필드는 결과에 그대로 전파된다.
+	base.Scope = rule.RiskScopeOf()
+	base.Inherited = grc.IsInheritedScope(base.Scope)
+	base.OwnerHint = grc.OwnerHintForScope(base.Scope)
+	// accountID는 스냅샷에 없어 빈 값 — canonical은 (cluster/account, rule) 단위로 안정. SG 자원별 세분화는 추후.
+	base.CanonicalID = grc.CanonicalID(base.Scope, snap.ClusterName, "", "", "", rule.RuleID)
+
 	// Copy manual meta fields
 	base.ComplianceMappings                = meta.ComplianceMappings
 	base.KisaDefectCaseRefs                = meta.KisaDefectCaseRefs
@@ -185,6 +193,8 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 		result = evalSGCrossEnvIngress(base, snap, cond)
 	case "cloudtrail_audit_logging":
 		result = evalCloudTrailAuditLogging(base, snap, cond)
+	case "kms_key_rotation":
+		result = evalKmsKeyRotation(base, snap, cond)
 	case "required_label_policy_enforced":
 		result = evalRequiredLabelPolicy(base, snap, cond)
 	default:

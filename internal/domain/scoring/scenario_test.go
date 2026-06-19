@@ -56,6 +56,69 @@ func TestBuildPodScenario_Rich(t *testing.T) {
 	}
 }
 
+// blast_edges 전파 엣지가 있으면 outgoing을 그 directed 엣지로 구성한다(휴리스틱 폴백 안 함).
+//   network               → MS-TA9034 (측면 이동)
+//   rbac + portforward    → MS-TA9034 (네트워크 도달이므로 9034로 병합)
+//   rbac + exec/attach 등 → MS-TA9006 (코드 실행)
+//   host (노드 공유)        → MS-TA9018 (측면 이동)
+func TestBuildPodScenario_BlastOutgoing(t *testing.T) {
+	in := ScenarioInput{
+		PodName: "ci-runner", PodUID: "uid-1", Namespace: "prod", ServiceAccount: "ci-sa",
+		// 휴리스틱이라면 9034(NetworkPolicy 없음)·9006(exec)가 떴겠지만 blast가 있으면 대체된다.
+		NetworkIsolation: "none",
+		CanExec:          true,
+		ReachEdges: []BlastEdge{
+			{Channel: "network", Reason: "network: same-ns no netpol", TargetName: "db-pod"},
+			{Channel: "network", Reason: "network: ...", TargetName: "cache-pod"},
+			{Channel: "network", Reason: "network: ...", TargetName: "queue-pod"},
+			{Channel: "network", Reason: "network: ...", TargetName: "log-pod"}, // 4번째 → "외 N개"
+			{Channel: "rbac", Reason: "rbac: portforward svc/api", TargetName: "gw-pod"},
+			{Channel: "rbac", Reason: "rbac: exec/attach ns=prod", TargetName: "admin-pod"},
+			{Channel: "host", Reason: "host: shared node ip-10-0-1-5", TargetName: "node-mate"},
+		},
+	}
+	r := BuildPodScenario(in)
+
+	byMSTA := map[string]ScenarioFinding{}
+	for _, f := range r.Outgoing {
+		byMSTA[f.MSTA] = f
+	}
+	// 3개 technique으로 묶여야 함: 9034(network+portforward 병합)·9006(exec)·9018(host).
+	if len(r.Outgoing) != 3 {
+		t.Fatalf("outgoing = %d, want 3 (9034/9006/9018): %+v", len(r.Outgoing), r.Outgoing)
+	}
+	for _, want := range []string{"MS-TA9034", "MS-TA9006", "MS-TA9018"} {
+		if _, ok := byMSTA[want]; !ok {
+			t.Errorf("outgoing technique %s 누락", want)
+		}
+	}
+
+	// 9034: blast 줄글(직접 도달)이어야 하고, 휴리스틱 줄글(NetworkPolicy 없음)이면 안 된다.
+	net := byMSTA["MS-TA9034"]
+	if !strings.Contains(net.Scenario, "직접 도달") {
+		t.Errorf("9034 blast 줄글 아님: %q", net.Scenario)
+	}
+	if strings.Contains(net.Scenario, "NetworkPolicy가 없어") {
+		t.Errorf("9034가 휴리스틱 줄글로 폴백됨: %q", net.Scenario)
+	}
+	// 대표 근거(첫 엣지 reason)가 caveat에 실린다.
+	if net.Caveat != "network: same-ns no netpol" {
+		t.Errorf("9034 대표 reason 불일치: %q", net.Caveat)
+	}
+	// 타겟은 최대 3개만 노출 + "외 N개" 꼬리표 (network 4 + portforward 1 = 5개 → 외 2개).
+	if !strings.Contains(net.Scenario, "db-pod") || !strings.Contains(net.Scenario, "외 2개") {
+		t.Errorf("9034 타겟/꼬리표 누락: %q", net.Scenario)
+	}
+	if strings.Contains(net.Scenario, "log-pod") {
+		t.Errorf("9034 타겟이 3개 초과로 노출됨: %q", net.Scenario)
+	}
+
+	// 9006(rbac exec)은 도달 대상 이름을 포함한다.
+	if !strings.Contains(byMSTA["MS-TA9006"].Scenario, "admin-pod") {
+		t.Errorf("9006 타겟 누락: %q", byMSTA["MS-TA9006"].Scenario)
+	}
+}
+
 // 신호 없는 pod: 폴백 메시지
 func TestBuildPodScenario_Empty(t *testing.T) {
 	r := BuildPodScenario(ScenarioInput{PodName: "clean", NetworkIsolation: "deny_all"})

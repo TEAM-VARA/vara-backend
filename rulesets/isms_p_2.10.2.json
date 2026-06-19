@@ -60,6 +60,12 @@
         "type": "structured_match",
         "aggregation": "all_compliance_required",
         "min_pass_ratio": 1.0
+      },
+      "verdict_policy": {
+        "pass": "충족",
+        "fail": "미충족",
+        "no_uncertain_fallback": true,
+        "_decision": "네임스페이스 PSA enforce 라벨(baseline↑) 부재 시 확인불가 없이 미충족 확정."
       }
     },
     {

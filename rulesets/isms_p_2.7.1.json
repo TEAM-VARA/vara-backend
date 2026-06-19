@@ -30,6 +30,8 @@
       "name": "Secret etcd 암호화 점검",
       "judgment_source": "k8s_api",
       "extraction_method": "rag",
+      "risk_scope": "cluster",
+      "fanout": "all_pods_in_cluster",
       "manual_evidence_spec": {
         "title": "EKS 클러스터 Secret 암호화 설정 캡처",
         "description": "etcd에 저장되는 Kubernetes Secret이 KMS로 envelope 암호화되어 있음을 증명",
@@ -146,8 +148,37 @@
     {
       "rule_id": "R-2.7.1-04",
       "name": "KMS 키 로테이션 및 상태 점검",
-      "judgment_source": "k8s_api",
-      "extraction_method": "rag",
+      "judgment_source": "aws_api",
+      "extraction_method": "api",
+      "risk_scope": "account",
+      "fanout": "all_pods_in_account",
+      "promoted_from": "KMS-2.7.1-04",
+      "manual_meta": {
+        "target_resource": "AWS::KMS::Key",
+        "required_data": [
+          "aws_kms_keys.key_state",
+          "aws_kms_keys.enabled",
+          "aws_kms_keys.rotation_enabled",
+          "aws_kms_keys.key_spec"
+        ],
+        "condition": {
+          "operator": "kms_key_rotation",
+          "require_enabled": true,
+          "require_rotation": true,
+          "approved_key_specs": ["SYMMETRIC_DEFAULT", "RSA_2048", "RSA_3072", "RSA_4096"]
+        },
+        "compliance_mappings": [
+          { "framework": "ISMS-P", "item": "2.7.1", "match_strength": "direct" }
+        ],
+        "automation_coverage": {
+          "percentage": 90,
+          "covered": "aws-reader 수집(aws_kms_keys)으로 KMS 키 상태·자동 로테이션·승인 알고리즘 자동 점검",
+          "not_covered": "EKS Secret 암호화에 해당 키가 실제 바인딩됐는지(2.7.1-01)"
+        },
+        "offcluster_satisfaction_conditions": [
+          "외부 KMS/HSM로 키 관리·자동 로테이션이 안전하게 이뤄지는가"
+        ]
+      },
       "manual_evidence_spec": {
         "title": "KMS Customer Managed Key 로테이션·상태 캡처",
         "description": "EKS Secret 암호화에 사용하는 KMS 키의 활성 상태, 자동 로테이션 활성, 승인 알고리즘 사용을 증명",
@@ -229,11 +260,11 @@
         },
         "action": "KMS 키를 활성 상태로 유지하고 자동 로테이션을 켜며 승인 알고리즘(AES-256/RSA-2048 이상)을 사용한다."
       },
-      "judgment_logic": {
-        "type": "manual_evidence_match",
-        "method": "vlm_extract_then_structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
+      "verdict_policy": {
+        "pass": "충족",
+        "fail": "미충족",
+        "no_uncertain_fallback": true,
+        "_decision": "aws_kms_keys(aws-reader 수집)에서 고객관리키 상태·로테이션·알고리즘 자동 판정. 미수집 시에만 확인불가(NO_DATA)."
       }
     },
     {

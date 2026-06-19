@@ -507,18 +507,23 @@ func (h *GRCHandler) GetPodGraphEvaluation(c *gin.Context) {
 		return
 	}
 
+	// cluster/account 스코프 결함을 이 pod에 투영(fan-out, inherited:true).
+	// 표시 전용 — 점수는 canonical_id로 dedup되므로 클러스터 합산 시 1회만 계상된다.
+	inherited, _ := h.svc.ProjectInheritedFindings(c.Request.Context(), item.CompanyID, item.ClusterName)
+
 	c.JSON(http.StatusOK, gin.H{
-		"id":              item.ID,
-		"company_id":      item.CompanyID,
-		"cluster_name":    item.ClusterName,
-		"pod_name":        item.PodName,
-		"namespace":       item.Namespace,
-		"overall_verdict": item.OverallVerdict,
-		"total_rules":     item.TotalRules,
-		"passed":          item.Passed,
-		"failed":          item.Failed,
-		"rule_results":    ruleResults,
-		"created_at":      item.CreatedAt,
+		"id":                 item.ID,
+		"company_id":         item.CompanyID,
+		"cluster_name":       item.ClusterName,
+		"pod_name":           item.PodName,
+		"namespace":          item.Namespace,
+		"overall_verdict":    item.OverallVerdict,
+		"total_rules":        item.TotalRules,
+		"passed":             item.Passed,
+		"failed":             item.Failed,
+		"rule_results":       ruleResults,
+		"inherited_findings": inherited, // 클러스터/계정 공통 결함 (UI: "상속" 배지)
+		"created_at":         item.CreatedAt,
 	})
 }
 

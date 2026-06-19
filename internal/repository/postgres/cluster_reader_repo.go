@@ -825,6 +825,7 @@ type ClusterRelatedRows struct {
 	ImageVulnerabilities []map[string]any
 	SecurityGroups       []map[string]any // AWS Security Groups (account/region-global, 최신 SG 스냅샷)
 	CloudTrailTrails     []map[string]any // AWS CloudTrail trails (account/region-global, 최신 스냅샷)
+	KmsKeys              []map[string]any // AWS KMS keys (account/region-global, 최신 스냅샷)
 }
 
 // GetRelatedResources loads all related K8s resources for a cluster/snapshot/namespace.
@@ -1235,6 +1236,21 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 		}
 	}
 
+	// ── AWS KMS keys (account/region-global; 최신 스냅샷) ──
+	{
+		rows, err := r.pg.Query(ctx,
+			`SELECT key_id, arn, key_state, key_manager, key_spec, enabled, rotation_enabled
+			 FROM aws_kms_keys
+			 WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM aws_kms_keys)`)
+		if err != nil {
+			return nil, fmt.Errorf("query kms_keys: %w", err)
+		}
+		res.KmsKeys, err = scanKmsKeyRows(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// ── Workloads (all namespaces, nearest snapshot) ──
 	{
 		rows, err := r.pg.Query(ctx,
@@ -1636,6 +1652,41 @@ func scanCloudTrailRows(rows pgx.Rows) ([]map[string]any, error) {
 			"kms_key_id":                  deref(kmsKeyID),
 			"log_file_validation_enabled": derefB(logValidation),
 			"is_logging":                  derefB(isLogging),
+		})
+	}
+	return result, nil
+}
+
+func scanKmsKeyRows(rows pgx.Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	deref := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	derefB := func(p *bool) bool {
+		if p == nil {
+			return false
+		}
+		return *p
+	}
+	var result []map[string]any
+	for rows.Next() {
+		var keyID, arn string
+		var keyState, keyManager, keySpec *string
+		var enabled, rotationEnabled *bool
+		if err := rows.Scan(&keyID, &arn, &keyState, &keyManager, &keySpec, &enabled, &rotationEnabled); err != nil {
+			return nil, fmt.Errorf("scan kms key: %w", err)
+		}
+		result = append(result, map[string]any{
+			"key_id":           keyID,
+			"arn":              arn,
+			"key_state":        deref(keyState),
+			"key_manager":      deref(keyManager),
+			"key_spec":         deref(keySpec),
+			"enabled":          derefB(enabled),
+			"rotation_enabled": derefB(rotationEnabled),
 		})
 	}
 	return result, nil

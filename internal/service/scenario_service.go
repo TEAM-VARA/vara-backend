@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/vara/backend/internal/domain/scoring"
@@ -13,18 +14,28 @@ import (
 //
 // 신규 수집은 하지 않는다. 이미 계산된 결과를 ATT&CK technique으로 "라벨링"만 한다.
 type ScenarioService struct {
-	attackPath *AttackPathService
+	attackPath *AttackPathService          // coarse RBAC/NET/MOUNT 신호 + pod spec(실제 컨테이너/볼륨 이름)
 	finalScore *FinalScoringService        // RiskScore/RiskLevel + UsedTopCVE (pod별 대표 CVE)
 	globalRepo *postgres.GlobalScoringRepo // CVE → CVSS 벡터·점수·KEV
-	// 권장 주입 (정밀화):
-	//   rbacChain  *RBACChainService   // 정밀 verb·resource (create workload/webhook/delete events/bind)
-	//   exposure   *ExposureService    // Exposed/ExposedVia
-	//   clusterRepo *postgres.ClusterReaderRepo // privileged 컨테이너명·hostPath 볼륨명
+	blastRepo  *postgres.BlastEdgesRepo    // outgoing(전파) 엣지: win_channel·reason·실제 타겟
+	exposure   *ExposureService            // Exposed/ExposedVia (LoadBalancer/NodePort/Ingress)
+	rbacChain  *RBACChainService           // 정밀 verb·resource (create workload / write webhook / delete events)
 }
 
-// NewScenarioService — attack-path + final-score + global(CVE) 의존성으로 생성.
-func NewScenarioService(ap *AttackPathService, fs *FinalScoringService, gr *postgres.GlobalScoringRepo) *ScenarioService {
-	return &ScenarioService{attackPath: ap, finalScore: fs, globalRepo: gr}
+// NewScenarioService — attack-path + final-score + global(CVE) + blast(전파 엣지)
+// + exposure(노출) + rbacchain(정밀 권한) 의존성으로 생성.
+func NewScenarioService(
+	ap *AttackPathService,
+	fs *FinalScoringService,
+	gr *postgres.GlobalScoringRepo,
+	br *postgres.BlastEdgesRepo,
+	ex *ExposureService,
+	rc *RBACChainService,
+) *ScenarioService {
+	return &ScenarioService{
+		attackPath: ap, finalScore: fs, globalRepo: gr, blastRepo: br,
+		exposure: ex, rbacChain: rc,
+	}
 }
 
 // BuildForPod — pod 1개의 시나리오/보완 줄글 생성.
@@ -75,11 +86,56 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, cluster, podUID strin
 		}
 	}
 
-	// ── TODO: 단계적 정밀화 (각 소스 주입 후 채움) ──
-	//   exposure_scores      → in.Exposed, in.ExposedVia
-	//   rbacchain perms      → in.CanCreateWorkload, in.CanWriteWebhook, in.CanDeleteEvents
-	//   edges(network)       → in.ReachablePods
-	//   cluster_pods         → privileged 컨테이너 실제 이름, hostPath 볼륨 실제 이름
+	// ── blast_edges: outgoing(전파) 엣지 — win_channel·reason·실제 타겟 ──
+	// 채워지면 BuildPodScenario가 outgoing 섹션을 휴리스틱 대신 이 엣지로 구성한다.
+	// best-effort: 조회 실패는 시나리오 생성을 막지 않는다(휴리스틱 폴백).
+	if s.blastRepo != nil {
+		if be, berr := s.blastRepo.GetOutgoingBySource(ctx, cluster, podUID); berr == nil {
+			for _, e := range be {
+				in.ReachEdges = append(in.ReachEdges, scoring.BlastEdge{
+					Channel:    e.WinChannel,
+					Reason:     e.Reason,
+					TargetName: e.TargetName,
+				})
+			}
+		}
+	}
+
+	// ── exposure_scores: 외부 노출 여부·경로(in.Exposed/in.ExposedVia) ──
+	// best-effort: 조회 실패/미계산은 incoming(9005) 생략으로 처리.
+	if s.exposure != nil {
+		if ex, eerr := s.exposure.GetByPodUID(ctx, cluster, podUID); eerr == nil && ex != nil {
+			in.Exposed = ex.Exposed
+			if ex.Exposed {
+				in.ExposedVia = exposedViaLabel(ex)
+			}
+		}
+	}
+
+	// ── cluster_pods: privileged 컨테이너·hostPath 볼륨 실제 이름 ──
+	// spec을 찾으면 위 attack_path의 대표 표기("privileged 컨테이너")를 실제 이름으로 교체한다.
+	if spec, serr := s.attackPath.GetPodSpecByUID(ctx, cluster, podUID); serr == nil && spec != nil {
+		if names := privilegedContainerNames(spec.Containers); len(names) > 0 {
+			in.PrivilegedContainers = names
+		}
+		if names := hostPathVolumeNames(spec.Volumes); len(names) > 0 {
+			in.HostPathVolumes = names
+		}
+	}
+
+	// ── rbacchain perms: 정밀 verb·resource(create workload / write webhook / delete events) ──
+	// attack_path는 coarse 신호(secrets/exec/cluster-admin)만 주므로, 나머지 3개는 SA 최종 권한에서 도출.
+	if s.rbacChain != nil && in.ServiceAccount != "" {
+		if perms, perr := s.rbacChain.ListSAPermissions(ctx, cluster, in.Namespace, in.ServiceAccount); perr == nil {
+			ev := deriveRBACFlags(perms)
+			in.CanCreateWorkload = ev.canCreateWorkload
+			in.CanWriteWebhook = ev.canWriteWebhook
+			in.CanDeleteEvents = ev.canDeleteEvents
+			in.CreateWorkloadPerms = joinPermsCap(ev.workloadPerms, 3)
+			in.WriteWebhookPerms = joinPermsCap(ev.webhookPerms, 3)
+			in.DeleteEventsPerms = joinPermsCap(ev.eventsPerms, 3)
+		}
+	}
 
 	res := scoring.BuildPodScenario(in)
 	return &res, nil
@@ -118,4 +174,115 @@ func parseCVSSVector(vec string) (remote, availability, confidentiality, scopeCh
 	confidentiality = m["C"] == "H" || m["VC"] == "H"
 	scopeChanged = m["S"] == "C" || m["SC"] == "H" || m["SI"] == "H" || m["SA"] == "H"
 	return
+}
+
+// exposedViaLabel — exposure 결과에서 가장 강한 외부 경로 1개를 사람이 읽는 라벨로 만든다.
+// 줄글에 "이 Pod이 %s 상태라"로 끼워지므로 "…로 외부 노출된" 형태로 끝낸다.
+// 우선순위: 외부 노출 Service(LoadBalancer/NodePort) > Ingress(host).
+func exposedViaLabel(ex *scoring.ExposureResult) string {
+	for _, svc := range ex.MatchedServices {
+		if svc.ExternallyExposed {
+			return fmt.Sprintf("Service(%s)로 외부 노출된", svc.Type)
+		}
+	}
+	for _, ig := range ex.MatchedIngresses {
+		if ig.Host != "" {
+			return fmt.Sprintf("Ingress(%s)로 외부 노출된", ig.Host)
+		}
+		return "Ingress로 외부 노출된"
+	}
+	return "외부에 노출된"
+}
+
+// privilegedContainerNames — privileged=true 컨테이너의 실제 이름만 추린다.
+func privilegedContainerNames(cs []postgres.ContainerInfo) []string {
+	var out []string
+	for _, c := range cs {
+		if c.Privileged && c.Name != "" {
+			out = append(out, c.Name)
+		}
+	}
+	return out
+}
+
+// hostPathVolumeNames — type=hostPath 볼륨의 실제 이름만 추린다.
+func hostPathVolumeNames(vs []postgres.VolumeInfo) []string {
+	var out []string
+	for _, v := range vs {
+		if v.Type == "hostPath" && v.Name != "" {
+			out = append(out, v.Name)
+		}
+	}
+	return out
+}
+
+// 워크로드 생성으로 간주하는 자원(공격자가 새 컨테이너를 띄울 수 있는 표면).
+var workloadCreateResources = map[string]bool{
+	"deployments": true, "daemonsets": true, "statefulsets": true,
+	"replicasets": true, "replicationcontrollers": true,
+	"jobs": true, "cronjobs": true, "pods": true,
+}
+
+// admission 웹훅 자원(가짜 검문 웹훅 심기).
+var webhookResources = map[string]bool{
+	"validatingwebhookconfigurations": true,
+	"mutatingwebhookconfigurations":   true,
+}
+
+// rbacEvidence — capability별 플래그 + 그 판정의 근거가 된 실제 verb/resource(중복 제거).
+// 근거는 finding의 caveat에 부기되어 심사 증적성을 높인다.
+type rbacEvidence struct {
+	canCreateWorkload, canWriteWebhook, canDeleteEvents bool
+	workloadPerms, webhookPerms, eventsPerms            []string
+}
+
+// deriveRBACFlags — SA 최종 권한 집합에서 시나리오용 정밀 플래그 3개 + 근거 권한을 도출한다.
+// verb "*" / resource "*" 와일드카드는 해당 카테고리를 모두 충족시킨다.
+func deriveRBACFlags(perms []postgres.PermissionOut) rbacEvidence {
+	writeVerbs := map[string]bool{"create": true, "update": true, "patch": true}
+	var ev rbacEvidence
+	wlSeen, whSeen, evSeen := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	addOnce := func(seen map[string]bool, list *[]string, repr string) {
+		if !seen[repr] {
+			seen[repr] = true
+			*list = append(*list, repr)
+		}
+	}
+	for _, p := range perms {
+		verbAll := p.Verb == "*"
+		resAll := p.Resource == "*"
+		repr := permRepr(p)
+		if (p.Verb == "create" || verbAll) && (resAll || workloadCreateResources[p.Resource]) {
+			ev.canCreateWorkload = true
+			addOnce(wlSeen, &ev.workloadPerms, repr)
+		}
+		if (writeVerbs[p.Verb] || verbAll) && (resAll || webhookResources[p.Resource]) {
+			ev.canWriteWebhook = true
+			addOnce(whSeen, &ev.webhookPerms, repr)
+		}
+		if (p.Verb == "delete" || verbAll) && (resAll || p.Resource == "events") {
+			ev.canDeleteEvents = true
+			addOnce(evSeen, &ev.eventsPerms, repr)
+		}
+	}
+	return ev
+}
+
+// permRepr — 권한 1건을 "verb resource" 형태로. core 외 apiGroup은 "verb resource.group"으로 구분.
+func permRepr(p postgres.PermissionOut) string {
+	if p.APIGroup != "" && p.APIGroup != "*" {
+		return fmt.Sprintf("%s %s.%s", p.Verb, p.Resource, p.APIGroup)
+	}
+	return fmt.Sprintf("%s %s", p.Verb, p.Resource)
+}
+
+// joinPermsCap — 근거 권한 목록을 caveat 문구로. 최대 limit개 노출 + 초과 시 "외 N개".
+func joinPermsCap(perms []string, limit int) string {
+	if len(perms) == 0 {
+		return ""
+	}
+	if len(perms) <= limit {
+		return strings.Join(perms, ", ")
+	}
+	return fmt.Sprintf("%s 외 %d개", strings.Join(perms[:limit], ", "), len(perms)-limit)
 }

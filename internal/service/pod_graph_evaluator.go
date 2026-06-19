@@ -228,6 +228,104 @@ func (s *GRCService) GetPodGraphEvaluation(ctx context.Context, id int64) (*grc.
 	return s.repo.GetPodGraphEvaluation(ctx, id)
 }
 
+// itemAllRuleResults flattens an item's layered rule results (GL/R/F/Report).
+// 클러스터 컴플라이언스 응답은 평탄화된 RuleResults를 생략하고 Layers만 채우므로 여기서 합친다.
+func itemAllRuleResults(item grc.ItemComplianceResult) []grc.RuleResult {
+	if item.Layers == nil {
+		return item.RuleResults
+	}
+	out := make([]grc.RuleResult, 0,
+		len(item.Layers.GL)+len(item.Layers.R)+len(item.Layers.F)+len(item.Layers.Report))
+	out = append(out, item.Layers.GL...)
+	out = append(out, item.Layers.R...)
+	out = append(out, item.Layers.F...)
+	out = append(out, item.Layers.Report...)
+	return out
+}
+
+// fanOutVerdict reports whether an inherited (cluster/account) finding with this
+// verdict should be projected onto pods. 실제 결함·검토대상만 fan-out한다:
+//   - N/A(해당없음): 점검 대상 리소스 부재 → fan-out 안 함 (DESIGN §9)
+//   - 준수/건너뜀/리포트: 결함이 아님 → pod 카드에 표시하지 않음
+//   - NO_DATA/확인불가는 그 상태로 투영(미준수로 둔갑 금지, DESIGN §9)
+func fanOutVerdict(verdict string) bool {
+	switch grc.NormalizeVerdict(verdict) {
+	case grc.VerdictNA, grc.VerdictMET, grc.VerdictSKIPPED, grc.VerdictREPORT:
+		return false
+	default: // NOT_MET, NEEDS_REVIEW, NO_DATA, INDETERMINATE
+		return true
+	}
+}
+
+// stampInheritedScope marks a cluster/account-scoped rule result so it fans out
+// (inherited:true) and dedups by canonical_id. pod/pod_chain 스코프는 건드리지 않아
+// pod별 결과가 각각 distinct로 유지된다(점수 dedup은 inherited 결함에만 적용).
+//
+// CNI(R-2.6.1-03)·etcd 암호화(R-2.7.1-01) 같은 cluster 룰은 pod-graph에서 pod마다
+// 평가되므로, 여기서 canonical_id를 찍어야 클러스터 합산 시 1회로 묶이고 fan-out된다.
+func stampInheritedScope(rr *grc.RuleResult, rule *Rule, clusterName string) {
+	scope := rule.RiskScopeOf()
+	if !grc.IsInheritedScope(scope) {
+		return
+	}
+	rr.Scope = scope
+	rr.Inherited = true
+	if rr.OwnerHint == "" {
+		rr.OwnerHint = grc.OwnerHintForScope(scope)
+	}
+	if rr.CanonicalID == "" {
+		rr.CanonicalID = grc.CanonicalID(scope, clusterName, "", "", "", rr.RuleID)
+	}
+}
+
+// selectInheritedFindings extracts the cluster/account-scoped findings to fan out
+// from a cluster compliance result's items, stamping inherited:true + owner_hint and
+// deduping by canonical_id (같은 클러스터 결함이 pod마다 평가돼 여러 번 들어와도 1건만 표시).
+// 순수 함수(DB 비의존) — 투영/필터 규칙을 단위 테스트하기 위해 분리했다.
+func selectInheritedFindings(items []grc.ItemComplianceResult) []grc.RuleResult {
+	var out []grc.RuleResult
+	seen := map[string]bool{}
+	for _, item := range items {
+		for _, rr := range itemAllRuleResults(item) {
+			if !grc.IsInheritedScope(rr.Scope) || !fanOutVerdict(rr.Verdict) {
+				continue
+			}
+			// canonical_id로 중복 제거. 빈 값(미태깅)은 rule_id로 폴백해 안전하게 묶는다.
+			key := rr.CanonicalID
+			if key == "" {
+				key = rr.RuleID
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+
+			rr.Inherited = true
+			if rr.OwnerHint == "" {
+				rr.OwnerHint = grc.OwnerHintForScope(rr.Scope)
+			}
+			out = append(out, rr)
+		}
+	}
+	return out
+}
+
+// ProjectInheritedFindings returns cluster/account-scoped findings (inherited:true) from
+// the latest cluster compliance result, to be displayed (fan-out) on each pod in the cluster.
+//
+// 표시 전용 투영: 같은 결함이 클러스터 전체 pod에 떠도 canonical_id로 dedup되어
+// 점수 합산 시 1회만 계상된다. owner_hint로 조치 주체(cluster/account 관리자)를 구분한다.
+func (s *GRCService) ProjectInheritedFindings(ctx context.Context, companyID, clusterName string) ([]grc.RuleResult, error) {
+	cc, err := s.repo.GetLatestClusterComplianceResult(ctx, companyID, clusterName)
+	if err != nil {
+		return nil, err
+	}
+	if cc == nil {
+		return nil, nil
+	}
+	return selectInheritedFindings(cc.Items), nil
+}
+
 // ruleFailInfo holds the fail message and remediation for a rule.
 type ruleFailInfo struct {
 	failMessage string

@@ -161,7 +161,7 @@
       "rule_id": "R-2.10.8-04",
       "name": "실행 중 이미지 알려진 취약점(CVE) 현황",
       "judgment_source": "k8s_api",
-      "extraction_method": "manual",
+      "extraction_method": "api",
       "verdict_type": "potential_finding",
       "manual_meta": {
         "target_resource": "Pod",
