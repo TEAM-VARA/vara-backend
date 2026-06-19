@@ -15,6 +15,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math/rand"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool" // pgx v4면 "github.com/jackc/pgx/v4/pgxpool"
@@ -59,6 +60,7 @@ type BlastGraphResult struct {
 	SourceUID string      `json:"source_uid"`
 	Nodes     []GraphNode `json:"nodes"`
 	Edges     []GraphEdge `json:"edges"`
+	TotalRisk float64     `json:"total_risk"` // 이 파드의 총위험도(MC)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -207,6 +209,7 @@ func (h *BlastGraphHandler) Handle(c *gin.Context) {
 	}
 
 	result := BuildBlastGraphFromPod(edges, pod)
+	result.TotalRisk = ComputeCriticalityMC(edges, pod, 5000, rand.New(rand.NewSource(42)))
 	c.JSON(200, result)
 }
 
