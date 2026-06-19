@@ -104,6 +104,8 @@ func (s *AnalysisScheduler) Stop() {
 }
 
 func (s *AnalysisScheduler) run(ctx context.Context) {
+	// [긴급] blast_edges를 느린 Phase 0(VLM)보다 먼저 계산
+	s.computeBlastEdges(ctx)
 	start := time.Now()
 	log.Printf("analysis-scheduler: pipeline start (cluster=%s)", s.clusterName)
 
