@@ -86,11 +86,13 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, cluster, podUID strin
 		}
 	}
 
-	// ── blast_edges: outgoing(전파) 엣지 — win_channel·reason·실제 타겟 ──
-	// 채워지면 BuildPodScenario가 outgoing 섹션을 휴리스틱 대신 이 엣지로 구성한다.
+	// ── blast_edges: 이 pod의 나가는(전파) 엣지 — win_channel·reason·실제 타겟·채널별 확률 ──
+	// 한 번만 조회해 (1) outgoing 줄글(ReachEdges) (2) 1홉 전파 hop(res.Hops) 양쪽에 쓴다.
 	// best-effort: 조회 실패는 시나리오 생성을 막지 않는다(휴리스틱 폴백).
+	var outEdges []postgres.BlastOutEdge
 	if s.blastRepo != nil {
 		if be, berr := s.blastRepo.GetOutgoingBySource(ctx, cluster, podUID); berr == nil {
+			outEdges = be
 			for _, e := range be {
 				in.ReachEdges = append(in.ReachEdges, scoring.BlastEdge{
 					Channel:    e.WinChannel,
@@ -144,25 +146,19 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, cluster, podUID strin
 
 	res := scoring.BuildPodScenario(in)
 
-	// ── 멀티홉 전파: source 파드에서 BFS로 닿는 엣지마다 채널별(network/rbac/host) 시나리오 ──
-	// best-effort: 조회/계산 실패는 단일-pod 시나리오 생성을 막지 않는다.
-	if s.blastRepo != nil {
-		if ge, gerr := s.blastRepo.LoadGraphEdges(ctx, cluster); gerr == nil && len(ge) > 0 {
-			hopEdges := make([]scoring.HopEdge, 0, len(ge))
-			for _, e := range ge {
-				hopEdges = append(hopEdges, scoring.HopEdge{
-					SourceUID: e.SourceUID, TargetUID: e.TargetUID,
-					SourceName: e.SourceName, TargetName: e.TargetName,
-					PHost: e.PHost, PRBAC: e.PRBAC, PNet: e.PNet,
-					WinChannel: e.WinChannel, Reason: e.Reason,
-				})
-			}
-			hops, truncated := scoring.BuildHopScenarios(hopEdges, podUID)
-			res.Hops = hops
-			if truncated {
-				res.Notes = append(res.Notes, "전파 hop이 많아 일부만 표시됩니다(상한 도달).")
-			}
+	// ── 1홉 전파(hops): 이 pod이 바로 옆 pod으로 어떻게 옮겨가나 — 엣지마다 채널별 시나리오 ──
+	// origin/BFS 없음. 프론트가 pod마다 호출해 source_uid→target_uid로 전체 그래프를 합친다.
+	if len(outEdges) > 0 {
+		hopEdges := make([]scoring.HopEdge, 0, len(outEdges))
+		for _, e := range outEdges {
+			hopEdges = append(hopEdges, scoring.HopEdge{
+				SourceUID: podUID, TargetUID: e.TargetPodUID,
+				SourceName: in.PodName, TargetName: e.TargetName,
+				PHost: e.PHost, PRBAC: e.PRBAC, PNet: e.PNet,
+				WinChannel: e.WinChannel, Reason: e.Reason,
+			})
 		}
+		res.Hops = scoring.BuildOutgoingScenarios(hopEdges)
 	}
 
 	return &res, nil

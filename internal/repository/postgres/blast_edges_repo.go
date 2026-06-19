@@ -183,8 +183,11 @@ type BlastOutEdge struct {
 	WinChannel      string // host | rbac | network (= max 채널)
 	Reason          string
 	PEdge           float64
-	PRBAC           float64 // rbac 채널 확률. win_channel이 rbac이 아니어도(host/net에 가려져도)
-	//                         >0이면 측면이동 가능 RBAC 권한이 실재 — 시나리오 9006에 합친다.
+	// 채널별 확률. win_channel로 collapse하지 않고 살아있는 채널(>0)을 모두 시나리오로 풀 때 쓴다.
+	// (예: host로 win했어도 p_rbac>0이면 rbac 측면이동도 실재 → 9006/hop 채널에 반영.)
+	PHost float64
+	PRBAC float64
+	PNet  float64
 }
 
 // GetOutgoingBySource — 한 source pod에서 나가는 전파 엣지를 최신 snapshot 기준으로 읽는다.
@@ -193,7 +196,8 @@ type BlastOutEdge struct {
 func (r *BlastEdgesRepo) GetOutgoingBySource(ctx context.Context, cluster, sourcePodUID string) ([]BlastOutEdge, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT target_pod_uid, COALESCE(target_name, ''), COALESCE(target_namespace, ''),
-		       win_channel, COALESCE(reason, ''), p_edge, COALESCE(p_rbac, 0)
+		       win_channel, COALESCE(reason, ''), p_edge,
+		       COALESCE(p_host, 0), COALESCE(p_rbac, 0), COALESCE(p_net, 0)
 		FROM blast_edges
 		WHERE cluster_name = $1 AND source_pod_uid = $2
 		  AND snapshot_at = (
@@ -211,50 +215,8 @@ func (r *BlastEdgesRepo) GetOutgoingBySource(ctx context.Context, cluster, sourc
 	for rows.Next() {
 		var e BlastOutEdge
 		if err := rows.Scan(&e.TargetPodUID, &e.TargetName, &e.TargetNamespace,
-			&e.WinChannel, &e.Reason, &e.PEdge, &e.PRBAC); err != nil {
+			&e.WinChannel, &e.Reason, &e.PEdge, &e.PHost, &e.PRBAC, &e.PNet); err != nil {
 			return nil, fmt.Errorf("blast: scan outgoing edge: %w", err)
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
-
-// GraphEdgeRow — blast_edges 한 행 (멀티홉 hop 시나리오용, 채널 확률 3개 전부).
-type GraphEdgeRow struct {
-	SourceUID, TargetUID   string
-	SourceName, TargetName string
-	PHost, PRBAC, PNet     float64
-	WinChannel             string
-	Reason                 string
-}
-
-// LoadGraphEdges — 최신 snapshot의 클러스터 전체 blast_edges를 채널 확률 3개와 함께 읽는다.
-// 멀티홉 hop별 시나리오(BFS) 구성용. p_host/p_rbac/p_net을 모두 내려, win_channel로
-// collapse하지 않고 한 엣지의 여러 채널을 시나리오로 풀 수 있게 한다.
-func (r *BlastEdgesRepo) LoadGraphEdges(ctx context.Context, cluster string) ([]GraphEdgeRow, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT source_pod_uid, target_pod_uid,
-		       COALESCE(source_name, ''), COALESCE(target_name, ''),
-		       p_host::float8, p_rbac::float8, p_net::float8,
-		       win_channel, COALESCE(reason, '')
-		FROM blast_edges
-		WHERE cluster_name = $1
-		  AND snapshot_at = (
-		      SELECT MAX(snapshot_at) FROM blast_edges WHERE cluster_name = $1
-		  )`,
-		cluster,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("blast: load graph edges: %w", err)
-	}
-	defer rows.Close()
-
-	var out []GraphEdgeRow
-	for rows.Next() {
-		var e GraphEdgeRow
-		if err := rows.Scan(&e.SourceUID, &e.TargetUID, &e.SourceName, &e.TargetName,
-			&e.PHost, &e.PRBAC, &e.PNet, &e.WinChannel, &e.Reason); err != nil {
-			return nil, fmt.Errorf("blast: scan graph edge: %w", err)
 		}
 		out = append(out, e)
 	}

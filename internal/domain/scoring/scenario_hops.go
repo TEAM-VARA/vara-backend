@@ -1,11 +1,8 @@
 package scoring
 
-import (
-	"fmt"
-	"sort"
-)
+import "fmt"
 
-// HopEdge — blast_edges 한 행의 hop-시나리오용 읽기 뷰 (채널 확률 3개 전부).
+// HopEdge — blast_edges 한 행의 시나리오용 읽기 뷰 (채널 확률 3개 전부).
 // win_channel(승자)만이 아니라 p_host/p_rbac/p_net을 다 들고 있어, 한 엣지에 여러 채널이
 // 살아 있으면(예: host로 win했지만 rbac도 가능) 채널별로 모두 풀어줄 수 있다.
 type HopEdge struct {
@@ -25,9 +22,11 @@ type HopChannel struct {
 	Reason   string  `json:"reason,omitempty"` // 승자 채널이면 blast reason, 아니면 빈 값
 }
 
-// HopScenario — 한 hop(엣지 src→dst)의 시나리오. 살아있는 채널을 모두 담는다.
+// HopScenario — 이 pod에서 나가는 엣지 1개(src→dst)의 시나리오. 살아있는 채널을 모두 담는다.
+//
+// origin/BFS 없음 — "이 pod이 바로 옆 pod으로 어떻게 옮겨가나"의 1홉 뷰다. 프론트는 여러 pod의
+// 응답을 source_uid→target_uid로 이어붙여 전체 전파 그래프를 구성한다.
 type HopScenario struct {
-	Hop        int          `json:"hop"` // source로부터의 거리(1=직접 도달)
 	SourceUID  string       `json:"source_uid"`
 	SourceName string       `json:"source_name"`
 	TargetUID  string       `json:"target_uid"`
@@ -35,71 +34,31 @@ type HopScenario struct {
 	Channels   []HopChannel `json:"channels"`
 }
 
-// maxHopEdges — hop 시나리오 폭주 방지 상한. 초과분은 잘리며 호출부가 고지한다.
-const maxHopEdges = 500
-
-// BuildHopScenarios — source 파드에서 BFS로 닿는 모든 엣지를 hop별로 풀어준다.
-//
-// 각 엣지(src→dst)마다 p_host/p_rbac/p_net>0인 채널을 전부 HopChannel로 만들어 담는다.
-// (win_channel 하나로 collapse하지 않음 — 한 다리에 여러 통로가 동시에 살아있을 수 있다.)
-// 두 번째 반환값은 maxHopEdges로 잘렸는지 여부.
-func BuildHopScenarios(edges []HopEdge, sourceUID string) ([]HopScenario, bool) {
-	// 인접 리스트 + self-loop 제외
-	adj := map[string][]HopEdge{}
+// BuildOutgoingScenarios — 이 pod의 나가는 엣지(1홉) 각각을 채널별 시나리오로 렌더한다.
+// 입력은 호출부에서 p_edge desc 정렬되어 들어오므로 강한 엣지가 앞에 온다.
+func BuildOutgoingScenarios(edges []HopEdge) []HopScenario {
+	out := make([]HopScenario, 0, len(edges))
 	for _, e := range edges {
 		if e.SourceUID == e.TargetUID {
 			continue
 		}
-		adj[e.SourceUID] = append(adj[e.SourceUID], e)
-	}
-	// 결정적 순서: 각 source의 나가는 엣지를 타겟 이름순으로.
-	for k := range adj {
-		es := adj[k]
-		sort.Slice(es, func(i, j int) bool { return es[i].TargetName < es[j].TargetName })
-		adj[k] = es
-	}
-
-	type qitem struct {
-		uid string
-		hop int
-	}
-	visited := map[string]bool{sourceUID: true}
-	queue := []qitem{{sourceUID, 0}}
-	seenEdge := map[string]bool{} // src→dst 1회만
-	out := []HopScenario{}
-	truncated := false
-
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		for _, e := range adj[cur.uid] {
-			ek := e.SourceUID + "→" + e.TargetUID
-			if !seenEdge[ek] {
-				seenEdge[ek] = true
-				if len(out) >= maxHopEdges {
-					truncated = true
-				} else if hs := hopScenarioFor(e, cur.hop+1); len(hs.Channels) > 0 {
-					out = append(out, hs)
-				}
-			}
-			if !visited[e.TargetUID] {
-				visited[e.TargetUID] = true
-				queue = append(queue, qitem{e.TargetUID, cur.hop + 1})
-			}
+		if hs := edgeScenario(e); len(hs.Channels) > 0 {
+			out = append(out, hs)
 		}
 	}
-	return out, truncated
+	return out
 }
 
-// hopScenarioFor — 엣지 1개 → 살아있는 채널별 시나리오. reason은 승자 채널에만 붙는다.
-func hopScenarioFor(e HopEdge, hop int) HopScenario {
+// edgeScenario — 엣지 1개 → 살아있는 채널별 시나리오. reason은 승자 채널에만 붙는다
+// (비승자 채널은 per-channel reason이 저장돼 있지 않음).
+func edgeScenario(e HopEdge) HopScenario {
 	src := nameOr(e.SourceName, e.SourceUID)
 	dst := nameOr(e.TargetName, e.TargetUID)
 	hs := HopScenario{
-		Hop: hop, SourceUID: e.SourceUID, SourceName: e.SourceName,
+		SourceUID: e.SourceUID, SourceName: e.SourceName,
 		TargetUID: e.TargetUID, TargetName: e.TargetName,
 	}
-	add := func(ch, win string, p float64) {
+	add := func(ch string, p float64) {
 		if p <= 0 {
 			return
 		}
@@ -115,15 +74,15 @@ func hopScenarioFor(e HopEdge, hop int) HopScenario {
 			c.Tactic = TacticLateral
 			c.Scenario = fmt.Sprintf("%s이 같은 노드(호스트)를 장악해 %s까지 손을 뻗칠 수 있습니다(측면 이동).", src, dst)
 		}
-		if e.WinChannel == win {
-			c.Reason = e.Reason // 비승자 채널은 근거 미저장이라 빈 값
+		if e.WinChannel == ch {
+			c.Reason = e.Reason
 		}
 		hs.Channels = append(hs.Channels, c)
 	}
 	// 표시 순서: network → rbac → host
-	add("network", "network", e.PNet)
-	add("rbac", "rbac", e.PRBAC)
-	add("host", "host", e.PHost)
+	add("network", e.PNet)
+	add("rbac", e.PRBAC)
+	add("host", e.PHost)
 	return hs
 }
 
@@ -131,10 +90,6 @@ func nameOr(name, uid string) string {
 	if name != "" {
 		return name
 	}
-	return shortHopUID(uid)
-}
-
-func shortHopUID(uid string) string {
 	if len(uid) > 8 {
 		return uid[:8]
 	}
