@@ -143,6 +143,28 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, cluster, podUID strin
 	}
 
 	res := scoring.BuildPodScenario(in)
+
+	// ── 멀티홉 전파: source 파드에서 BFS로 닿는 엣지마다 채널별(network/rbac/host) 시나리오 ──
+	// best-effort: 조회/계산 실패는 단일-pod 시나리오 생성을 막지 않는다.
+	if s.blastRepo != nil {
+		if ge, gerr := s.blastRepo.LoadGraphEdges(ctx, cluster); gerr == nil && len(ge) > 0 {
+			hopEdges := make([]scoring.HopEdge, 0, len(ge))
+			for _, e := range ge {
+				hopEdges = append(hopEdges, scoring.HopEdge{
+					SourceUID: e.SourceUID, TargetUID: e.TargetUID,
+					SourceName: e.SourceName, TargetName: e.TargetName,
+					PHost: e.PHost, PRBAC: e.PRBAC, PNet: e.PNet,
+					WinChannel: e.WinChannel, Reason: e.Reason,
+				})
+			}
+			hops, truncated := scoring.BuildHopScenarios(hopEdges, podUID)
+			res.Hops = hops
+			if truncated {
+				res.Notes = append(res.Notes, "전파 hop이 많아 일부만 표시됩니다(상한 도달).")
+			}
+		}
+	}
+
 	return &res, nil
 }
 

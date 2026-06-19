@@ -219,6 +219,48 @@ func (r *BlastEdgesRepo) GetOutgoingBySource(ctx context.Context, cluster, sourc
 	return out, rows.Err()
 }
 
+// GraphEdgeRow — blast_edges 한 행 (멀티홉 hop 시나리오용, 채널 확률 3개 전부).
+type GraphEdgeRow struct {
+	SourceUID, TargetUID   string
+	SourceName, TargetName string
+	PHost, PRBAC, PNet     float64
+	WinChannel             string
+	Reason                 string
+}
+
+// LoadGraphEdges — 최신 snapshot의 클러스터 전체 blast_edges를 채널 확률 3개와 함께 읽는다.
+// 멀티홉 hop별 시나리오(BFS) 구성용. p_host/p_rbac/p_net을 모두 내려, win_channel로
+// collapse하지 않고 한 엣지의 여러 채널을 시나리오로 풀 수 있게 한다.
+func (r *BlastEdgesRepo) LoadGraphEdges(ctx context.Context, cluster string) ([]GraphEdgeRow, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT source_pod_uid, target_pod_uid,
+		       COALESCE(source_name, ''), COALESCE(target_name, ''),
+		       p_host::float8, p_rbac::float8, p_net::float8,
+		       win_channel, COALESCE(reason, '')
+		FROM blast_edges
+		WHERE cluster_name = $1
+		  AND snapshot_at = (
+		      SELECT MAX(snapshot_at) FROM blast_edges WHERE cluster_name = $1
+		  )`,
+		cluster,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("blast: load graph edges: %w", err)
+	}
+	defer rows.Close()
+
+	var out []GraphEdgeRow
+	for rows.Next() {
+		var e GraphEdgeRow
+		if err := rows.Scan(&e.SourceUID, &e.TargetUID, &e.SourceName, &e.TargetName,
+			&e.PHost, &e.PRBAC, &e.PNet, &e.WinChannel, &e.Reason); err != nil {
+			return nil, fmt.Errorf("blast: scan graph edge: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // Replace — 해당 (cluster, snapshot)의 blast_edges를 통째로 교체(삭제 후 일괄 삽입).
 // src/dst 표시용 name/namespace는 pods에서 채운다. 적재된 행 수를 반환.
 func (r *BlastEdgesRepo) Replace(
