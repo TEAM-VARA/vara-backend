@@ -152,9 +152,11 @@ func ComputeGlobalScore(cvssScore, epssScore, ssvcValue float64) (total, cvssCon
 
 	// SSVC: 0.0 / 0.5 / 1.0 중 하나 가정
 
-	cvssContrib = cvssNormalized * GlobalWeightCVSS * 100
-	epssContrib = epssScore * GlobalWeightEPSS * 100
-	ssvcContrib = ssvcValue * GlobalWeightSSVC * 100
+	// 가중치는 전역 설정(CurrentWeights)에서 읽는다. 미설정 시 기본값(0.4/0.3/0.3).
+	w := CurrentWeights()
+	cvssContrib = cvssNormalized * w.GlobalCVSS * 100
+	epssContrib = epssScore * w.GlobalEPSS * 100
+	ssvcContrib = ssvcValue * w.GlobalSSVC * 100
 
 	total = cvssContrib + epssContrib + ssvcContrib
 
