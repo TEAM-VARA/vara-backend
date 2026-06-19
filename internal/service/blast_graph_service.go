@@ -43,7 +43,9 @@ type GraphNode struct {
 	ID        string `json:"id"`        // pod_uid (고유 식별자)
 	Label     string `json:"label"`     // 표시 이름 (없으면 uid 앞 8자)
 	Namespace string `json:"namespace"` // 4계층 띠 배치 등에 사용
+	ReachProb float64 `json:"reach_prob"` // A→이 노드 도달확률 (0~1, A 자신=1.0)
 }
+
 
 type GraphEdge struct {
 	Source     string  `json:"source"`
@@ -160,6 +162,8 @@ func BuildBlastGraphFromPod(edges []BlastEdge, sourceUID string) BlastGraphResul
 	}
 	remember(sourceUID, "", "") // 시작 노드가 어떤 엣지에도 안 잡혔을 경우 대비
 
+	reach := ComputeReachProb(edges, sourceUID) // 각 노드까지 도달확률 (max-path)
+
 	nodes := make([]GraphNode, 0, len(visited))
 	for uid := range visited {
 		m := nodeMeta[uid]
@@ -167,7 +171,7 @@ func BuildBlastGraphFromPod(edges []BlastEdge, sourceUID string) BlastGraphResul
 		if label == "" {
 			label = shortUID(uid)
 		}
-		nodes = append(nodes, GraphNode{ID: uid, Label: label, Namespace: m.ns})
+		nodes = append(nodes, GraphNode{ID: uid, Label: label, Namespace: m.ns, ReachProb: reach[uid]})
 	}
 
 	return BlastGraphResult{SourceUID: sourceUID, Nodes: nodes, Edges: resultEdges}
