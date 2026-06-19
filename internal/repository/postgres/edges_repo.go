@@ -1780,3 +1780,18 @@ func (r *EdgesRepo) CleanupOldSnapshots(ctx context.Context, clusterName string)
 	}
 	return tag.RowsAffected(), nil
 }
+
+// DeleteEdgesBefore는 주어진 시각 이전(snapshot_at < before)의 엣지를 전부 삭제합니다.
+// AnalysisScheduler가 "이번 사이클 시작 시각" 기준으로 호출 → 이번 사이클에 재계산되지 않은
+// (옛 스냅샷) 레이어가 남지 않게 한다. 레이어별 최신 유지(CleanupOldSnapshots)와 달리,
+// 레이어 간 스냅샷 시점 불일치(→ topology orphan/X2 중복)를 원천 차단한다.
+func (r *EdgesRepo) DeleteEdgesBefore(ctx context.Context, clusterName string, before time.Time) (int64, error) {
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM edges WHERE cluster_name = $1 AND snapshot_at < $2`,
+		clusterName, before,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete edges before %v: %w", before, err)
+	}
+	return tag.RowsAffected(), nil
+}

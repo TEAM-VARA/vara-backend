@@ -134,19 +134,42 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 	// ─────────────────────────────────────────────
 	// Phase 1: 엣지 재계산 (실패해도 다음 단계 진행 — 이전 snapshot으로 동작)
 	// ─────────────────────────────────────────────
+	edgesOK := false
 	if _, err := s.edgesRepo.ComputeIdentityEdges(ctx, s.clusterName); err != nil {
 		log.Printf("analysis-scheduler: identity edges failed: %v", err)
+	} else {
+		edgesOK = true
 	}
 	if _, err := s.edgesRepo.ComputeSupplyChainEdges(ctx, s.clusterName); err != nil {
 		log.Printf("analysis-scheduler: supply_chain edges failed: %v", err)
+	} else {
+		edgesOK = true
 	}
 	if _, err := s.edgesRepo.ComputeNetworkEdges(ctx, s.clusterName); err != nil {
 		log.Printf("analysis-scheduler: network edges failed: %v", err)
+	} else {
+		edgesOK = true
 	}
 	if _, err := s.edgesRepo.ComputeHostEdges(ctx, s.clusterName); err != nil {
 		log.Printf("analysis-scheduler: host edges failed: %v", err)
+	} else {
+		edgesOK = true
 	}
 	log.Printf("analysis-scheduler: edges recomputed (%v)", time.Since(start))
+
+	// 이번 사이클 이전(snapshot_at < start) 엣지 전부 삭제 → 이번 사이클에 재계산 안 된
+	// stale 레이어가 남지 않게 함 (레이어 간 시점 불일치로 인한 topology X2 중복 방지).
+	// 점수/그래프 단계(Phase 2·3)가 이 정리된 엣지를 읽도록 여기서 먼저 정리한다.
+	// 단, 4개 레이어 계산이 전부 실패했으면 기존 엣지 보존(빈 그래프 방지).
+	if edgesOK {
+		if deleted, err := s.edgesRepo.DeleteEdgesBefore(ctx, s.clusterName, start); err != nil {
+			log.Printf("analysis-scheduler: edge retention failed: %v", err)
+		} else if deleted > 0 {
+			log.Printf("analysis-scheduler: deleted %d stale edges (before this cycle)", deleted)
+		}
+	} else {
+		log.Printf("analysis-scheduler: all edge computes failed — keeping previous edges")
+	}
 
 	// ─────────────────────────────────────────────
 	// Phase 2: 점수 체인 (의존성 순서: exposure/attack → local → toxic → final)
@@ -181,15 +204,7 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 		return
 	}
 	log.Printf("analysis-scheduler: pipeline completed, total=%v", time.Since(start))
-
-	// ─────────────────────────────────────────────
-	// Phase 4: snapshot retention (최신만 유지)
-	// ─────────────────────────────────────────────
-	if deleted, err := s.edgesRepo.CleanupOldSnapshots(ctx, s.clusterName); err != nil {
-		log.Printf("analysis-scheduler: cleanup failed: %v", err)
-	} else if deleted > 0 {
-		log.Printf("analysis-scheduler: cleaned %d old edge snapshots", deleted)
-	}
+	// (엣지 retention은 Phase 1 직후 DeleteEdgesBefore(start)로 이미 수행됨)
 }
 
 // computeBlastEdges는 host/rbac/network 3채널을 합쳐 blast_edges 테이블을 재적재한다.
