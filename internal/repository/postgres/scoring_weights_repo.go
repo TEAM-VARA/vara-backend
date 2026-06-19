@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vara/backend/internal/domain/scoring"
 )
+
+// round4는 REAL(float32) 저장으로 생기는 0.6999999 같은 표시 오차를 정리합니다.
+func round4(f float64) float64 { return math.Round(f*10000) / 10000 }
 
 // ScoringWeightsRepo는 Risk Scoring 전역 가중치(scoring_weights 단일행)를 읽고 씁니다.
 type ScoringWeightsRepo struct {
@@ -39,6 +43,10 @@ func (r *ScoringWeightsRepo) Get(ctx context.Context) (scoring.Weights, error) {
 	if err != nil {
 		return scoring.DefaultWeights(), fmt.Errorf("get scoring_weights: %w", err)
 	}
+	// REAL(float32) 저장 오차 정리 (0.6999999 → 0.7)
+	w.FinalGlobal, w.FinalExposure = round4(w.FinalGlobal), round4(w.FinalExposure)
+	w.GlobalCVSS, w.GlobalEPSS, w.GlobalSSVC = round4(w.GlobalCVSS), round4(w.GlobalEPSS), round4(w.GlobalSSVC)
+	w.ToxicCritical, w.ToxicHigh, w.ToxicMedium = round4(w.ToxicCritical), round4(w.ToxicHigh), round4(w.ToxicMedium)
 	return w, nil
 }
 
