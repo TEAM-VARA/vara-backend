@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/vara/backend/internal/handler"
 	"github.com/vara/backend/internal/platform/embedding"
 	"github.com/vara/backend/internal/platform/epss"
+	"github.com/vara/backend/internal/platform/jwtutil"
 	"github.com/vara/backend/internal/platform/exploitdb"
 	"github.com/vara/backend/internal/platform/kev"
 	"github.com/vara/backend/internal/platform/nvd"
@@ -162,36 +164,86 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	blastEdgesRepo := postgres.NewBlastEdgesRepo(pg)
 	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo, blastEdgesRepo, exposureSvc, rbacChainSvc)
 	scenarioH := handler.NewScenarioHandler(scenarioSvc)
+	blastGraph := &service.BlastGraphHandler{Pool: pg}
+
+	// ── Auth (로그인 + TOTP MFA) ──
+	authSecret := os.Getenv("AUTH_JWT_SECRET")
+	if authSecret == "" {
+		authSecret = os.Getenv("JWT_SECRET")
+	}
+	if authSecret == "" {
+		authSecret = "vara-dev-insecure-secret-change-me"
+		fmt.Printf("warn: AUTH_JWT_SECRET/JWT_SECRET empty, using insecure dev secret (set in prod)\n")
+	}
+	authIssuer := os.Getenv("AUTH_ISSUER")
+	if authIssuer == "" {
+		authIssuer = "VARA"
+	}
+	authRepo := postgres.NewAuthRepo(pg)
+	jwtMgr := jwtutil.NewManager(authSecret, authIssuer)
+	authSvc := service.NewAuthService(authRepo, jwtMgr, rdb, authIssuer)
+	authH := handler.NewAuthHandler(authSvc)
+
+	// ── Vuln Scheduler (자동 스캔 + 데모 트리거 공용 인스턴스) ──
+	vulnClusterName := os.Getenv("DEFAULT_CLUSTER_NAME")
+	if vulnClusterName == "" {
+		vulnClusterName = "vara-eks-test"
+	}
+	vulnScanInterval := 1 * time.Hour
+	if envInterval := os.Getenv("VULN_SCAN_INTERVAL_MINUTES"); envInterval != "" {
+		if mins, err := strconv.Atoi(envInterval); err == nil && mins > 0 {
+			vulnScanInterval = time.Duration(mins) * time.Minute
+		}
+	}
+	vulnScheduler := scheduler.NewVulnScheduler(
+		packageVulnSvc, notifSvc, finalScoringSvc, globalScoringRepo, imageGlobalCacheSvc,
+		vulnClusterName, vulnScanInterval,
+	)
+
+	// ── Risk Scoring 가중치 (전역 단일 설정) ──
+	scoringWeightsRepo := postgres.NewScoringWeightsRepo(pg)
+	weightsSvc := service.NewWeightsService(scoringWeightsRepo, finalScoringSvc, toxicSvc, vulnClusterName)
+	weightsH := handler.NewWeightsHandler(weightsSvc)
+	{
+		loadCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := weightsSvc.LoadIntoRuntime(loadCtx); err != nil {
+			fmt.Printf("warn: load scoring weights failed (using defaults): %v\n", err)
+		} else {
+			log.Printf("server: scoring weights loaded into runtime")
+		}
+		cancel()
+	}
 
 	r := newRouter(healthH, agentH, ismspH, scoringH, clusterReaderH,
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, depsDevH, ebpfH, edgeH, podRefreshH,
-		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH, scenarioH)
+		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH, scenarioH, authH)
+	r.GET("/api/v1/scoring/blast-graph", blastGraph.Handle)
+
+	// ── 데모용: 특정 vuln_id로 신규 CVE 알림+점수변화 즉시 실행 (발표 실연, dedup 없음, 임시) ──
+	r.POST("/api/v1/scoring/demo/new-cve", func(c *gin.Context) {
+		vulnID := c.Query("vuln_id")
+		if vulnID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "vuln_id query param required"})
+			return
+		}
+		res, err := vulnScheduler.RunDemoForVuln(c.Request.Context(), vulnID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, res)
+	})
+
+	// ── Risk Scoring 가중치 조회/설정 (전역 단일 설정) ──
+	r.GET("/api/v1/scoring/weights", weightsH.Get)
+	r.PUT("/api/v1/scoring/weights", weightsH.Update)
+
 	// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
 	// ENV로 ON/OFF, 기본 활성
 	if os.Getenv("DISABLE_VULN_SCANNER") != "true" {
-		clusterName := os.Getenv("DEFAULT_CLUSTER_NAME")
-		if clusterName == "" {
-			clusterName = "vara-eks-test"
-		}
-
-		scanInterval := 1 * time.Hour
-		if envInterval := os.Getenv("VULN_SCAN_INTERVAL_MINUTES"); envInterval != "" {
-			if mins, err := strconv.Atoi(envInterval); err == nil && mins > 0 {
-				scanInterval = time.Duration(mins) * time.Minute
-			}
-		}
-
-		vulnScheduler := scheduler.NewVulnScheduler(
-			packageVulnSvc,
-			notifSvc,
-			finalScoringSvc,
-			globalScoringRepo,
-			clusterName,
-			scanInterval,
-		)
 		vulnScheduler.Start(context.Background())
-		log.Printf("server: vuln scheduler started (cluster=%s, interval=%v)", clusterName, scanInterval)
+		log.Printf("server: vuln scheduler started (cluster=%s, interval=%v)", vulnClusterName, vulnScanInterval)
 	}
 	// ── GRC Scheduler 시작 (클러스터 컴플라이언스 자동 평가) ──
 	if os.Getenv("DISABLE_GRC_SCHEDULER") != "true" {

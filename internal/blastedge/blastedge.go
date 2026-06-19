@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 )
 
 // PodFact — per-pod precomputed facts needed to generate edges.
@@ -139,6 +140,9 @@ func BuildEdges(pods map[string]PodFact, permsBySA map[string][]Perm, flows []Fl
 	podsByNS := map[string][]string{}
 	allUIDs := make([]string, 0, len(pods))
 	for _, p := range sortedPods(pods) {
+		if excludeFromGraph(p) {   // 시스템 파드는 타겟 후보에서도 제외
+			continue
+		}
 		allUIDs = append(allUIDs, p.UID)
 		if p.Node != "" {
 			podsByNode[p.Node] = append(podsByNode[p.Node], p.UID)
@@ -149,6 +153,9 @@ func BuildEdges(pods map[string]PodFact, permsBySA map[string][]Perm, flows []Fl
 	// ---- HOST: A 탈출(privileged/hostPath) ∧ B 같은 노드 → 1.0 ----
 	for _, a := range sortedPods(pods) {
 		if a.Node == "" || !(a.Privileged || a.HostPath) {
+			continue
+		}
+		if excludeFromGraph(a) {   // ← 추가
 			continue
 		}
 		for _, dst := range podsByNode[a.Node] {
@@ -166,6 +173,9 @@ func BuildEdges(pods map[string]PodFact, permsBySA map[string][]Perm, flows []Fl
 	// ---- RBAC: 전파권한 → 타겟 pod (source token gate) ----
 	for _, a := range sortedPods(pods) {
 		if !a.HasSAToken { // 공격자가 A의 SA 토큰을 못 얻으면 A의 RBAC 엣지 사용 불가
+			continue
+		}
+		if excludeFromGraph(a) {
 			continue
 		}
 		perms := permsBySA[a.SANamespace+"/"+a.SAName]
@@ -210,6 +220,12 @@ func BuildEdges(pods map[string]PodFact, permsBySA map[string][]Perm, flows []Fl
 		}
 		b, ok := pods[f.DstUID]
 		if !ok || b.Risk <= 0 {
+			continue
+		}
+		if excludeFromGraph(b) { // ← 추가: target 이 시스템/VARA면 제외
+			continue
+		}
+		if a, ok := pods[f.SrcUID]; ok && excludeFromGraph(a) { // ← 추가: source 가 시스템/VARA면 제외
 			continue
 		}
 		ca := getPair(f.SrcUID, f.DstUID)
@@ -288,4 +304,24 @@ func sortedPods(m map[string]PodFact) []PodFact {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UID < out[j].UID })
 	return out
+}
+
+// isSystemNS — 클러스터 운영용 시스템 네임스페이스. blast 그래프에서 제외한다.
+// (kube-system DaemonSet/SA가 host·rbac 노이즈를 만드는 것을 차단 — 고객 워크로드 침해만 본다.)
+func isSystemNS(ns string) bool {
+	switch ns {
+	case "kube-system", "kube-public", "kube-node-lease":
+		return true
+	}
+	return false
+}
+
+func excludeFromGraph(p PodFact) bool {
+	if isSystemNS(p.Namespace) {
+		return true
+	}
+	if strings.HasPrefix(p.Name, "vara-") {
+		return true
+	}
+	return false
 }

@@ -36,6 +36,7 @@ func newRouter(
 	podDetail *handler.PodDetailHandler,
 	awsReader *handler.AwsReaderHandler,
 	scenario *handler.ScenarioHandler,
+	auth *handler.AuthHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -52,6 +53,12 @@ func newRouter(
 
 	api := r.Group("/api/v1")
 	{
+		// ── Auth (로그인 + TOTP MFA) ──
+		api.POST("/auth/login", auth.Login)
+		api.POST("/auth/mfa/setup", auth.MFASetup)
+		api.POST("/auth/mfa/verify", auth.MFAVerify)
+		api.POST("/auth/logout", auth.Logout)
+
 		// ── Cluster Reader Agent v2 ──
 		api.POST("/agents/cluster-reader/nodes", clusterReader.Nodes)
 		api.POST("/agents/cluster-reader/pods", clusterReader.Pods)
