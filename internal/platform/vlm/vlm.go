@@ -67,7 +67,7 @@ type Client struct {
 
 // NewClient creates a new LLM client.
 //   - ANTHROPIC_API_KEY 환경변수가 있으면 → Claude Messages API 사용
-//     (모델: CLAUDE_MODEL 환경변수, 기본 claude-3-5-haiku-latest)
+//     (모델: CLAUDE_MODEL 환경변수, 기본 claude-haiku-4-5-20251001)
 //   - 없으면 → Ollama(url, model) 사용 (기존 동작)
 //   - 둘 다 미설정이면 Available()=false → 모든 메서드 nil 반환(graceful)
 func NewClient(url, model string) *Client {
@@ -81,7 +81,7 @@ func NewClient(url, model string) *Client {
 		if m := os.Getenv("CLAUDE_MODEL"); m != "" {
 			c.model = m
 		} else if c.model == "" || strings.HasPrefix(c.model, "qwen") {
-			c.model = "claude-3-5-haiku-latest"
+			c.model = "claude-haiku-4-5-20251001"
 		}
 	} else if c.model == "" {
 		c.model = "qwen2.5:7b"
