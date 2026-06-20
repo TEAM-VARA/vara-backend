@@ -93,6 +93,9 @@ type PodScenarioResult struct {
 	NodeStates []ScenarioFinding `json:"node_states"`
 	Outgoing   []ScenarioFinding `json:"outgoing"`
 
+	// 멀티홉 전파: source 파드에서 BFS로 닿는 엣지마다 (src→dst) 채널별(network/rbac/host) 시나리오.
+	Hops []HopScenario `json:"hops,omitempty"`
+
 	Notes []string `json:"notes,omitempty"` // 수집 갭 등 한계 고지
 }
 
