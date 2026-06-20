@@ -330,10 +330,10 @@ func (s *GlobalScoringService) imputeCVSS(ctx context.Context, score *scoring.Gl
 	}
 
 	// 2) AI 추정 (OSV summary를 설명으로). confidence 페널티는 점수에만 적용.
-	if s.vlm != nil && s.vlm.Available() && summary != "" {
-		// Qwen 7B는 CPU에서 1회 추론 ~4분 → 단일 보완은 수용, 대량은 좁은 게이팅으로 제한.
-		// (추후 Claude API 교체 시 이 지연 사라짐 — todo-llm-claude-api)
-		aiCtx, cancel := context.WithTimeout(ctx, 280*time.Second)
+	// 결측 보완 AI는 Claude 전용(UsingClaude) — Ollama 폴백은 너무 느리고 디스크 부담이라 제외.
+	if s.vlm != nil && s.vlm.UsingClaude() && summary != "" {
+		// Claude는 수초 내 응답 → 60초 상한이면 충분.
+		aiCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		est, _ := s.vlm.EstimateCVSS(aiCtx, score.CVEID, summary)
 		cancel()
 		if est != nil && est.CVSS > 0 {

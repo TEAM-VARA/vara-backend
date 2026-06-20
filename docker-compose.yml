@@ -94,6 +94,8 @@ services:
       EMBEDDING_SERVER_URL: http://embedding:9000/embed
       VLM_SERVER_URL: ${VLM_SERVER_URL:-http://ollama:11434}
       VLM_MODEL: ${VLM_MODEL:-qwen2.5:7b}
+      # ANTHROPIC_API_KEY는 .env(env_file)로 자동 주입됨. 있으면 Claude API, 없으면 Ollama 폴백.
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-haiku-4-5-20251001}
     ports:
       - "8080:8080"
     volumes:
