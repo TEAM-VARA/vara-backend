@@ -108,31 +108,9 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 	log.Printf("analysis-scheduler: pipeline start (cluster=%s)", s.clusterName)
 
 	// ─────────────────────────────────────────────
-	// Phase 0: 글로벌 점수 캐시 갱신 (sboms digest 전체)
-	// ComputeAndStore(force=false)가 캐시 신선도를 확인 → 만료분만 외부 API 재호출,
-	// 신선한 digest는 cache hit으로 즉시 통과. final 점수가 글로벌을 읽으므로 Phase 2보다 먼저.
-	// ─────────────────────────────────────────────
-	if s.imgCacheSvc != nil && s.sbomRepo != nil {
-		digests, err := s.sbomRepo.ListDistinctDigests(ctx)
-		if err != nil {
-			log.Printf("analysis-scheduler: list digests failed: %v", err)
-		} else {
-			var refreshed, failed int
-			for _, d := range digests {
-				if _, err := s.imgCacheSvc.ComputeAndStore(ctx, d, false); err != nil {
-					failed++
-					log.Printf("analysis-scheduler: global refresh failed digest=%s: %v", d, err)
-				} else {
-					refreshed++
-				}
-			}
-			log.Printf("analysis-scheduler: global cache refreshed (%d/%d ok, %d failed, %v)",
-				refreshed, len(digests), failed, time.Since(start))
-		}
-	}
-
-	// ─────────────────────────────────────────────
-	// Phase 1: 엣지 재계산 (실패해도 다음 단계 진행 — 이전 snapshot으로 동작)
+	// Phase 1: 엣지 재계산 (먼저!) — NVD 등 외부 API와 무관(cluster_pods/서비스/RBAC/eBPF만).
+	// 글로벌 캐시 갱신(Phase 0)이 NVD 503/지연으로 오래 걸려도 topology가 항상 신선하도록,
+	// 엣지+retention을 파이프라인 맨 앞에 둔다. (예전엔 Phase 0가 앞을 막아 엣지가 갱신 안 됨)
 	// ─────────────────────────────────────────────
 	edgesOK := false
 	if _, err := s.edgesRepo.ComputeIdentityEdges(ctx, s.clusterName); err != nil {
@@ -159,7 +137,6 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 
 	// 이번 사이클 이전(snapshot_at < start) 엣지 전부 삭제 → 이번 사이클에 재계산 안 된
 	// stale 레이어가 남지 않게 함 (레이어 간 시점 불일치로 인한 topology X2 중복 방지).
-	// 점수/그래프 단계(Phase 2·3)가 이 정리된 엣지를 읽도록 여기서 먼저 정리한다.
 	// 단, 4개 레이어 계산이 전부 실패했으면 기존 엣지 보존(빈 그래프 방지).
 	if edgesOK {
 		if deleted, err := s.edgesRepo.DeleteEdgesBefore(ctx, s.clusterName, start); err != nil {
@@ -169,6 +146,38 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 		}
 	} else {
 		log.Printf("analysis-scheduler: all edge computes failed — keeping previous edges")
+	}
+
+	// ─────────────────────────────────────────────
+	// Phase 0: 글로벌 점수 캐시 갱신 (sboms digest 전체, 만료분만 재계산)
+	// NVD 503/지연으로 오래 걸릴 수 있어 엣지 뒤로 옮기고 시간 상한을 둔다.
+	// 상한 초과 시 남은 digest는 다음 사이클에 처리(엣지/점수 진행을 막지 않음).
+	// final 점수가 글로벌을 읽으므로 점수 체인(Phase 2)보다는 앞에 둔다.
+	// ─────────────────────────────────────────────
+	if s.imgCacheSvc != nil && s.sbomRepo != nil {
+		digests, err := s.sbomRepo.ListDistinctDigests(ctx)
+		if err != nil {
+			log.Printf("analysis-scheduler: list digests failed: %v", err)
+		} else {
+			const phase0Budget = 10 * time.Minute
+			deadline := time.Now().Add(phase0Budget)
+			var refreshed, failed, skipped int
+			for i, d := range digests {
+				if time.Now().After(deadline) {
+					skipped = len(digests) - i
+					log.Printf("analysis-scheduler: global refresh budget(%v) exceeded — %d digests deferred to next cycle", phase0Budget, skipped)
+					break
+				}
+				if _, err := s.imgCacheSvc.ComputeAndStore(ctx, d, false); err != nil {
+					failed++
+					log.Printf("analysis-scheduler: global refresh failed digest=%s: %v", d, err)
+				} else {
+					refreshed++
+				}
+			}
+			log.Printf("analysis-scheduler: global cache refreshed (%d ok, %d failed, %d deferred, %v)",
+				refreshed, failed, skipped, time.Since(start))
+		}
 	}
 
 	// ─────────────────────────────────────────────
