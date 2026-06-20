@@ -19,6 +19,7 @@ import (
 
 const (
 	defaultTimeout    = 300 * time.Second // CPU 추론: 최대 5분
+	healthTimeout     = 2 * time.Second   // 도달성 핑: 짧게 (안 뜨면 즉시 비가동 판정)
 	maxRetries        = 2
 	initialRetryDelay = 3 * time.Second
 
@@ -78,8 +79,32 @@ func NewClient(url, model string) *Client {
 }
 
 // Available returns true if the VLM server URL is configured.
+// ⚠ 설정 여부만 본다 — 서버가 실제로 떠 있는지는 보지 않는다. 실제 도달성은 Healthy를 써라.
 func (c *Client) Available() bool {
 	return c != nil && c.url != ""
+}
+
+// Healthy reports whether the Ollama server is actually reachable right now
+// (짧은 타임아웃 GET /api/tags). Available()이 설정 여부만 보는 것과 달리, 서버가 죽어 있으면
+// false를 돌려준다. GL 평가 스킵 가드(스케줄러/Trigger)에서 "URL은 있는데 ollama가 죽은" 경우를
+// 잡아 기존 결과를 보존하는 데 쓴다.
+func (c *Client) Healthy(ctx context.Context) bool {
+	if c == nil || c.url == "" {
+		return false
+	}
+	hctx, cancel := context.WithTimeout(ctx, healthTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(hctx, http.MethodGet, strings.TrimRight(c.url, "/")+"/api/tags", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode < 500
 }
 
 // ── Request / Response (external — unchanged) ──

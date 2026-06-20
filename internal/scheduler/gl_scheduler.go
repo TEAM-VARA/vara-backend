@@ -63,6 +63,13 @@ func (s *GLScheduler) Stop() {
 func (s *GLScheduler) run(ctx context.Context) {
 	start := time.Now()
 
+	// VLM(ollama) 비가동이면 GL 평가를 아예 스킵한다. 돌려봤자 모든 GL 룰이 INDETERMINATE로
+	// 저장되어 기존의 좋은 판정을 덮어쓰므로, 트리거조차 하지 않고 직전 결과를 보존한다.
+	if !s.svc.VLMAvailable(ctx) {
+		log.Printf("gl-scheduler: VLM(ollama) 비가동 — GL 평가 스킵(기존 결과 보존)")
+		return
+	}
+
 	targets, err := s.svc.ListGLCheckTargets(ctx)
 	if err != nil {
 		log.Printf("gl-scheduler: failed to list GL check targets: %v", err)
