@@ -1,11 +1,9 @@
 package vlm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 )
 
@@ -25,49 +23,21 @@ const cvssSystemPrompt = `너는 취약점 심각도 추정기다. 주어진 CVE
 {"cvss": 0.0~10.0, "confidence": 0.0~1.0, "reason": "한 줄 근거"}`
 
 // EstimateCVSS는 CVE 설명으로 CVSS를 추정합니다.
-// 서버 미설정·설명 없음·호출 실패·파싱 실패 시 (nil, nil)로 graceful degradation.
+// 결측 보완은 Claude 전용입니다(Ollama 폴백 미사용 — 너무 느리고 디스크 부담).
+// Claude 미설정·설명 없음·호출 실패·파싱 실패 시 (nil, nil)로 graceful degradation.
 func (c *Client) EstimateCVSS(ctx context.Context, cveID, description string) (*CVSSEstimate, error) {
-	if !c.Available() || strings.TrimSpace(description) == "" {
+	if !c.UsingClaude() || strings.TrimSpace(description) == "" {
 		return nil, nil
 	}
 
 	user := fmt.Sprintf("## CVE\n%s\n\n## 설명\n%s\n\n위 취약점의 CVSS v3.1 base score를 추정해 JSON으로만 출력하라.", cveID, description)
 
-	chatReq := ollamaChatRequest{
-		Model: c.model,
-		Messages: []ollamaMessage{
-			{Role: "system", Content: cvssSystemPrompt},
-			{Role: "user", Content: user},
-		},
-		Stream:  false,
-		Options: ollamaOptions{Temperature: 0.0},
-	}
-	body, err := json.Marshal(chatReq)
+	raw, err := c.doChat(ctx, cvssSystemPrompt, user, 0.0)
 	if err != nil {
 		return nil, nil
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+"/api/chat", bytes.NewReader(body))
-	if err != nil {
-		return nil, nil
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil
-	}
-
-	var chatResp ollamaChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
-		return nil, nil
-	}
-
-	match := jsonRe.FindString(strings.TrimSpace(chatResp.Message.Content))
+	match := jsonRe.FindString(strings.TrimSpace(raw))
 	if match == "" {
 		return nil, nil
 	}

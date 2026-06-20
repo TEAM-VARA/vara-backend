@@ -11,6 +11,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -55,31 +56,160 @@ const (
 
 var jsonRe = regexp.MustCompile(`\{[^{}]*\}`)
 
-// Client calls an Ollama server for LLM inference.
+// Client calls an LLM for inference — Claude Messages API (ANTHROPIC_API_KEY set)
+// 또는 Ollama 서버(폴백). 메서드(Judge/EstimateCVSS/Available) 시그니처는 동일.
 type Client struct {
-	url        string // Ollama base URL, e.g. http://ollama:11434
-	model      string // model tag, e.g. qwen2.5:3b
+	url        string // Ollama base URL, e.g. http://ollama:11434 (폴백용)
+	apiKey     string // Anthropic API key — 있으면 Claude provider 사용
+	model      string // Claude 모델명 또는 Ollama 태그
 	httpClient *http.Client
 }
 
-// NewClient creates a new VLM judge client.
-// If url is empty, all methods return nil results (VLM disabled).
+// NewClient creates a new LLM client.
+//   - ANTHROPIC_API_KEY 환경변수가 있으면 → Claude Messages API 사용
+//     (모델: CLAUDE_MODEL 환경변수, 기본 claude-3-5-haiku-latest)
+//   - 없으면 → Ollama(url, model) 사용 (기존 동작)
+//   - 둘 다 미설정이면 Available()=false → 모든 메서드 nil 반환(graceful)
 func NewClient(url, model string) *Client {
-	if model == "" {
-		model = "qwen2.5:7b"
+	c := &Client{
+		url:        url,
+		model:      model,
+		httpClient: &http.Client{Timeout: defaultTimeout},
 	}
-	return &Client{
-		url:   url,
-		model: model,
-		httpClient: &http.Client{
-			Timeout: defaultTimeout,
-		},
+	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+		c.apiKey = key
+		if m := os.Getenv("CLAUDE_MODEL"); m != "" {
+			c.model = m
+		} else if c.model == "" || strings.HasPrefix(c.model, "qwen") {
+			c.model = "claude-3-5-haiku-latest"
+		}
+	} else if c.model == "" {
+		c.model = "qwen2.5:7b"
 	}
+	return c
 }
 
-// Available returns true if the VLM server URL is configured.
+// UsingClaude는 Claude API provider로 동작 중인지(=ANTHROPIC_API_KEY 설정됨) 반환합니다.
+// 결측 보완(CVSS imputation)처럼 Ollama 폴백을 쓰지 않고 Claude만 허용하려는 호출부에서 게이팅용.
+func (c *Client) UsingClaude() bool { return c != nil && c.apiKey != "" }
+
+// Available returns true if either Claude(apiKey) or Ollama(url) is configured.
 func (c *Client) Available() bool {
-	return c != nil && c.url != ""
+	return c != nil && (c.apiKey != "" || c.url != "")
+}
+
+// doChat은 provider(Claude/Ollama)로 system+user 프롬프트를 전송하고 raw 응답 텍스트를 반환합니다.
+// 일시적 실패는 백오프 재시도. 모두 실패하면 ("", err).
+func (c *Client) doChat(ctx context.Context, system, user string, temperature float64) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(float64(initialRetryDelay) * math.Pow(2, float64(attempt-1)))
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+		var (
+			raw string
+			err error
+		)
+		if c.UsingClaude() {
+			raw, err = c.chatClaude(ctx, system, user, temperature)
+		} else {
+			raw, err = c.chatOllama(ctx, system, user, temperature)
+		}
+		if err == nil {
+			return raw, nil
+		}
+		lastErr = err
+		log.Printf("[vlm] attempt %d/%d failed: %v", attempt+1, maxRetries, err)
+	}
+	return "", lastErr
+}
+
+// chatClaude — Anthropic Messages API (POST /v1/messages).
+func (c *Client) chatClaude(ctx context.Context, system, user string, temperature float64) (string, error) {
+	reqBody := map[string]any{
+		"model":       c.model,
+		"max_tokens":  1024,
+		"temperature": temperature,
+		"system":      system,
+		"messages":    []map[string]string{{"role": "user", "content": user}},
+	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("x-api-key", c.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("content-type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("claude status %d: %s", resp.StatusCode, string(b))
+	}
+	var out struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	for _, blk := range out.Content {
+		if blk.Type == "text" {
+			return blk.Text, nil
+		}
+	}
+	return "", fmt.Errorf("claude: empty text content")
+}
+
+// chatOllama — Ollama /api/chat (폴백).
+func (c *Client) chatOllama(ctx context.Context, system, user string, temperature float64) (string, error) {
+	chatReq := ollamaChatRequest{
+		Model: c.model,
+		Messages: []ollamaMessage{
+			{Role: "system", Content: system},
+			{Role: "user", Content: user},
+		},
+		Stream:  false,
+		Options: ollamaOptions{Temperature: temperature},
+	}
+	body, err := json.Marshal(chatReq)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+"/api/chat", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("ollama status %d: %s", resp.StatusCode, string(b))
+	}
+	var chatResp ollamaChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+		return "", err
+	}
+	return chatResp.Message.Content, nil
 }
 
 // ── Request / Response (external — unchanged) ──
@@ -198,73 +328,18 @@ func (c *Client) Judge(ctx context.Context, req JudgeRequest) (*JudgeResponse, e
 		return nil, nil
 	}
 
-	chatReq := ollamaChatRequest{
-		Model: c.model,
-		Messages: []ollamaMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: buildUserPrompt(req)},
-		},
-		Stream:  false,
-		Options: ollamaOptions{Temperature: 0.0},
-	}
-
-	body, err := json.Marshal(chatReq)
+	raw, err := c.doChat(ctx, systemPrompt, buildUserPrompt(req), 0.0)
 	if err != nil {
-		return nil, fmt.Errorf("vlm request marshal: %w", err)
+		// 모든 재시도 실패 — graceful degradation.
+		log.Printf("[vlm] judge failed: %v", err)
+		return nil, nil
 	}
 
-	var lastErr error
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			delay := time.Duration(float64(initialRetryDelay) * math.Pow(2, float64(attempt-1)))
-			log.Printf("[vlm] retry %d/%d after %v", attempt+1, maxRetries, delay)
-			select {
-			case <-ctx.Done():
-				return nil, nil
-			case <-time.After(delay):
-			}
-		}
-
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+"/api/chat", bytes.NewReader(body))
-		if err != nil {
-			return nil, fmt.Errorf("vlm request create: %w", err)
-		}
-		httpReq.Header.Set("Content-Type", "application/json")
-
-		resp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			lastErr = err
-			log.Printf("[vlm] attempt %d: server unreachable (%s): %v", attempt+1, c.url, err)
-			continue
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			respBody, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			lastErr = fmt.Errorf("status %d: %s", resp.StatusCode, string(respBody))
-			log.Printf("[vlm] attempt %d: server returned %d: %s", attempt+1, resp.StatusCode, string(respBody))
-			continue
-		}
-
-		var chatResp ollamaChatResponse
-		if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
-			resp.Body.Close()
-			return nil, fmt.Errorf("vlm response decode: %w", err)
-		}
-		resp.Body.Close()
-
-		// Parse JSON from LLM raw text (same logic as colab_server.py).
-		raw := strings.TrimSpace(chatResp.Message.Content)
-		log.Printf("[vlm] raw response: %s", raw)
-
-		result := parseJudgeJSON(raw)
-		return &result, nil
-	}
-
-	// All retries failed — graceful degradation.
-	log.Printf("[vlm] all %d attempts failed: %v", maxRetries, lastErr)
-	return nil, nil
+	// Parse JSON from LLM raw text (same logic as colab_server.py).
+	raw = strings.TrimSpace(raw)
+	log.Printf("[vlm] raw response: %s", raw)
+	result := parseJudgeJSON(raw)
+	return &result, nil
 }
 
 // parseJudgeJSON extracts the first JSON object from LLM output and maps it to JudgeResponse.
