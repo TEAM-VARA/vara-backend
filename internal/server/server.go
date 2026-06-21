@@ -203,7 +203,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 
 	// ── Risk Scoring 가중치 (전역 단일 설정) ──
 	scoringWeightsRepo := postgres.NewScoringWeightsRepo(pg)
-	weightsSvc := service.NewWeightsService(scoringWeightsRepo, finalScoringSvc, toxicSvc, vulnClusterName)
+	weightsSvc := service.NewWeightsService(scoringWeightsRepo, finalScoringSvc, toxicSvc, vlmClient, vulnClusterName)
 	weightsH := handler.NewWeightsHandler(weightsSvc)
 	{
 		loadCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -239,6 +239,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	// ── Risk Scoring 가중치 조회/설정 (전역 단일 설정) ──
 	r.GET("/api/v1/scoring/weights", weightsH.Get)
 	r.PUT("/api/v1/scoring/weights", weightsH.Update)
+	r.POST("/api/v1/scoring/weights/recommend", weightsH.Recommend) // AI 추천(통계+선택 운영자설명), 자동적용 X
 
 	// ── Vuln Scheduler 시작 (자동 OSV 스캔 + 알림 + Risk 재계산) ──
 	// ENV로 ON/OFF, 기본 활성

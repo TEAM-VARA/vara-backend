@@ -100,6 +100,16 @@ func (c *Client) Available() bool {
 	return c != nil && (c.apiKey != "" || c.url != "")
 }
 
+// Complete는 임의의 system+user 프롬프트를 LLM에 보내고 raw 응답 텍스트를 반환합니다(범용).
+// 도메인 결합 없이 재사용 가능 — 가중치 추천·시나리오 등 호출부가 프롬프트/파싱을 담당.
+// 미설정(Available=false) 시 에러를 반환합니다.
+func (c *Client) Complete(ctx context.Context, system, user string, temperature float64) (string, error) {
+	if !c.Available() {
+		return "", fmt.Errorf("vlm: not configured")
+	}
+	return c.doChat(ctx, system, user, temperature)
+}
+
 // doChat은 provider(Claude/Ollama)로 system+user 프롬프트를 전송하고 raw 응답 텍스트를 반환합니다.
 // 일시적 실패는 백오프 재시도. 모두 실패하면 ("", err).
 func (c *Client) doChat(ctx context.Context, system, user string, temperature float64) (string, error) {
