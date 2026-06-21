@@ -223,7 +223,7 @@ func (r *BlastEdgesRepo) GetOutgoingBySource(ctx context.Context, cluster, sourc
 	return out, rows.Err()
 }
 
-// Replace — 해당 (cluster, snapshot)의 blast_edges를 통째로 교체(삭제 후 일괄 삽입).
+// Replace — 해당 cluster의 blast_edges를 현재 snapshot으로 통째 교체(클러스터 전체 삭제 후 일괄 삽입 → 최신 snapshot만 유지).
 // src/dst 표시용 name/namespace는 pods에서 채운다. 적재된 행 수를 반환.
 func (r *BlastEdgesRepo) Replace(
 	ctx context.Context,
@@ -232,6 +232,12 @@ func (r *BlastEdgesRepo) Replace(
 	edges []blastedge.Edge,
 	pods map[string]blastedge.PodFact,
 ) (int, error) {
+	// 최신만 유지(가드): 빈 결과로는 기존 스냅샷을 지우지 않는다.
+	// 점수 미준비/일시적 0건일 때 마지막 정상 스냅샷 보존(엣지 retention의 edgesOK 가드와 동일 철학).
+	if len(edges) == 0 {
+		return 0, nil
+	}
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("blast: begin tx: %w", err)
@@ -239,8 +245,10 @@ func (r *BlastEdgesRepo) Replace(
 	defer tx.Rollback(ctx) //nolint:errcheck // commit 후엔 no-op
 
 	if _, err := tx.Exec(ctx,
-		`DELETE FROM blast_edges WHERE cluster_name = $1 AND snapshot_at = $2`,
-		cluster, snapshot,
+		// 최신만 유지: snapshot 한정이 아니라 이 클러스터 전체를 지우고 현재 snapshot만 재적재.
+		// 소비자는 MAX(snapshot_at)만 읽으므로 과거 스냅샷 불필요. DELETE+CopyFrom이 한 tx라 원자적.
+		`DELETE FROM blast_edges WHERE cluster_name = $1`,
+		cluster,
 	); err != nil {
 		return 0, fmt.Errorf("blast: delete old: %w", err)
 	}
