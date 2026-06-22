@@ -96,6 +96,9 @@ services:
       VLM_MODEL: ${VLM_MODEL:-qwen2.5:7b}
       # ANTHROPIC_API_KEY는 .env(env_file)로 자동 주입됨. 있으면 Claude API, 없으면 Ollama 폴백.
       CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-haiku-4-5-20251001}
+      # GL 점검 per-check wall-clock 한도. GLScheduler가 부팅 90초 후 전 항목을
+      # 동시 트리거하므로, 단일 슬롯 Ollama 큐가 다 풀릴 때까지 버티도록 넉넉히.
+      GRC_CHECK_TIMEOUT_MIN: ${GRC_CHECK_TIMEOUT_MIN:-60}
     ports:
       - "8080:8080"
     volumes:

@@ -69,6 +69,10 @@ type ScenarioMitigation struct {
 	CVE    string   `json:"cve,omitempty"`
 	Text   string   `json:"text"`             // 보완 줄글 (한 항목, MITRE 태그 제외)
 	MitreM []string `json:"mitre_m,omitempty"` // 클릭 시 참조할 MITRE mitigation 코드
+
+	// RiskReduction — 이 보완 적용 시 Final 점수 하락량(before/after/delta). 재계산 방식.
+	// scenario_service.attachRiskReductions가 채운다. 점수 정보 없으면 nil.
+	RiskReduction *RiskReduction `json:"risk_reduction,omitempty"`
 }
 
 // PodScenarioResult — pod 1개의 최종 출력 (페이지 렌더용)
@@ -95,6 +99,15 @@ type PodScenarioResult struct {
 
 	// 멀티홉 전파: source 파드에서 BFS로 닿는 엣지마다 (src→dst) 채널별(network/rbac/host) 시나리오.
 	Hops []HopScenario `json:"hops,omitempty"`
+
+	// granular 보완 항목 + 묶음(그룹). 항목별 점수 하락(remediation reduction). 점수 체계는 불변.
+	RemediationItems  []RemediationItem `json:"remediation_items,omitempty"`
+	RemediationGroups []RemediationItem `json:"remediation_groups,omitempty"`
+
+	// ISMS-P 미준수 가산(상3/중2/하1)이 Final(risk_score)에 더해진 총합 + 그 내역.
+	// 보완 항목/그룹의 isms_reduction이 이 가산을 차감한다(근본원인 해소 시).
+	ISMSAddend float64       `json:"isms_addend,omitempty"`
+	ISMSRules  []ISMSRuleHit `json:"isms_rules,omitempty"`
 
 	Notes []string `json:"notes,omitempty"` // 수집 갭 등 한계 고지
 }

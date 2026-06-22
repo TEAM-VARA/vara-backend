@@ -1513,8 +1513,10 @@ func evalConfigMapSecrets(rule Rule, req PodGraphRequest, base PodRuleResult) Po
 	// Get ConfigMap names referenced by the Pod
 	cmNames := extractPodConfigMapRefs(req.Pod)
 	if len(cmNames) == 0 {
+		// 위험 종속형: ConfigMap이 없으면 평문 시크릿 위험도 정의상 없음 → 실제 준수.
+		// ("해당 없음" 문구 금지 — allIndicatorsNA가 검토필요로 재분류함)
 		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"Pod에서 ConfigMap 참조 없음 — 해당 없음"}
+		base.MatchedIndicators = []string{"Pod가 참조하는 ConfigMap 없음 — 평문 시크릿 위험 없음"}
 		return base
 	}
 

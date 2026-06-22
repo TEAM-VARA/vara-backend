@@ -20,10 +20,12 @@ type ScenarioService struct {
 	blastRepo  *postgres.BlastEdgesRepo    // outgoing(전파) 엣지: win_channel·reason·실제 타겟
 	exposure   *ExposureService            // Exposed/ExposedVia (LoadBalancer/NodePort/Ingress)
 	rbacChain  *RBACChainService           // 정밀 verb·resource (create workload / write webhook / delete events)
+	grc        *GRCService                 // ISMS-P 미준수 가산(상3/중2/하1) breakdown — 보완 시 가산 차감용(없으면 ISMS 차감 생략)
 }
 
 // NewScenarioService — attack-path + final-score + global(CVE) + blast(전파 엣지)
-// + exposure(노출) + rbacchain(정밀 권한) 의존성으로 생성.
+// + exposure(노출) + rbacchain(정밀 권한) + grc(ISMS-P 가산) 의존성으로 생성.
+// grc는 nil 허용(ISMS 가산 차감만 생략, 나머지는 정상 동작).
 func NewScenarioService(
 	ap *AttackPathService,
 	fs *FinalScoringService,
@@ -31,15 +33,17 @@ func NewScenarioService(
 	br *postgres.BlastEdgesRepo,
 	ex *ExposureService,
 	rc *RBACChainService,
+	grc *GRCService,
 ) *ScenarioService {
 	return &ScenarioService{
 		attackPath: ap, finalScore: fs, globalRepo: gr, blastRepo: br,
-		exposure: ex, rbacChain: rc,
+		exposure: ex, rbacChain: rc, grc: grc,
 	}
 }
 
 // BuildForPod — pod 1개의 시나리오/보완 줄글 생성.
-func (s *ScenarioService) BuildForPod(ctx context.Context, cluster, podUID string) (*scoring.PodScenarioResult, error) {
+// companyID는 ISMS-P 가산 차감 계산용(빈 문자열이면 ISMS 차감 생략, 나머지는 정상).
+func (s *ScenarioService) BuildForPod(ctx context.Context, companyID, cluster, podUID string) (*scoring.PodScenarioResult, error) {
 	in := scoring.ScenarioInput{
 		ClusterName:   cluster,
 		PodUID:        podUID,
@@ -160,6 +164,13 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, cluster, podUID strin
 		}
 		res.Hops = scoring.BuildOutgoingScenarios(hopEdges)
 	}
+
+	// 보완별 risk score 하락량(before/after/delta) 부착 — 재계산 방식.
+	s.attachRiskReductions(ctx, cluster, podUID, &res)
+
+	// granular 보완 항목/그룹(per-CVE·per-permission·per-setting + 항목별 reduction)
+	// + ISMS-P 가산 차감 부착(companyID 있을 때)
+	s.buildRemediation(ctx, companyID, cluster, podUID, &res)
 
 	return &res, nil
 }

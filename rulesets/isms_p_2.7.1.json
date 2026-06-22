@@ -264,7 +264,7 @@
         "pass": "충족",
         "fail": "미충족",
         "no_uncertain_fallback": true,
-        "_decision": "aws_kms_keys(aws-reader 수집)에서 고객관리키 상태·로테이션·알고리즘 자동 판정. 미수집 시에만 확인불가(NO_DATA)."
+        "_decision": "aws_kms_keys(aws-reader 수집)에서 고객관리키 상태·로테이션·알고리즘 자동 판정. 고객관리키(CMK) 부재 시 미충족(고객 관리 키 미사용). 키 데이터 미수집 시에만 확인불가(NO_DATA)."
       }
     },
     {

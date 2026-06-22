@@ -136,7 +136,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	healthH := handler.NewHealth(pg, rdb)
 	agentH := handler.NewAgent(pg, rdb, agentSvc)
 	ismspH := handler.NewISMSP(pg)
-	scoringH := handler.NewScoring(scoringRepo, scoringSvc)
+	scoringH := handler.NewScoring(scoringRepo, scoringSvc, grcSvc)
 	clusterReaderH := handler.NewClusterReader(clusterReaderRepo, sbomSvc)
 	exposureH := handler.NewExposureHandler(exposureSvc)
 	globalScoringH := handler.NewGlobalScoringHandler(globalScoringSvc)
@@ -163,7 +163,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 
 	// ── Scenario (공격 시나리오/보완 줄글, attack-path 신호 + blast 전파 엣지 + 노출/정밀 RBAC 기반) ──
 	blastEdgesRepo := postgres.NewBlastEdgesRepo(pg)
-	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo, blastEdgesRepo, exposureSvc, rbacChainSvc)
+	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo, blastEdgesRepo, exposureSvc, rbacChainSvc, grcSvc)
 	scenarioH := handler.NewScenarioHandler(scenarioSvc)
 	blastGraph := &service.BlastGraphHandler{Pool: pg}
 
