@@ -50,6 +50,73 @@ func (r *ScoringWeightsRepo) Get(ctx context.Context) (scoring.Weights, error) {
 	return w, nil
 }
 
+// CollectPosture는 AI 가중치 추천의 근거로 쓸 클러스터 현황을 집계합니다.
+// final/exposure/toxic은 해당 클러스터 최신 snapshot 기준, CVE는 스코어링된 전체 기준.
+// 일부 쿼리가 실패해도 가능한 만큼 채워 반환합니다(부분 통계도 추천엔 유용).
+func (r *ScoringWeightsRepo) CollectPosture(ctx context.Context, cluster string) (scoring.ClusterPosture, error) {
+	p := scoring.ClusterPosture{
+		GradeCounts: map[string]int{},
+		CVESeverity: map[string]int{},
+	}
+
+	// 1) final_scores 등급 분포 (최신 snapshot)
+	rows, err := r.pool.Query(ctx, `
+		SELECT risk_level, COUNT(*)
+		FROM final_scores
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM final_scores WHERE cluster_name = $1)
+		GROUP BY risk_level`, cluster)
+	if err == nil {
+		for rows.Next() {
+			var level string
+			var n int
+			if err := rows.Scan(&level, &n); err == nil {
+				p.GradeCounts[level] = n
+				p.TotalPods += n
+			}
+		}
+		rows.Close()
+	}
+
+	// 2) exposure_scores 노출 파드 수 (최신 snapshot)
+	_ = r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE exposed)
+		FROM exposure_scores
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM exposure_scores WHERE cluster_name = $1)`,
+		cluster).Scan(&p.ExposedPods)
+
+	// 3) toxic_results 매칭(배수>1) 파드 수 + 최대 배수 (최신 snapshot)
+	_ = r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE multiplier > 1.0), COALESCE(MAX(multiplier), 1.0)
+		FROM toxic_results
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM toxic_results WHERE cluster_name = $1)`,
+		cluster).Scan(&p.ToxicMatchedPods, &p.MaxToxicMultiplier)
+
+	// 4) cve_global_scores 전반 신호 (KEV 수 / 평균 EPSS / 총수)
+	_ = r.pool.QueryRow(ctx, `
+		SELECT COUNT(*), COUNT(*) FILTER (WHERE in_kev), COALESCE(AVG(epss_score), 0)
+		FROM cve_global_scores`).Scan(&p.ScoredCVEs, &p.KevCVEs, &p.AvgEPSS)
+
+	// 5) cve_global_scores 심각도 분포
+	srows, err := r.pool.Query(ctx, `
+		SELECT COALESCE(NULLIF(cvss_severity, ''), 'UNKNOWN'), COUNT(*)
+		FROM cve_global_scores GROUP BY 1`)
+	if err == nil {
+		for srows.Next() {
+			var sev string
+			var n int
+			if err := srows.Scan(&sev, &n); err == nil {
+				p.CVESeverity[sev] = n
+			}
+		}
+		srows.Close()
+	}
+
+	return p, nil
+}
+
 // Upsert는 가중치를 저장합니다 (단일행, updated_at 갱신).
 func (r *ScoringWeightsRepo) Upsert(ctx context.Context, w scoring.Weights) error {
 	const q = `

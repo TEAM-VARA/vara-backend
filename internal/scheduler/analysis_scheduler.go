@@ -79,8 +79,8 @@ func (s *AnalysisScheduler) Start(ctx context.Context) {
 	}
 	log.Printf("analysis-scheduler: started (interval=%v, cluster=%s)", s.interval, s.clusterName)
 	go func() {
-		// 서버 시작 10분 후 첫 실행, 이후 interval(기본 40분)마다
-		time.Sleep(10 * time.Minute)
+		// 서버 시작 15분 후 첫 실행, 이후 interval(기본 10분)마다
+		time.Sleep(15 * time.Minute)
 		s.run(ctx)
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
