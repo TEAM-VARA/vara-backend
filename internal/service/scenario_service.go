@@ -21,6 +21,7 @@ type ScenarioService struct {
 	exposure   *ExposureService            // Exposed/ExposedVia (LoadBalancer/NodePort/Ingress)
 	rbacChain  *RBACChainService           // 정밀 verb·resource (create workload / write webhook / delete events)
 	grc        *GRCService                 // ISMS-P 미준수 가산(상3/중2/하1) breakdown — 보완 시 가산 차감용(없으면 ISMS 차감 생략)
+	enrich     *CVEEnrichmentService       // CVE narrative enrichment(설계서 §4). nil 허용(generic 폴백).
 }
 
 // NewScenarioService — attack-path + final-score + global(CVE) + blast(전파 엣지)
@@ -34,10 +35,11 @@ func NewScenarioService(
 	ex *ExposureService,
 	rc *RBACChainService,
 	grc *GRCService,
+	enrich *CVEEnrichmentService,
 ) *ScenarioService {
 	return &ScenarioService{
 		attackPath: ap, finalScore: fs, globalRepo: gr, blastRepo: br,
-		exposure: ex, rbacChain: rc, grc: grc,
+		exposure: ex, rbacChain: rc, grc: grc, enrich: enrich,
 	}
 }
 
@@ -190,24 +192,20 @@ func (s *ScenarioService) enrichCVE(ctx context.Context, in *scoring.ScenarioInp
 	in.CVEKEV = g.InKEV
 	in.CVERemote, in.CVEAvailabilityImpact, in.CVEConfidentialityImpact, in.CVEScopeChanged =
 		parseCVSSVector(g.CVSSVector)
+
+	// CVE narrative enrichment(설계서 §4): 캐시 있으면 부착(narrative 강화 + 우측 패널),
+	// 없으면 백그라운드 추출 트리거 후 generic 폴백(무중단).
+	if s.enrich != nil {
+		if e, eerr := s.enrich.GetOrEnrich(ctx, cveID); eerr == nil && e != nil {
+			in.CVEEnrichment = e
+		}
+	}
 }
 
 // parseCVSSVector — CVSS v3.1/v4.0 벡터 문자열에서 시나리오 판정에 쓰는 플래그 추출.
-//
-//	remote(AV:N) / availability(A:H|VA:H) / confidentiality(C:H|VC:H) / scopeChanged(S:C 또는 v4.0 후속시스템 영향)
-//
-// "/" 로 토큰 분리 후 키:값 정확 매칭 → "AC:H"가 "C:H"로 오인되는 substring 버그 방지.
+// 도메인 공용 파서(scoring.ParseCVSSFlags)에 위임한다 — enrichment와 동일 로직 재사용.
 func parseCVSSVector(vec string) (remote, availability, confidentiality, scopeChanged bool) {
-	m := make(map[string]string)
-	for _, tok := range strings.Split(vec, "/") {
-		if kv := strings.SplitN(tok, ":", 2); len(kv) == 2 {
-			m[kv[0]] = kv[1]
-		}
-	}
-	remote = m["AV"] == "N"
-	availability = m["A"] == "H" || m["VA"] == "H"
-	confidentiality = m["C"] == "H" || m["VC"] == "H"
-	scopeChanged = m["S"] == "C" || m["SC"] == "H" || m["SI"] == "H" || m["SA"] == "H"
+	remote, availability, confidentiality, scopeChanged, _ = scoring.ParseCVSSFlags(vec)
 	return
 }
 

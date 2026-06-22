@@ -55,6 +55,10 @@ type ScenarioFinding struct {
 	MitreM     []string `json:"mitre_m,omitempty"`
 	Confidence string   `json:"confidence"` // high|heuristic|low
 	Caveat     string   `json:"caveat,omitempty"`
+
+	// Enrichment — CVE narrative enrichment(설계서 §4). VULN finding에만 부착된다.
+	// 프론트가 T0/T1/T2(노드 카드/hover/우측 패널)를 이 객체로 렌더한다. nil이면 generic.
+	Enrichment *CVEEnrichment `json:"enrichment,omitempty"`
 }
 
 // ScenarioMitigation — 보완대책 1건 (개조식 항목).
