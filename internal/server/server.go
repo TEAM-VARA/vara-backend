@@ -92,8 +92,10 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		MaxConcurrent: 1,
 	})
 	exposureSvc := service.NewExposureService(exposureRepo, ebpfRepo, clusterNodesRepo)
+	vlmClient := vlm.NewClient(os.Getenv("VLM_SERVER_URL"), os.Getenv("VLM_MODEL")) // CVSS 결측 보완(AI) + GRC 공용
 	globalScoringSvc := service.NewGlobalScoringService(
 		nvdClient, epssClient, kevClient, exploitDBClient, globalScoringRepo,
+		packageVulnRepo, vlmClient,
 	)
 	attackPathSvc := service.NewAttackPathService(attackPathRepo, ebpfRepo, clusterNodesRepo)
 	localScoringSvc := service.NewLocalScoringService(localScoringRepo)
@@ -118,7 +120,6 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	grcRepo := postgres.NewGRCRepo(pg)
 	rulesetStore := service.NewRulesetStore("rulesets")
 	embClient := embedding.NewClient(os.Getenv("EMBEDDING_SERVER_URL"))
-	vlmClient := vlm.NewClient(os.Getenv("VLM_SERVER_URL"), os.Getenv("VLM_MODEL"))
 	grcSvc := service.NewGRCService(grcRepo, clusterReaderRepo, rulesetStore, embClient, vlmClient)
 	// 이전 컨테이너 재시작으로 중단된 running/queued 체크를 failed로 초기화
 	{
@@ -135,7 +136,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	healthH := handler.NewHealth(pg, rdb)
 	agentH := handler.NewAgent(pg, rdb, agentSvc)
 	ismspH := handler.NewISMSP(pg)
-	scoringH := handler.NewScoring(scoringRepo, scoringSvc)
+	scoringH := handler.NewScoring(scoringRepo, scoringSvc, grcSvc)
 	clusterReaderH := handler.NewClusterReader(clusterReaderRepo, sbomSvc)
 	exposureH := handler.NewExposureHandler(exposureSvc)
 	globalScoringH := handler.NewGlobalScoringHandler(globalScoringSvc)
@@ -162,7 +163,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 
 	// ── Scenario (공격 시나리오/보완 줄글, attack-path 신호 + blast 전파 엣지 + 노출/정밀 RBAC 기반) ──
 	blastEdgesRepo := postgres.NewBlastEdgesRepo(pg)
-	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo, blastEdgesRepo, exposureSvc, rbacChainSvc)
+	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo, blastEdgesRepo, exposureSvc, rbacChainSvc, grcSvc)
 	scenarioH := handler.NewScenarioHandler(scenarioSvc)
 	blastGraph := &service.BlastGraphHandler{Pool: pg}
 

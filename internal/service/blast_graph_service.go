@@ -15,6 +15,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math/rand"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool" // pgx v4면 "github.com/jackc/pgx/v4/pgxpool"
@@ -44,6 +45,7 @@ type GraphNode struct {
 	Label     string `json:"label"`     // 표시 이름 (없으면 uid 앞 8자)
 	Namespace string `json:"namespace"` // 4계층 띠 배치 등에 사용
 	ReachProb float64 `json:"reach_prob"` // A→이 노드 도달확률 (0~1, A 자신=1.0)
+	ChokeScore int `json:"choke_score"`// 이 노드 제거 시 A의 blast 감소량
 }
 
 
@@ -59,6 +61,7 @@ type BlastGraphResult struct {
 	SourceUID string      `json:"source_uid"`
 	Nodes     []GraphNode `json:"nodes"`
 	Edges     []GraphEdge `json:"edges"`
+	TotalRisk float64     `json:"total_risk"` // 이 파드의 총위험도(MC)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -207,6 +210,13 @@ func (h *BlastGraphHandler) Handle(c *gin.Context) {
 	}
 
 	result := BuildBlastGraphFromPod(edges, pod)
+	result.TotalRisk = ComputeCriticalityMC(edges, pod, 5000, rand.New(rand.NewSource(42)))
+
+	chokeScores := ComputeChokeScores(edges, pod)
+	for i := range result.Nodes {
+		result.Nodes[i].ChokeScore = chokeScores[result.Nodes[i].ID]
+	}
+	
 	c.JSON(200, result)
 }
 

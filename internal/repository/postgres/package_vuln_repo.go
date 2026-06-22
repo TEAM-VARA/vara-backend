@@ -187,6 +187,26 @@ func (r *PackageVulnerabilityRepo) ListByPURL(ctx context.Context, purl string) 
 }
 
 // SearchByVulnID는 특정 CVE/GHSA ID로 모든 영향 PURL을 찾습니다.
+// GetSeveritySummaryByVulnID는 OSV가 가진 severity_score와 summary를 반환합니다.
+// CVSS 결측 보완(imputation)의 OSV fallback + AI 입력(설명) 용도.
+// vuln_id 직접 또는 aliases 매칭, severity_score 높은 것 우선. 없으면 found=false.
+func (r *PackageVulnerabilityRepo) GetSeveritySummaryByVulnID(ctx context.Context, vulnID string) (severityScore float64, summary string, found bool, err error) {
+	const q = `
+		SELECT COALESCE(severity_score, 0), COALESCE(summary, '')
+		FROM package_vulnerabilities
+		WHERE (vuln_id = $1 OR $1 = ANY(aliases)) AND withdrawn_at IS NULL
+		ORDER BY severity_score DESC NULLS LAST
+		LIMIT 1`
+	err = r.pool.QueryRow(ctx, q, vulnID).Scan(&severityScore, &summary)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", false, nil
+	}
+	if err != nil {
+		return 0, "", false, fmt.Errorf("get osv severity/summary for %s: %w", vulnID, err)
+	}
+	return severityScore, summary, true, nil
+}
+
 func (r *PackageVulnerabilityRepo) SearchByVulnID(ctx context.Context, vulnID string) ([]sbom.PackageVulnerability, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT

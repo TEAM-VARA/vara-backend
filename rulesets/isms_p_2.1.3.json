@@ -21,65 +21,6 @@
   ],
   "rules": [
     {
-      "rule_id": "R-2.1.3-01",
-      "name": "책임소재 라벨 커버리지 (조직 컨벤션 키 기반)",
-      "judgment_source": "k8s_api",
-      "extraction_method": "manual",
-      "verdict_type": "potential_finding",
-      "manual_meta": {
-        "target_resource": "Pod/Workload",
-        "required_data": [
-          "cluster_pods.labels",
-          "cluster_pods.annotations"
-        ],
-        "condition": {
-          "operator": "any_owner_indicator_exists",
-          "fields": [
-            "labels.team",
-            "labels.owner",
-            "labels.cost-center",
-            "labels.app.kubernetes.io/part-of",
-            "annotations.owner",
-            "annotations.owner-team"
-          ]
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.1.3",
-            "match_strength": "indirect"
-          }
-        ],
-        "offcluster_satisfaction_conditions": [
-          "책임자 라벨이 없는 워크로드를 외부 자산 관리대장/CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 대조해 책임소재 확정"
-        ],
-        "k8s_only_check": false,
-        "deferred": false
-      },
-      "manual_check_output": {
-        "applies_when": "always",
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.1.3",
-            "match_strength": "indirect"
-          }
-        ],
-        "offcluster_satisfaction_conditions": [
-          "책임자 라벨이 없는 워크로드를 외부 자산 관리대장/CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 대조해 책임소재 확정"
-        ]
-      },
-      "remediation": {
-        "source": {
-          "framework": "자체 정책 (표준 미대응)",
-          "version": null,
-          "reference": "라벨 거버넌스(조직 컨벤션 키)",
-          "url": null
-        },
-        "action": "모든 워크로드에 조직 컨벤션 라벨(team/owner/cost-center 등)을 부여하고, 외부 CMDB·CODEOWNERS와 대조해 누락을 메운다."
-      }
-    },
-    {
       "rule_id": "R-2.1.3-02",
       "name": "책임소재 라벨 강제(admission policy) 점검",
       "judgment_source": "k8s_api",

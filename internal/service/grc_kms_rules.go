@@ -70,7 +70,12 @@ func evalKmsKeyRotation(base grc.RuleResult, snap *ClusterSnapshot, cond map[str
 	}
 
 	if cmkTotal == 0 {
-		return sgNoData(base, "고객 관리형 KMS 키(CMK) 없음 — 점검 대상 부재", map[string]any{"key_total": len(keys), "cmk_total": 0})
+		// 고객 관리형 키(CMK) 부재 = 고객 관리 키 미사용 → 미준수(정책 결정).
+		// 단 키 데이터 자체가 미수집(len(keys)==0)인 경우는 위에서 이미 NO_DATA 처리.
+		base.Matched = true
+		base.Observation = "고객 관리형 KMS 키(CMK) 없음 — 고객 관리 키 미사용(미준수)"
+		base.Evidence = map[string]any{"key_total": len(keys), "cmk_total": 0, "data_provided": true}
+		return base
 	}
 
 	if len(issues) == 0 {

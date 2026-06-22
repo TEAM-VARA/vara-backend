@@ -19,10 +19,11 @@ import (
 type ScoringHandler struct {
 	repo    *postgres.ScoringRepo
 	service *service.ScoringService
+	grc     *service.GRCService // ISMS-P 미준수 가산용 (코어 스코어링 불변)
 }
 
-func NewScoring(repo *postgres.ScoringRepo, svc *service.ScoringService) *ScoringHandler {
-	return &ScoringHandler{repo: repo, service: svc}
+func NewScoring(repo *postgres.ScoringRepo, svc *service.ScoringService, grc *service.GRCService) *ScoringHandler {
+	return &ScoringHandler{repo: repo, service: svc, grc: grc}
 }
 
 // ComputeRisk : POST /api/v1/pods/{pod_id}/risk
@@ -83,7 +84,24 @@ func (h *ScoringHandler) ComputeRisk(c *gin.Context) {
 	result.DigestFlagged = digestFlagged
 	result.DigestMessage = digestMessage
 
-	// DB 저장
+	// ── ISMS-P 미준수 가산 ──
+	// FinalScore는 "높을수록 위험"이므로 미준수면 점수를 *더한다*(상3/중2/하1).
+	// company_id·cluster_name 쿼리 파라미터가 있으면 그 pod의 ISMS-P 미준수를 합산해
+	// FinalScore에 반영한다(도구 severity 보유 21개 룰 전부 — service.ismspRiskSeverity).
+	// 없으면 기존 동작 그대로(스킵).
+	var ismspRisk *service.ISMSPRiskBreakdown
+	if h.grc != nil {
+		companyID := c.Query("company_id")
+		clusterName := c.Query("cluster_name")
+		if companyID != "" && clusterName != "" {
+			ismspRisk = h.grc.ComputePodISMSPAddend(
+				ctx, companyID, clusterName, podInfo.Namespace, podInfo.PodName,
+			)
+			service.ApplyISMSPToFinalScore(&result, ismspRisk.Addend)
+		}
+	}
+
+	// DB 저장 (ISMS-P 가산이 반영된 FinalScore로 저장)
 	if err := h.repo.SaveScoring(
 		ctx, podID, req.ImageName, req.ImageDigest,
 		result, comp.Details, digestCheck,
@@ -91,15 +109,14 @@ func (h *ScoringHandler) ComputeRisk(c *gin.Context) {
 		fmt.Printf("warn: save scoring failed: %v\n", err)
 	}
 
-	resp := scoring.Response{
-		ImageName:   req.ImageName,
-		ImageDigest: req.ImageDigest,
-		Result:      result,
-		Message: fmt.Sprintf("스코어링 완료 — 점수: %.2f / 등급: %s / CVE %d개 발견",
+	c.JSON(http.StatusOK, gin.H{
+		"image_name":   req.ImageName,
+		"image_digest": req.ImageDigest,
+		"result":       result,
+		"ismsp_risk":   ismspRisk, // company_id·cluster_name 미제공 시 null
+		"message": fmt.Sprintf("스코어링 완료 — 점수: %.2f / 등급: %s / CVE %d개 발견",
 			result.FinalScore, result.RiskLevel, len(result.CVEList)),
-	}
-
-	c.JSON(http.StatusOK, resp)
+	})
 }
 
 // GetRiskDetails : GET /api/v1/pods/{pod_id}/risk/details

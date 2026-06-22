@@ -628,8 +628,9 @@ func evalLBSourceRange(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleR
 	}
 
 	if !found {
+		// 위험 종속형: LB가 없으면 source range 노출 위험도 없음 → 실제 준수.
 		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"LoadBalancer Service 없음 — 해당 없음"}
+		base.MatchedIndicators = []string{"LoadBalancer Service 없음 — source range 노출 위험 없음"}
 		return base
 	}
 	if len(violations) > 0 {
@@ -825,8 +826,9 @@ func evalExternalNamePlaintext(_ Rule, req PodGraphRequest, base PodRuleResult) 
 	}
 
 	if !found {
+		// 위험 종속형: ExternalName Service가 없으면 평문 endpoint 위험도 없음 → 실제 준수.
 		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"ExternalName Service 없음 — 해당 없음"}
+		base.MatchedIndicators = []string{"ExternalName Service 없음 — 평문 endpoint 위험 없음"}
 		return base
 	}
 	if len(violations) > 0 {
@@ -1022,8 +1024,9 @@ func evalProdShellExec(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleR
 	nsLabels := jsonMap(req.RelatedResources.Namespace, "metadata", "labels")
 	nsEnv := strVal(nsLabels["env"])
 	if nsEnv != "prod" {
+		// 위험 종속형: 운영(prod) 전용 룰 — 비운영 namespace는 점검 범위 외 → 실제 준수.
 		base.Verdict = "준수"
-		base.MatchedIndicators = []string{fmt.Sprintf("namespace env=%s (prod 아님) — 해당 없음", nsEnv)}
+		base.MatchedIndicators = []string{fmt.Sprintf("namespace env=%s (운영 아님) — 운영 외 환경, 위험 없음", nsEnv)}
 		return base
 	}
 
@@ -1082,8 +1085,9 @@ func evalEBPFMonitoringCoverage(_ Rule, req PodGraphRequest, base PodRuleResult)
 	// 운영(prod) namespace로 스코프 — 비운영은 적용 제외
 	nsLabels := jsonMap(req.RelatedResources.Namespace, "metadata", "labels")
 	if strVal(nsLabels["env"]) != "prod" {
+		// 위험 종속형: 운영(prod) 전용 룰 — 비운영 namespace는 점검 범위 외 → 실제 준수.
 		base.Verdict = "준수"
-		base.MatchedIndicators = []string{fmt.Sprintf("namespace env=%s (운영 아님) — 해당 없음", strVal(nsLabels["env"]))}
+		base.MatchedIndicators = []string{fmt.Sprintf("namespace env=%s (운영 아님) — 운영 외 환경, 위험 없음", strVal(nsLabels["env"]))}
 		return base
 	}
 
