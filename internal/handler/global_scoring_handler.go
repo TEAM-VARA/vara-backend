@@ -50,7 +50,7 @@ func (h *GlobalScoringHandler) ComputeCVE(c *gin.Context) {
 	force := c.Query("force") == "true"
 
 	ctx := c.Request.Context()
-	score, err := h.service.ComputeCVE(ctx, cveID, force)
+	score, _, err := h.service.ComputeCVE(ctx, cveID, force)
 	if err != nil {
 		fmt.Printf("warn: compute cve failed cve=%s err=%v\n", cveID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

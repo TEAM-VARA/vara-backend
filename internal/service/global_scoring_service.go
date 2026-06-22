@@ -76,19 +76,22 @@ func NewGlobalScoringService(
 //
 // force=true:
 //   - 캐시 무시하고 외부 API 호출
-func (s *GlobalScoringService) ComputeCVE(ctx context.Context, cveID string, force bool) (*scoring.GlobalScore, error) {
+// 반환값 두 번째(fetched)는 외부 API를 실제 호출했는지 여부입니다.
+// 캐시 히트면 false, 외부 fetch면 true. 호출부(ComputeImage)가 NVD rate-limit
+// 페이싱을 "실제 호출 시에만" 하도록 게이팅하는 데 씁니다.
+func (s *GlobalScoringService) ComputeCVE(ctx context.Context, cveID string, force bool) (*scoring.GlobalScore, bool, error) {
 	if cveID == "" {
-		return nil, fmt.Errorf("cve_id is required")
+		return nil, false, fmt.Errorf("cve_id is required")
 	}
 
 	// 1. 캐시 확인 (force=false인 경우)
 	if !force {
 		cached, err := s.repo.GetByCVEIDFresh(ctx, cveID)
 		if err != nil {
-			return nil, fmt.Errorf("check cache: %w", err)
+			return nil, false, fmt.Errorf("check cache: %w", err)
 		}
 		if cached != nil {
-			return cached, nil
+			return cached, false, nil // 캐시 히트 — 외부 호출 없음
 		}
 	}
 
@@ -101,7 +104,7 @@ func (s *GlobalScoringService) ComputeCVE(ctx context.Context, cveID string, for
 		fmt.Printf("warn: failed to cache score for %s: %v\n", cveID, err)
 	}
 
-	return &score, nil
+	return &score, true, nil // 외부 fetch 수행함
 }
 
 // GetCachedCVE는 캐시된 점수를 조회만 합니다 (계산 안 함).
@@ -143,20 +146,24 @@ func (s *GlobalScoringService) ComputeImage(ctx context.Context, imageDigest str
 	// 50 req/30sec 이라 50개씩 묶어서 큰 이미지엔 30초 sleep 필요할 수 있음
 	// 일단 순차로 처리.
 	results := make([]scoring.GlobalScore, 0, len(cves))
-	for i, cve := range cves {
-		// rate limit 보호: NVD API 키 있으면 50 req/30sec
-		// 50번째마다 잠시 대기
-		if i > 0 && i%50 == 0 {
-			fmt.Printf("info: pausing for NVD rate limit i=%d\n", i)
-			time.Sleep(5 * time.Second)
-		}
-
-		score, err := s.ComputeCVE(ctx, cve.CVEID, force)
+	fetched := 0 // 실제 외부(NVD 등) 호출 건수 — 캐시 히트는 세지 않음
+	for _, cve := range cves {
+		score, didFetch, err := s.ComputeCVE(ctx, cve.CVEID, force)
 		if err != nil {
 			fmt.Printf("warn: cve %s scoring failed: %v\n", cve.CVEID, err)
 			continue
 		}
 		results = append(results, *score)
+
+		// rate limit 보호: 실제 외부 호출(캐시 미스) 50건마다만 5초 대기.
+		// 캐시 히트뿐이면 외부 호출이 없어 sleep도 없음 → 거대 이미지도 빠르게 통과.
+		if didFetch {
+			fetched++
+			if fetched%50 == 0 {
+				fmt.Printf("info: pausing for NVD rate limit (fetched=%d)\n", fetched)
+				time.Sleep(5 * time.Second)
+			}
+		}
 	}
 
 	// 3. 통계 + max
