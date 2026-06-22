@@ -23,8 +23,6 @@ type AnalysisScheduler struct {
 	svc            *service.AnalysisService
 	edgesRepo      *postgres.EdgesRepo
 	blastEdgesRepo *postgres.BlastEdgesRepo
-	imgCacheSvc    *service.ImageGlobalCacheService
-	sbomRepo    *postgres.SBOMRepo
 	exposureSvc *service.ExposureService
 	attackSvc   *service.AttackPathService
 	localSvc    *service.LocalScoringService
@@ -40,8 +38,6 @@ func NewAnalysisScheduler(
 	svc *service.AnalysisService,
 	edgesRepo *postgres.EdgesRepo,
 	blastEdgesRepo *postgres.BlastEdgesRepo,
-	imgCacheSvc *service.ImageGlobalCacheService,
-	sbomRepo *postgres.SBOMRepo,
 	exposureSvc *service.ExposureService,
 	attackSvc *service.AttackPathService,
 	localSvc *service.LocalScoringService,
@@ -57,8 +53,6 @@ func NewAnalysisScheduler(
 		svc:            svc,
 		edgesRepo:      edgesRepo,
 		blastEdgesRepo: blastEdgesRepo,
-		imgCacheSvc:    imgCacheSvc,
-		sbomRepo:    sbomRepo,
 		exposureSvc: exposureSvc,
 		attackSvc:   attackSvc,
 		localSvc:    localSvc,
@@ -104,15 +98,16 @@ func (s *AnalysisScheduler) Stop() {
 }
 
 func (s *AnalysisScheduler) run(ctx context.Context) {
-	// [긴급] blast_edges를 느린 Phase 0(VLM)보다 먼저 계산
 	s.computeBlastEdges(ctx)
 	start := time.Now()
 	log.Printf("analysis-scheduler: pipeline start (cluster=%s)", s.clusterName)
 
 	// ─────────────────────────────────────────────
-	// Phase 1: 엣지 재계산 (먼저!) — NVD 등 외부 API와 무관(cluster_pods/서비스/RBAC/eBPF만).
-	// 글로벌 캐시 갱신(Phase 0)이 NVD 503/지연으로 오래 걸려도 topology가 항상 신선하도록,
-	// 엣지+retention을 파이프라인 맨 앞에 둔다. (예전엔 Phase 0가 앞을 막아 엣지가 갱신 안 됨)
+	// 이 스케줄러는 DB만 쓰는 빠른 작업(엣지 → 점수 체인 → blast → precompute)만 돈다.
+	// 느리고 외부 API(NVD)에 묶이는 "글로벌 캐시 갱신"은 VulnScheduler로 분리했다
+	// (1시간 주기 + digest별 타임아웃). 그래서 이 run()은 외부 API에 매달리지 않고 항상 완주한다.
+	//
+	// 엣지 재계산 — cluster_pods/서비스/RBAC/eBPF만 사용(외부 API 무관).
 	// ─────────────────────────────────────────────
 	edgesOK := false
 	if _, err := s.edgesRepo.ComputeIdentityEdges(ctx, s.clusterName); err != nil {
@@ -151,39 +146,8 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 	}
 
 	// ─────────────────────────────────────────────
-	// Phase 0: 글로벌 점수 캐시 갱신 (sboms digest 전체, 만료분만 재계산)
-	// NVD 503/지연으로 오래 걸릴 수 있어 엣지 뒤로 옮기고 시간 상한을 둔다.
-	// 상한 초과 시 남은 digest는 다음 사이클에 처리(엣지/점수 진행을 막지 않음).
-	// final 점수가 글로벌을 읽으므로 점수 체인(Phase 2)보다는 앞에 둔다.
-	// ─────────────────────────────────────────────
-	if s.imgCacheSvc != nil && s.sbomRepo != nil {
-		digests, err := s.sbomRepo.ListDistinctDigests(ctx)
-		if err != nil {
-			log.Printf("analysis-scheduler: list digests failed: %v", err)
-		} else {
-			const phase0Budget = 10 * time.Minute
-			deadline := time.Now().Add(phase0Budget)
-			var refreshed, failed, skipped int
-			for i, d := range digests {
-				if time.Now().After(deadline) {
-					skipped = len(digests) - i
-					log.Printf("analysis-scheduler: global refresh budget(%v) exceeded — %d digests deferred to next cycle", phase0Budget, skipped)
-					break
-				}
-				if _, err := s.imgCacheSvc.ComputeAndStore(ctx, d, false); err != nil {
-					failed++
-					log.Printf("analysis-scheduler: global refresh failed digest=%s: %v", d, err)
-				} else {
-					refreshed++
-				}
-			}
-			log.Printf("analysis-scheduler: global cache refreshed (%d ok, %d failed, %d deferred, %v)",
-				refreshed, failed, skipped, time.Since(start))
-		}
-	}
-
-	// ─────────────────────────────────────────────
-	// Phase 2: 점수 체인 (의존성 순서: exposure/attack → local → toxic → final)
+	// 점수 체인 (의존성 순서: exposure/attack → local → toxic → final)
+	// final 점수의 글로벌 기여분은 image_global_scores 캐시를 읽는다(VulnScheduler가 갱신).
 	// ─────────────────────────────────────────────
 	if _, err := s.exposureSvc.ComputeForCluster(ctx, s.clusterName); err != nil {
 		log.Printf("analysis-scheduler: exposure failed: %v", err)

@@ -146,8 +146,40 @@ func (s *VulnScheduler) runScan(ctx context.Context) {
 		s.processNewVulns(ctx, scanStart)
 	}
 
+	// 3.5 글로벌 캐시 갱신 (이전 AnalysisScheduler Phase 0를 여기로 흡수)
+	//     느리고 외부 API(NVD)에 묶이는 작업이라 빠른 분석 루프와 분리했다.
+	//     digest별 타임아웃으로 한 이미지가 매달려도 전체가 멈추지 않게 한다.
+	s.refreshGlobalCache(ctx, digests)
+
 	// 4. 스캔 완료 알림 (info 등급)
 	s.createScanCompleteNotif(ctx, totalImages, scanned, totalNewVulns, duration)
+}
+
+// refreshGlobalCache는 모든 이미지의 Global 캐시(cve_global/image_global)를 갱신합니다.
+// (AnalysisScheduler Phase 0 흡수 — VulnScheduler 1시간 주기에 얹어 자연 throttle.)
+// 각 digest를 per-digest 타임아웃으로 감싸 한 이미지의 외부 호출이 매달려도
+// 다음 digest로 넘어가게 한다(전체 스캐너 goroutine 동결 방지).
+func (s *VulnScheduler) refreshGlobalCache(ctx context.Context, digests []string) {
+	if s.imageGlobalSvc == nil {
+		return
+	}
+	const perDigestTimeout = 90 * time.Second
+	var refreshed, failed, skipped int
+	for _, d := range digests {
+		dctx, cancel := context.WithTimeout(ctx, perDigestTimeout)
+		_, err := s.imageGlobalSvc.ComputeAndStore(dctx, d, false)
+		cancel()
+		switch {
+		case err == nil:
+			refreshed++
+		case strings.Contains(err.Error(), "no CVEs found"):
+			skipped++ // 취약점 0인 깨끗한 이미지 — 정상, 로그 스팸 안 함
+		default:
+			failed++
+			log.Printf("scheduler: global refresh failed digest=%s: %v", d, err)
+		}
+	}
+	log.Printf("scheduler: global cache refreshed (%d ok, %d failed, %d clean-skip)", refreshed, failed, skipped)
 }
 
 // processNewVulns는 이번 스캔에서 새로 발견된 vuln 중 critical/high를 처리합니다.
