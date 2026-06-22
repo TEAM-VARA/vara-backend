@@ -229,7 +229,15 @@ func (c *Client) chatOllama(ctx context.Context, system, user string, temperatur
 // false를 돌려준다. GL 평가 스킵 가드(스케줄러/Trigger)에서 "URL은 있는데 ollama가 죽은" 경우를
 // 잡아 기존 결과를 보존하는 데 쓴다.
 func (c *Client) Healthy(ctx context.Context) bool {
-	if c == nil || c.url == "" {
+	if c == nil {
+		return false
+	}
+	// Claude provider는 외부 ollama 서버가 없어도 사용 가능하다(도달 실패는 호출 시 graceful).
+	// ollama 미배포(Claude 전용) 구성에서 GL 평가가 스킵되지 않도록 true로 간주한다.
+	if c.UsingClaude() {
+		return true
+	}
+	if c.url == "" {
 		return false
 	}
 	hctx, cancel := context.WithTimeout(ctx, healthTimeout)
