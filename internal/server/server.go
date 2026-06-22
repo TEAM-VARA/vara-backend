@@ -306,8 +306,6 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 			analysisSvc,
 			edgesRepo,
 			blastEdgesRepo,
-			imageGlobalCacheSvc,
-			sbomRepo,
 			exposureSvc,
 			attackPathSvc,
 			localScoringSvc,
