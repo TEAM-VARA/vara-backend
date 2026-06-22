@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -48,8 +49,25 @@ type response struct {
 					} `json:"cvssData"`
 				} `json:"cvssMetricV30"`
 			} `json:"metrics"`
+			Weaknesses []struct {
+				Description []struct {
+					Lang  string `json:"lang"`
+					Value string `json:"value"` // 예: "CWE-502"
+				} `json:"description"`
+			} `json:"weaknesses"`
+			References []struct {
+				URL    string   `json:"url"`
+				Tags   []string `json:"tags"` // 예: "Vendor Advisory", "Patch", "Exploit"
+				Source string   `json:"source"`
+			} `json:"references"`
 		} `json:"cve"`
 	} `json:"vulnerabilities"`
+}
+
+// Reference — NVD가 제공하는 외부 참조 링크 (advisory enrichment fetch 후보).
+type Reference struct {
+	URL  string
+	Tags []string
 }
 
 type CVEInfo struct {
@@ -58,6 +76,8 @@ type CVEInfo struct {
 	CVSSScore    float64
 	Severity     string
 	VectorString string
+	CWEs         []string    // weaknesses 에서 추출한 CWE-ID 목록 (예: ["CWE-502"])
+	References   []Reference // 권고문/패치 링크 — enrichment advisory fetch 대상
 	Found        bool
 }
 
@@ -144,6 +164,25 @@ func (c *Client) fetchOnce(ctx context.Context, url, cveID string) (info *CVEInf
 		out.CVSSScore = m.BaseScore
 		out.Severity = m.BaseSeverity
 		out.VectorString = m.VectorString
+	}
+
+	// CWE (weaknesses): CWE-* 형태의 영문 값만 수집(중복 제거).
+	seenCWE := map[string]bool{}
+	for _, w := range v.Weaknesses {
+		for _, d := range w.Description {
+			val := strings.TrimSpace(d.Value)
+			if strings.HasPrefix(val, "CWE-") && !seenCWE[val] {
+				seenCWE[val] = true
+				out.CWEs = append(out.CWEs, val)
+			}
+		}
+	}
+
+	// References: advisory enrichment fetch 후보. 태그까지 보존(우선순위 판단용).
+	for _, r := range v.References {
+		if r.URL != "" {
+			out.References = append(out.References, Reference{URL: r.URL, Tags: r.Tags})
+		}
 	}
 
 	return out, false, nil

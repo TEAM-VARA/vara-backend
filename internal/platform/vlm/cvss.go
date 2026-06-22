@@ -32,7 +32,7 @@ func (c *Client) EstimateCVSS(ctx context.Context, cveID, description string) (*
 
 	user := fmt.Sprintf("## CVE\n%s\n\n## 설명\n%s\n\n위 취약점의 CVSS v3.1 base score를 추정해 JSON으로만 출력하라.", cveID, description)
 
-	raw, err := c.doChat(ctx, cvssSystemPrompt, user, 0.0)
+	raw, err := c.doChat(ctx, cvssSystemPrompt, user, 0.0, defaultMaxTokens)
 	if err != nil {
 		return nil, nil
 	}

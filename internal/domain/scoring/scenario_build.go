@@ -75,6 +75,10 @@ type ScenarioInput struct {
 	CVEAvailabilityImpact    bool // A:H / VA:H
 	CVEConfidentialityImpact bool // C:H / VC:H
 
+	// CVE narrative enrichment(설계서 §4). 캐시 hit 시 채워지며 VULN finding에 부착되고
+	// incoming 줄글을 module/class/mechanism으로 강화한다. nil이면 기존 generic 줄글 폴백.
+	CVEEnrichment *CVEEnrichment
+
 	// 수집 가용성 (gap 고지용)
 	IRSACollected bool // SA annotations(IRSA) 수집 여부 (현재 false)
 }
@@ -102,9 +106,9 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 	}
 	if in.TopCVE != "" && in.CVERemote {
 		f := mkFinding("VULN", DirIncoming, TacticInitialAccess,
-			fmt.Sprintf("이 Pod 이미지에 원격 악용 가능한 취약점(%s)이 있어, 공격자가 네트워크로 바로 코드 실행을 노릴 수 있습니다.", cveLabel(in)),
-			"heuristic", "CVSS 벡터(AV:N) 기반 추정")
+			vulnIncomingScenario(in), "heuristic", "CVSS 벡터(AV:N) 기반 추정")
 		f.CVE = in.TopCVE
+		f.Enrichment = in.CVEEnrichment // 캐시 hit 시 부착(설계서 §4) — nil이면 omitempty
 		fs = append(fs, f)
 	}
 
@@ -346,6 +350,59 @@ func moreN(n, limit int) string {
 		return fmt.Sprintf(" 외 %d개", n-limit)
 	}
 	return ""
+}
+
+// vulnIncomingScenario — 진입(incoming) VULN 줄글. enrichment(설계서 §4)가 있으면
+// "취약 컴포넌트 · 취약점 클래스 · 메커니즘"으로 구체화하고, 없으면 기존 generic 줄글로 폴백한다.
+// (메커니즘은 검증 통과분만 채워지므로 환각 0 — §7.2 null 규칙)
+func vulnIncomingScenario(in ScenarioInput) string {
+	e := in.CVEEnrichment
+	if e == nil {
+		return fmt.Sprintf("이 Pod 이미지에 원격 악용 가능한 취약점(%s)이 있어, 공격자가 네트워크로 바로 코드 실행을 노릴 수 있습니다.", cveLabel(in))
+	}
+
+	// 컴포넌트 + 클래스 표제 (module_short 없으면 "취약 컴포넌트" 폴백 — 메서드명 생성 금지)
+	comp := e.ModuleShort
+	if comp == "" {
+		comp = e.Module
+	}
+	if comp == "" {
+		comp = "취약 컴포넌트"
+	}
+	class := e.VulnClassLabelShort
+	if class == "" {
+		class = e.VulnClassLabel
+	}
+
+	var b strings.Builder
+	b.WriteString(comp)
+	if class != "" {
+		b.WriteString(" · ")
+		b.WriteString(class)
+	}
+	if e.Impact != "" {
+		b.WriteString(" · ")
+		b.WriteString(e.Impact)
+	}
+	fmt.Fprintf(&b, " 취약점(%s).", cveLabel(in))
+
+	// 메커니즘(검증 통과분만) — 있으면 한 절 덧붙인다.
+	if e.MechanismShort != "" {
+		b.WriteString(" ")
+		b.WriteString(e.MechanismShort)
+		if !strings.HasSuffix(e.MechanismShort, ".") {
+			b.WriteString(".")
+		}
+	}
+
+	// 원격/인증 절
+	switch {
+	case e.Remote && e.Unauth:
+		b.WriteString(" 인증 없이 네트워크에서 원격 악용 가능.")
+	case e.Remote:
+		b.WriteString(" 네트워크에서 원격 악용 가능.")
+	}
+	return b.String()
 }
 
 // cveLabel — "CVE-2025-1234, CVSS 9.8, KEV 등재" 형태의 라벨

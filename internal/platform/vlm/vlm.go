@@ -100,19 +100,31 @@ func (c *Client) Available() bool {
 	return c != nil && (c.apiKey != "" || c.url != "")
 }
 
+// defaultMaxTokens — 응답 토큰 상한 기본값(기존 동작 보존). enrichment 등 긴 출력은 CompleteMax로 올린다.
+const defaultMaxTokens = 1024
+
 // Complete는 임의의 system+user 프롬프트를 LLM에 보내고 raw 응답 텍스트를 반환합니다(범용).
 // 도메인 결합 없이 재사용 가능 — 가중치 추천·시나리오 등 호출부가 프롬프트/파싱을 담당.
 // 미설정(Available=false) 시 에러를 반환합니다.
 func (c *Client) Complete(ctx context.Context, system, user string, temperature float64) (string, error) {
+	return c.CompleteMax(ctx, system, user, temperature, defaultMaxTokens)
+}
+
+// CompleteMax는 Complete와 같되 응답 토큰 상한(maxTokens)을 지정합니다.
+// enrichment object처럼 1024를 초과할 수 있는 긴 JSON 출력에 쓴다. maxTokens<=0이면 기본값.
+func (c *Client) CompleteMax(ctx context.Context, system, user string, temperature float64, maxTokens int) (string, error) {
 	if !c.Available() {
 		return "", fmt.Errorf("vlm: not configured")
 	}
-	return c.doChat(ctx, system, user, temperature)
+	if maxTokens <= 0 {
+		maxTokens = defaultMaxTokens
+	}
+	return c.doChat(ctx, system, user, temperature, maxTokens)
 }
 
 // doChat은 provider(Claude/Ollama)로 system+user 프롬프트를 전송하고 raw 응답 텍스트를 반환합니다.
 // 일시적 실패는 백오프 재시도. 모두 실패하면 ("", err).
-func (c *Client) doChat(ctx context.Context, system, user string, temperature float64) (string, error) {
+func (c *Client) doChat(ctx context.Context, system, user string, temperature float64, maxTokens int) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
@@ -128,9 +140,9 @@ func (c *Client) doChat(ctx context.Context, system, user string, temperature fl
 			err error
 		)
 		if c.UsingClaude() {
-			raw, err = c.chatClaude(ctx, system, user, temperature)
+			raw, err = c.chatClaude(ctx, system, user, temperature, maxTokens)
 		} else {
-			raw, err = c.chatOllama(ctx, system, user, temperature)
+			raw, err = c.chatOllama(ctx, system, user, temperature, maxTokens)
 		}
 		if err == nil {
 			return raw, nil
@@ -142,10 +154,10 @@ func (c *Client) doChat(ctx context.Context, system, user string, temperature fl
 }
 
 // chatClaude — Anthropic Messages API (POST /v1/messages).
-func (c *Client) chatClaude(ctx context.Context, system, user string, temperature float64) (string, error) {
+func (c *Client) chatClaude(ctx context.Context, system, user string, temperature float64, maxTokens int) (string, error) {
 	reqBody := map[string]any{
 		"model":       c.model,
-		"max_tokens":  1024,
+		"max_tokens":  maxTokens,
 		"temperature": temperature,
 		"system":      system,
 		"messages":    []map[string]string{{"role": "user", "content": user}},
@@ -189,7 +201,7 @@ func (c *Client) chatClaude(ctx context.Context, system, user string, temperatur
 }
 
 // chatOllama — Ollama /api/chat (폴백).
-func (c *Client) chatOllama(ctx context.Context, system, user string, temperature float64) (string, error) {
+func (c *Client) chatOllama(ctx context.Context, system, user string, temperature float64, maxTokens int) (string, error) {
 	chatReq := ollamaChatRequest{
 		Model: c.model,
 		Messages: []ollamaMessage{
@@ -197,7 +209,7 @@ func (c *Client) chatOllama(ctx context.Context, system, user string, temperatur
 			{Role: "user", Content: user},
 		},
 		Stream:  false,
-		Options: ollamaOptions{Temperature: temperature},
+		Options: ollamaOptions{Temperature: temperature, NumPredict: maxTokens},
 	}
 	body, err := json.Marshal(chatReq)
 	if err != nil {
@@ -327,6 +339,7 @@ type ollamaMessage struct {
 
 type ollamaOptions struct {
 	Temperature float64 `json:"temperature"`
+	NumPredict  int     `json:"num_predict,omitempty"` // 응답 토큰 상한 (0이면 ollama 기본)
 }
 
 type ollamaChatResponse struct {
@@ -371,7 +384,7 @@ func (c *Client) Judge(ctx context.Context, req JudgeRequest) (*JudgeResponse, e
 		return nil, nil
 	}
 
-	raw, err := c.doChat(ctx, systemPrompt, buildUserPrompt(req), 0.0)
+	raw, err := c.doChat(ctx, systemPrompt, buildUserPrompt(req), 0.0, defaultMaxTokens)
 	if err != nil {
 		// 모든 재시도 실패 — graceful degradation.
 		log.Printf("[vlm] judge failed: %v", err)

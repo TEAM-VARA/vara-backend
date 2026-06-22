@@ -16,6 +16,7 @@ import (
 	"github.com/vara/backend/internal/config"
 	"github.com/vara/backend/internal/external/trivy"
 	"github.com/vara/backend/internal/handler"
+	"github.com/vara/backend/internal/platform/advisory"
 	"github.com/vara/backend/internal/platform/embedding"
 	"github.com/vara/backend/internal/platform/epss"
 	"github.com/vara/backend/internal/platform/jwtutil"
@@ -72,6 +73,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	exploitDBClient := exploitdb.NewClient()
 	osvClient := osv.NewClient()       // 신규 (작업 B-6)
 	depsDevClient := depsdev.NewClient() // 신규 (deps.dev 버전 릴리스)
+	advisoryClient := advisory.NewClient() // 신규 (CVE narrative enrichment — advisory fetch)
 
 	// ── Trivy ──
 	trivyClient := trivy.NewClient()
@@ -163,7 +165,10 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 
 	// ── Scenario (공격 시나리오/보완 줄글, attack-path 신호 + blast 전파 엣지 + 노출/정밀 RBAC 기반) ──
 	blastEdgesRepo := postgres.NewBlastEdgesRepo(pg)
-	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo, blastEdgesRepo, exposureSvc, rbacChainSvc, grcSvc)
+	// CVE narrative enrichment(설계서 §4): per-CVE 추출·캐시. nil-safe(의존성 미가동 시 generic 폴백).
+	cveEnrichmentRepo := postgres.NewCVEEnrichmentRepo(pg)
+	cveEnrichmentSvc := service.NewCVEEnrichmentService(cveEnrichmentRepo, globalScoringRepo, nvdClient, advisoryClient, vlmClient)
+	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo, blastEdgesRepo, exposureSvc, rbacChainSvc, grcSvc, cveEnrichmentSvc)
 	scenarioH := handler.NewScenarioHandler(scenarioSvc)
 	blastGraph := &service.BlastGraphHandler{Pool: pg}
 
