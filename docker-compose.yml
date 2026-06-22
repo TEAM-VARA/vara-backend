@@ -1,6 +1,5 @@
 services:
   postgres:
-    # pgvector image required for the 002_pgvector extension migration
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: vara
@@ -33,7 +32,6 @@ services:
     ports:
       - "6379:6379"
   embedding:
-    # BGE-M3 FastAPI embedding server
     build:
       context: .
       dockerfile: deployments/docker/embedding-server.Dockerfile
@@ -42,29 +40,6 @@ services:
     volumes:
       - hf-cache:/cache/hf
     restart: unless-stopped
-  ollama:
-    # Qwen 2.5 7B LLM 추론 서버. 첫 부팅 시 모델 ~4.7GB 다운로드 후 캐시.
-    image: ollama/ollama
-    expose:
-      - "11434"
-    volumes:
-      - ollama-models:/root/.ollama
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "ollama list"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-  ollama-init:
-    # 최초 기동 시 Qwen 모델을 pull. 이미 캐시되어 있으면 즉시 완료.
-    image: ollama/ollama
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["sh", "-c", "ollama pull qwen2.5:7b"]
-    restart: "no"
   backend:
     build:
       context: .
@@ -78,8 +53,6 @@ services:
         condition: service_started
       embedding:
         condition: service_started
-      ollama:
-        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -92,12 +65,7 @@ services:
       POSTGRES_SSLMODE: disable
       REDIS_ADDR: redis:6379
       EMBEDDING_SERVER_URL: http://embedding:9000/embed
-      VLM_SERVER_URL: ${VLM_SERVER_URL:-http://ollama:11434}
-      VLM_MODEL: ${VLM_MODEL:-qwen2.5:7b}
-      # ANTHROPIC_API_KEY는 .env(env_file)로 자동 주입됨. 있으면 Claude API, 없으면 Ollama 폴백.
       CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-haiku-4-5-20251001}
-      # GL 점검 per-check wall-clock 한도. GLScheduler가 부팅 90초 후 전 항목을
-      # 동시 트리거하므로, 단일 슬롯 Ollama 큐가 다 풀릴 때까지 버티도록 넉넉히.
       GRC_CHECK_TIMEOUT_MIN: ${GRC_CHECK_TIMEOUT_MIN:-60}
     ports:
       - "8080:8080"
@@ -117,4 +85,3 @@ volumes:
   vara-pg-data:
   hf-cache:
   trivy-cache:
-  ollama-models:
