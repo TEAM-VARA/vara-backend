@@ -208,7 +208,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 
 	// ── Risk Scoring 가중치 (전역 단일 설정) ──
 	scoringWeightsRepo := postgres.NewScoringWeightsRepo(pg)
-	weightsSvc := service.NewWeightsService(scoringWeightsRepo, finalScoringSvc, toxicSvc, vlmClient, vulnClusterName)
+	weightsSvc := service.NewWeightsService(scoringWeightsRepo, finalScoringSvc, toxicSvc, vlmClient, globalScoringRepo, imageGlobalCacheSvc, sbomRepo, vulnClusterName)
 	weightsH := handler.NewWeightsHandler(weightsSvc)
 	{
 		loadCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
