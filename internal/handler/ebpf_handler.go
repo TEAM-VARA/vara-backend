@@ -40,6 +40,9 @@ func (h *EbpfHandler) resolveDestination(
     
     // IP 유형 분류
     switch {
+	case cleanIP == "::1" || strings.HasPrefix(cleanIP, "127."):
+        return "", "", "loopback"   // ← 추가: 자기 자신 통신 (외부 아님)
+		
     case strings.HasPrefix(cleanIP, "172.20."):
         // ClusterIP - 매핑 시도
         return h.lookupServiceEndpoint(ctx, clusterName, cleanIP)
@@ -165,26 +168,50 @@ func (h *EbpfHandler) NetworkFlows(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
-    for i := range req.Events {
-        podID, podIP, status := h.resolveDestination(
-            ctx, customerID, req.Events[i].Dst.IP,
-        )
-        req.Events[i].Dst.PodID = podID
-        req.Events[i].Dst.PodIP = podIP
-        req.Events[i].Dst.MappingStatus = status
-    }
+	for i := range req.Events {
+		podID, podIP, status := h.resolveDestination(
+			ctx, customerID, req.Events[i].Dst.IP,
+		)
+		req.Events[i].Dst.PodID = podID
+		req.Events[i].Dst.PodIP = podIP
+		req.Events[i].Dst.MappingStatus = status
+	}
 
-	saved, err := h.repo.UpsertNetworkFlows(c.Request.Context(), customerID, req)
+	// ── 여기부터 변경 ──────────────────────────────
+	// tcp_sendmsg는 집계 테이블(ebpf_flow_agg)로, 나머지(set_state/connect 등)는 기존 테이블로 분리
+	var aggReq, rawReq ebpf.NetworkFlowsRequest
+	aggReq.Node = req.Node
+	rawReq.Node = req.Node
+	for _, e := range req.Events {
+		if e.EventType == "tcp_sendmsg" {
+			aggReq.Events = append(aggReq.Events, e)
+		} else {
+			rawReq.Events = append(rawReq.Events, e)
+		}
+	}
+
+	// 기존 테이블 먼저 저장 (set_state = 블래스트 그래프 입력이라 우선 보존)
+	savedRaw, err := h.repo.UpsertNetworkFlows(ctx, customerID, rawReq)
 	if err != nil {
 		fmt.Printf("warn: ebpf network-flows failed: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	// sendmsg 집계 저장
+	savedAgg, err := h.repo.UpsertFlowAgg(ctx, customerID, aggReq)
+	if err != nil {
+		fmt.Printf("warn: ebpf flow-agg failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"node":     req.Node,
-		"received": len(req.Events),
-		"saved":    saved,
+		"node":      req.Node,
+		"received":  len(req.Events),
+		"saved":     savedRaw + savedAgg,
+		"saved_raw": savedRaw,
+		"saved_agg": savedAgg,
 	})
 }
 
