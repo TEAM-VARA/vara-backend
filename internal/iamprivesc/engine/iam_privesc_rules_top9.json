@@ -1,0 +1,166 @@
+{
+  "ruleset": "AWS IAM 권한 상승 posture 룰셋 — 통합본 전용(Sonrai Top 25 중 IAM privesc 9종)",
+  "version": "1.0",
+  "updated": "2026-06-23",
+  "source_doc": "IAM-위험권한-통합본.md",
+  "description": "IAM-위험권한-통합본.md의 9개 권한에 1:1로 충실하게 매핑한 룰셋. 각 룰은 문서의 Sonrai 순위(sonrai_rank)·AWS 1차 문서 verbatim 인용(aws_quote)·부여 형태 예시(granting_form)를 그대로 담는다. 런타임 호출이 아니라 GetAccountAuthorizationDetails로 받은 identity 정책을 스캔하는 posture 점검용.",
+  "severity_levels": {
+    "critical": "그 권한 하나만으로, 또는 거의 단독으로 관리자급 권한 상승이 가능 (문서: 치명적)",
+    "warning": "그 자체로 민감하거나, 다른 권한과 결합해야 상승 경로가 되는 권한 (문서: 주의)",
+    "info": "단독 위험은 거의 없고, 콤보(주로 PassRole)의 구성 요소가 되는 권한 (문서: 참고)"
+  },
+  "scope_note": "본 룰셋은 통합본 9종에 의도적으로 한정한다. 같은 메커니즘의 '형제' 권한(iam:PutUserPolicy·PutGroupPolicy·AttachUserPolicy·AttachGroupPolicy·CreateLoginProfile·AddUserToGroup·SetDefaultPolicyVersion·CreatePolicy·lambda:UpdateFunctionCode·UpdateFunctionConfiguration·iam:* 등)은 문서 범위 밖이라 포함하지 않는다. 더 넓은 탐지 커버리지가 필요하면 확장 룰셋(iam_privesc_rules.json)을 사용한다.",
+  "excluded": [
+    {
+      "action": "sts:AssumeRole",
+      "reason_ko": "통합본 기준 제외. 단독 privesc 메서드가 아니라 iam:UpdateAssumeRolePolicy의 보조 권한이고, 역할 신뢰 정책(자원 기반 정책)으로도 부여돼 GetAccountAuthorizationDetails(identity 정책만 반환) 스캔의 사각지대다. 거의 모든 역할 워크플로가 가진 편재적 권한이라 단독 항목으로는 노이즈가 크다.",
+      "ref": "IAM-위험권한-통합본.md, IAM-Top11-권위출처-교차검증.md"
+    },
+    {
+      "action": "secretsmanager:GetSecretValue",
+      "reason_ko": "통합본 기준 제외. 어느 privesc 카탈로그에도 없는 자격증명·데이터 접근(권한 상승 아님)이며, 비밀 자원 정책(자원 기반 정책)으로도 부여돼 identity 스캔의 사각지대다.",
+      "ref": "IAM-위험권한-통합본.md, IAM-Top11-권위출처-교차검증.md"
+    }
+  ],
+  "rules": [
+    {
+      "id": "IAM-PRIV-01",
+      "sonrai_rank": "#1",
+      "action": "iam:PutRolePolicy",
+      "severity": "critical",
+      "core": true,
+      "category": "인라인 정책 주입",
+      "title_ko": "역할에 인라인 정책 추가 → 임의 권한 부여",
+      "desc_ko": "역할에 PolicyDocument로 임의 권한(Action:* / Resource:*) 인라인 정책을 붙여 관리자급으로 상승할 수 있다.",
+      "granting_form": "{\"Effect\":\"Allow\",\"Action\":\"iam:PutRolePolicy\",\"Resource\":\"*\"}",
+      "aws_doc": "https://docs.aws.amazon.com/IAM/latest/APIReference/API_PutRolePolicy.html",
+      "aws_quote": "Adds or updates an inline policy document that is embedded in the specified IAM role."
+    },
+    {
+      "id": "IAM-PRIV-02",
+      "sonrai_rank": "#2",
+      "action": "iam:AttachRolePolicy",
+      "severity": "critical",
+      "core": true,
+      "category": "관리형 정책 부착",
+      "title_ko": "역할에 관리형 정책 부착 → AdministratorAccess 부착",
+      "desc_ko": "PolicyArn에 AdministratorAccess 같은 관리형 정책을 지정해 역할에 붙여 즉시 상승한다.",
+      "granting_form": "{\"Effect\":\"Allow\",\"Action\":\"iam:AttachRolePolicy\",\"Resource\":\"*\"}",
+      "aws_doc": "https://docs.aws.amazon.com/IAM/latest/APIReference/API_AttachRolePolicy.html",
+      "aws_quote": "Attaches the specified managed policy to the specified IAM role. When you attach a managed policy to a role, the managed policy becomes part of the role's permission (access) policy."
+    },
+    {
+      "id": "IAM-PRIV-03",
+      "sonrai_rank": "#3",
+      "action": "iam:CreatePolicyVersion",
+      "severity": "critical",
+      "core": true,
+      "category": "정책 버전 변경",
+      "title_ko": "관리형 정책 새 버전 생성 → 임의 권한으로 교체",
+      "desc_ko": "--set-as-default 플래그로 iam:SetDefaultPolicyVersion 없이도 운영 중인 정책 내용을 Action:* / Resource:* 로 교체해 관리자 권한을 얻을 수 있다.",
+      "granting_form": "{\"Effect\":\"Allow\",\"Action\":\"iam:CreatePolicyVersion\",\"Resource\":\"arn:aws:iam::*:policy/*\"}",
+      "aws_doc": "https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_managed-versioning.html",
+      "aws_quote": "The iam:CreatePolicyVersion action allows them to create a new version of the policy and to set that version as the default."
+    },
+    {
+      "id": "IAM-PRIV-04",
+      "sonrai_rank": "#4",
+      "action": "iam:UpdateAssumeRolePolicy",
+      "severity": "critical",
+      "core": true,
+      "category": "신뢰 정책 변경",
+      "title_ko": "역할 신뢰 정책 수정 → 임의 principal이 AssumeRole 가능",
+      "desc_ko": "역할 신뢰 정책(AssumeRolePolicyDocument)을 고쳐 공격자 자신의 ARN을 Principal로 추가하면 더 높은 권한의 역할을 그대로 가로챌 수 있다.",
+      "granting_form": "{\"Effect\":\"Allow\",\"Action\":\"iam:UpdateAssumeRolePolicy\",\"Resource\":\"*\"}",
+      "aws_doc": "https://docs.aws.amazon.com/IAM/latest/APIReference/API_UpdateAssumeRolePolicy.html",
+      "aws_quote": "Updates the policy that grants an IAM entity permission to assume a role. This is typically referred to as the \"role trust policy\"."
+    },
+    {
+      "id": "IAM-PRIV-05",
+      "sonrai_rank": "#7",
+      "action": "iam:PassRole",
+      "severity": "warning",
+      "core": true,
+      "category": "역할 전달",
+      "title_ko": "역할 전달 권한 (서비스 실행 권한과 결합 시 치명적)",
+      "desc_ko": "자신보다 강한 역할을 EC2/Lambda 등 서비스에 전달(pass)할 수 있다. 단독은 warning이나 ec2:RunInstances / lambda:CreateFunction 등과 결합되면 역할을 탈취해 관리자급으로 상승한다. Resource를 특정 역할 ARN으로 제한하면 위험이 크게 준다. PassRole은 API 호출이 아니어서 CloudTrail 로그가 남지 않으므로 posture로만 잡힌다.",
+      "granting_form": "{\"Effect\":\"Allow\",\"Action\":\"iam:PassRole\",\"Resource\":\"*\"}",
+      "aws_doc": "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_passrole.html",
+      "aws_quote": "When setting the PassRole permission, you should make sure that a user doesn't pass a role where the role has more permissions than you want the user to have."
+    },
+    {
+      "id": "IAM-PRIV-06",
+      "sonrai_rank": "#8",
+      "action": "iam:UpdateLoginProfile",
+      "severity": "critical",
+      "core": true,
+      "category": "콘솔 자격증명",
+      "title_ko": "타 사용자 콘솔 비밀번호 재설정",
+      "desc_ko": "이미 로그인 프로필이 있는 더 강한 사용자의 콘솔 비밀번호를 재설정해 그 사용자로 콘솔에 로그인할 수 있다.",
+      "granting_form": "{\"Effect\":\"Allow\",\"Action\":\"iam:UpdateLoginProfile\",\"Resource\":\"*\"}",
+      "aws_doc": "https://docs.aws.amazon.com/IAM/latest/APIReference/API_UpdateLoginProfile.html",
+      "aws_quote": "Changes the password for the specified IAM user."
+    },
+    {
+      "id": "IAM-PRIV-07",
+      "sonrai_rank": "#9",
+      "action": "iam:CreateAccessKey",
+      "severity": "critical",
+      "core": true,
+      "category": "자격증명 생성",
+      "title_ko": "타 사용자 액세스 키 생성 → 더 강한 사용자로 위장",
+      "desc_ko": "UserName에 더 강한 사용자를 지정해 그 사용자의 액세스 키 ID·시크릿 키를 새로 발급, 그 권한으로 행동한다.",
+      "granting_form": "{\"Effect\":\"Allow\",\"Action\":\"iam:CreateAccessKey\",\"Resource\":\"*\"}",
+      "aws_doc": "https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateAccessKey.html",
+      "aws_quote": "Creates a new AWS secret access key and corresponding AWS access key ID for the specified user."
+    },
+    {
+      "id": "IAM-PRIV-08",
+      "sonrai_rank": "#17",
+      "action": "ec2:RunInstances",
+      "severity": "info",
+      "core": true,
+      "category": "역할 전달 콤보 구성요소",
+      "title_ko": "EC2 인스턴스 실행 (PassRole 콤보 구성요소)",
+      "desc_ko": "iam:PassRole과 함께 있으면 임의 역할을 붙인 EC2를 띄워 인스턴스 메타데이터로 그 역할의 자격증명을 탈취할 수 있다. 단독 위험은 낮다.",
+      "granting_form": "{\"Effect\":\"Allow\",\"Action\":[\"ec2:RunInstances\",\"iam:PassRole\"],\"Resource\":\"*\"}",
+      "aws_doc": "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_passrole.html",
+      "aws_quote": "you must pass a role to Amazon EC2 to use with the instance that provides those credentials."
+    },
+    {
+      "id": "IAM-PRIV-09",
+      "sonrai_rank": "#18",
+      "action": "lambda:CreateFunction",
+      "severity": "info",
+      "core": true,
+      "category": "역할 전달 콤보 구성요소",
+      "title_ko": "Lambda 함수 생성 (PassRole 콤보 구성요소)",
+      "desc_ko": "iam:PassRole + lambda:InvokeFunction과 결합하면 강한 실행 역할을 붙인 함수를 만들어 호출함으로써 그 역할 권한으로 상승한다. 함수 생성에는 Role(실행 역할 ARN)이 필수라 PassRole이 동반된다.",
+      "granting_form": "{\"Effect\":\"Allow\",\"Action\":[\"lambda:CreateFunction\",\"iam:PassRole\",\"lambda:InvokeFunction\"],\"Resource\":\"*\"}",
+      "aws_doc": "https://docs.aws.amazon.com/lambda/latest/api/API_CreateFunction.html",
+      "aws_quote": "Creates a Lambda function. To create a function, you need a deployment package and an execution role. The execution role grants the function permission to use AWS services."
+    }
+  ],
+  "combos": [
+    {
+      "id": "COMBO-001",
+      "sonrai_rank": "#17",
+      "title_ko": "iam:PassRole + ec2:RunInstances → EC2로 역할 탈취",
+      "severity": "critical",
+      "all_of": ["iam:PassRole", "ec2:RunInstances"],
+      "any_of": [],
+      "desc_ko": "강한 역할을 전달(PassRole)하고 그 역할을 붙인 EC2를 실행해, 인스턴스 메타데이터에서 역할 자격증명을 탈취해 관리자급으로 상승한다.",
+      "aws_doc": "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_passrole.html"
+    },
+    {
+      "id": "COMBO-002",
+      "sonrai_rank": "#18",
+      "title_ko": "iam:PassRole + lambda:CreateFunction + lambda:InvokeFunction → Lambda로 역할 탈취",
+      "severity": "critical",
+      "all_of": ["iam:PassRole", "lambda:CreateFunction", "lambda:InvokeFunction"],
+      "any_of": [],
+      "desc_ko": "강한 실행 역할을 붙인 Lambda를 만들고 직접 호출해 그 역할 권한으로 임의 코드를 실행한다.",
+      "aws_doc": "https://docs.aws.amazon.com/lambda/latest/api/API_CreateFunction.html"
+    }
+  ]
+}
