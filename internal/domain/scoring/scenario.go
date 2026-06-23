@@ -74,6 +74,10 @@ type ScenarioMitigation struct {
 	Text   string   `json:"text"`             // 보완 줄글 (한 항목, MITRE 태그 제외)
 	MitreM []string `json:"mitre_m,omitempty"` // 클릭 시 참조할 MITRE mitigation 코드
 
+	// Target — 이 보완이 겨냥하는 특정 대상. MS-TA9034(NetworkPolicy)는 Pod↔Pod 통신 단위 통제라
+	// 연결되는 대상 Pod마다 한 항목씩 쪼개며, 그 대상 Pod 이름이 여기 담긴다. 그 외엔 빈 값(Pod 전역 조치).
+	Target string `json:"target,omitempty"`
+
 	// RiskReduction — 이 보완 적용 시 Final 점수 하락량(before/after/delta). 재계산 방식.
 	// scenario_service.attachRiskReductions가 채운다. 점수 정보 없으면 nil.
 	RiskReduction *RiskReduction `json:"risk_reduction,omitempty"`
@@ -218,7 +222,10 @@ func joinSentences(fs []ScenarioFinding) string {
 //
 // 각 항목은 프론트에서 클릭 시 Key(ms_ta, VULN은 "VULN")로 백엔드 조치 로직을
 // 분기할 수 있도록 finding과 분리한다. 줄글(composeMitigationText)과 1:1 대응.
-func collectMitigations(fs []ScenarioFinding) []ScenarioMitigation {
+//
+// netTargets — 네트워크로 도달 가능한 대상 Pod 이름들. 비어있지 않으면 MS-TA9034(NetworkPolicy)
+// 보완을 "default-deny 한 줄"로 퉁치지 않고 연결되는 Pod마다 한 항목씩 쪼개 권고한다.
+func collectMitigations(fs []ScenarioFinding, netTargets []string) []ScenarioMitigation {
 	seen := map[string]bool{}
 	out := make([]ScenarioMitigation, 0, len(fs))
 	for _, f := range fs {
@@ -230,6 +237,11 @@ func collectMitigations(fs []ScenarioFinding) []ScenarioMitigation {
 			continue
 		}
 		seen[key] = true
+		// MS-TA9034 + 네트워크 도달 대상이 있으면 연결별로 쪼갠다(Pod↔Pod 통신 단위 통제).
+		if key == "MS-TA9034" && len(netTargets) > 0 {
+			out = append(out, networkPolicyMitigations(f, netTargets)...)
+			continue
+		}
 		out = append(out, ScenarioMitigation{
 			Key:    key,
 			MSTA:   f.MSTA,
@@ -238,6 +250,28 @@ func collectMitigations(fs []ScenarioFinding) []ScenarioMitigation {
 			CVE:    f.CVE,
 			Text:   f.Mitigation,
 			MitreM: f.MitreM,
+		})
+	}
+	return out
+}
+
+// networkPolicyMitigations — MS-TA9034(NetworkPolicy 없음) 보완을 연결되는 대상 Pod마다 한 항목씩 쪼갠다.
+//
+// NetworkPolicy는 "이 Pod" 전역이 아니라 특정 Pod↔Pod 통신을 통제하므로, 도달 가능한 대상 Pod마다
+// "그 연결을 default-deny 기반으로 필요한 포트만 허용" 권고를 따로 낸다. Key/MSTA/MitreT/MitreM은
+// 공통(9034)이라 프론트 분기는 그대로 쓰되, Target으로 어느 연결인지 구분한다.
+func networkPolicyMitigations(base ScenarioFinding, targets []string) []ScenarioMitigation {
+	out := make([]ScenarioMitigation, 0, len(targets))
+	for _, t := range targets {
+		out = append(out, ScenarioMitigation{
+			Key:    base.MSTA,
+			MSTA:   base.MSTA,
+			MitreT: base.MitreT,
+			Bucket: base.Bucket,
+			Target: t,
+			Text: fmt.Sprintf(
+				"'%s' Pod과의 통신에 default-deny 기반 NetworkPolicy를 적용해 필요한 포트만 허용하고 나머지는 차단하세요.", t),
+			MitreM: base.MitreM,
 		})
 	}
 	return out
