@@ -109,7 +109,13 @@ func (s *CVEEnrichmentService) enrich(ctx context.Context, cveID string) error {
 		refs        []nvd.Reference
 	)
 	if s.nvd != nil {
-		if info, err := s.nvd.FetchCVE(ctx, cveID); err == nil && info != nil && info.Found {
+		info, err := s.nvd.FetchCVE(ctx, cveID)
+		switch {
+		case err != nil:
+			log.Printf("[cve-enrich] %s NVD fetch 실패: %v", cveID, err)
+		case info == nil || !info.Found:
+			log.Printf("[cve-enrich] %s NVD found=false (NVD에 미등재/미분석)", cveID)
+		default:
 			description = info.Description
 			cwes = info.CWEs
 			refs = info.References
@@ -119,6 +125,7 @@ func (s *CVEEnrichmentService) enrich(ctx context.Context, cveID string) error {
 			if cvssScore == 0 {
 				cvssScore = info.CVSSScore
 			}
+			log.Printf("[cve-enrich] %s NVD ok: desc=%d자 cwe=%v refs=%d", cveID, len([]rune(description)), cwes, len(refs))
 		}
 	}
 
@@ -126,6 +133,8 @@ func (s *CVEEnrichmentService) enrich(ctx context.Context, cveID string) error {
 	advisoryText := s.fetchAdvisories(ctx, refs)
 	sourceText := strings.TrimSpace(description + "\n\n" + advisoryText)
 	sourceHash := hashSource(sourceText, cvssVector)
+	log.Printf("[cve-enrich] %s source: desc=%d자 advisory=%d자 (vlm=%v)",
+		cveID, len([]rune(description)), len([]rune(advisoryText)), s.vlm != nil && s.vlm.Available())
 
 	// ── CVSS 우선(설계서 §5.3): impact/remote/unauth는 벡터 파싱이 결정 ──
 	remote, availability, confidentiality, scopeChanged, unauth := scoring.ParseCVSSFlags(cvssVector)
@@ -149,11 +158,18 @@ func (s *CVEEnrichmentService) enrich(ctx context.Context, cveID string) error {
 	}
 
 	// ── 4) LLM 추출(서술 필드) — vlm 가동 + source 있을 때만. 없으면 구조화 신호만. ──
-	if s.vlm != nil && s.vlm.Available() && sourceText != "" {
-		if cand, err := s.extract(ctx, cveID, cwes, cvssVector, description, advisoryText); err == nil && cand != nil {
+	switch {
+	case s.vlm == nil || !s.vlm.Available():
+		log.Printf("[cve-enrich] %s 추출 스킵: vlm 미가동 → 구조화 신호만", cveID)
+	case sourceText == "":
+		log.Printf("[cve-enrich] %s 추출 스킵: source 비어 있음(NVD/advisory 무) → 구조화 신호만", cveID)
+	default:
+		if cand, err := s.extract(ctx, cveID, cwes, cvssVector, description, advisoryText); err != nil {
+			log.Printf("[cve-enrich] %s extract 실패: %v", cveID, err)
+		} else if cand != nil {
 			applyExtraction(e, cand, sourceText)
-		} else if err != nil {
-			log.Printf("[cve-enrich] %s extract: %v", cveID, err)
+			log.Printf("[cve-enrich] %s 추출 적용: module=%q mechanism=%d자 spans=%d fixed=%v",
+				cveID, e.Module, len([]rune(e.Mechanism)), len(e.MechanismSpans), e.FixedVersions)
 		}
 	}
 
