@@ -368,6 +368,21 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		retentionScheduler.Start(context.Background())
 		log.Printf("server: flow retention scheduler started (interval=%v, maxAge=%v, maxRows=%d)", retentionInterval, retentionMaxAge, retentionMaxRows)
 	}
+	// ── IAM Privesc Scheduler 시작 (IAM 권한상승 posture 자동 탐지 → result DB 적재) ──
+	if os.Getenv("DISABLE_IAM_PRIVESC_SCHEDULER") != "true" {
+		iamPrivescInterval := 10 * time.Minute
+		if v := os.Getenv("IAM_PRIVESC_INTERVAL_MINUTES"); v != "" {
+			if mins, err := strconv.Atoi(v); err == nil && mins > 0 {
+				iamPrivescInterval = time.Duration(mins) * time.Minute
+			}
+		}
+		if iamPrivescScheduler, err := scheduler.NewIamPrivescScheduler(pg, "", iamPrivescInterval); err != nil {
+			log.Printf("server: iam-privesc scheduler init failed: %v", err)
+		} else {
+			iamPrivescScheduler.Start(context.Background())
+			log.Printf("server: iam-privesc scheduler started (interval=%v)", iamPrivescInterval)
+		}
+	}
 	return &Server{
 		cfg: cfg,
 		httpSrv: &http.Server{
