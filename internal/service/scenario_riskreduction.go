@@ -72,6 +72,10 @@ func (s *ScenarioService) attachRiskReductions(ctx context.Context, cluster, pod
 		}
 	}
 
+	// MS-TA9034(NetworkPolicy)는 연결되는 Pod마다 한 항목씩 쪼개져 있을 수 있다. 격리 점수는
+	// "이 Pod에 default-deny가 적용되는가"의 전부-아니면-전무(none→deny_all)라 연결 1건씩 더해지는 게
+	// 아니다. 따라서 네트워크 격리 하락량은 9034 항목 중 첫 1건에만 붙여 중복 합산을 막는다.
+	netRRDone := false
 	for i := range res.Mitigations {
 		m := &res.Mitigations[i]
 		switch {
@@ -84,6 +88,10 @@ func (s *ScenarioService) attachRiskReductions(ctx context.Context, cluster, pod
 			after.Exposed = false
 			m.RiskReduction = riskRR(after.Score())
 		case m.Bucket == "NET" && m.MSTA == "MS-TA9034": // default-deny NetworkPolicy
+			if netRRDone {
+				break // 연결별로 쪼갠 나머지 항목은 격리 하락량을 중복으로 싣지 않는다.
+			}
+			netRRDone = true
 			after := curImpact
 			after.Network = scoring.ComputeNetworkScore(scoring.NetworkIsolationDenyAll)
 			m.RiskReduction = impactRR(after.Score())

@@ -160,6 +160,73 @@ func TestBuildPodScenario_BlastRBACHiddenByHost(t *testing.T) {
 	}
 }
 
+// MS-TA9034(NetworkPolicy 없음) 보완은 "default-deny 한 줄"로 퉁치지 않고, 네트워크로 도달하는
+// 대상 Pod마다 한 항목씩 쪼개 권고한다(Pod↔Pod 통신 단위 통제). portforward(rbac)·host 대상은 제외.
+func TestBuildPodScenario_NetworkPolicyPerConnection(t *testing.T) {
+	in := ScenarioInput{
+		PodName: "ci-runner", PodUID: "uid-1", Namespace: "prod", ServiceAccount: "ci-sa",
+		ReachEdges: []BlastEdge{
+			{Channel: "network", Reason: "network: same-ns no netpol", TargetName: "db-pod", NetProb: 0.9},
+			{Channel: "network", Reason: "network: ...", TargetName: "cache-pod", NetProb: 0.8},
+			// host로 win 했지만 p_net>0 → 잠재 네트워크 도달이라 NetworkPolicy 권고 대상.
+			{Channel: "host", Reason: "host: shared node", TargetName: "log-pod", NetProb: 0.5},
+			// rbac portforward는 9034로 병합되지만 네트워크 채널이 아니므로 연결별 권고에서 제외.
+			{Channel: "rbac", Reason: "rbac: portforward svc/api", TargetName: "gw-pod"},
+		},
+	}
+	r := BuildPodScenario(in)
+
+	// 9034 보완이 db/cache/log 3건으로 쪼개졌는지(각 Target 지정), gw-pod는 빠졌는지 확인.
+	got := map[string]string{} // target → text
+	others := 0
+	for _, m := range r.Mitigations {
+		if m.MSTA == "MS-TA9034" {
+			if m.Target == "" {
+				t.Errorf("9034 보완에 Target 비어있음: %+v", m)
+			}
+			got[m.Target] = m.Text
+		} else {
+			others++
+		}
+	}
+	for _, want := range []string{"db-pod", "cache-pod", "log-pod"} {
+		txt, ok := got[want]
+		if !ok {
+			t.Errorf("연결별 NetworkPolicy 권고에 %s 누락: %+v", want, r.Mitigations)
+			continue
+		}
+		if !strings.Contains(txt, want) || !strings.Contains(txt, "NetworkPolicy") {
+			t.Errorf("%s 권고 줄글 형식 오류: %q", want, txt)
+		}
+	}
+	if _, ok := got["gw-pod"]; ok {
+		t.Errorf("portforward(rbac) 대상 gw-pod가 NetworkPolicy 권고에 잘못 포함됨")
+	}
+	if len(got) != 3 {
+		t.Errorf("연결별 9034 보완 = %d건, want 3 (db/cache/log)", len(got))
+	}
+}
+
+// 폴백: 전파 엣지가 없고 격리가 열려 있으면(none) ReachablePods로 연결별 NetworkPolicy 권고를 만든다.
+func TestBuildPodScenario_NetworkPolicyFallbackReachablePods(t *testing.T) {
+	in := ScenarioInput{
+		PodName: "p", PodUID: "u", Namespace: "prod", ServiceAccount: "sa",
+		NetworkIsolation: "none",
+		ReachablePods:    []string{"db-pod", "cache-pod"},
+	}
+	r := BuildPodScenario(in)
+
+	targets := map[string]bool{}
+	for _, m := range r.Mitigations {
+		if m.MSTA == "MS-TA9034" && m.Target != "" {
+			targets[m.Target] = true
+		}
+	}
+	if !targets["db-pod"] || !targets["cache-pod"] {
+		t.Errorf("폴백 ReachablePods 연결별 권고 누락: %+v", r.Mitigations)
+	}
+}
+
 // 신호 없는 pod: 폴백 메시지
 func TestBuildPodScenario_Empty(t *testing.T) {
 	r := BuildPodScenario(ScenarioInput{PodName: "clean", NetworkIsolation: "deny_all"})

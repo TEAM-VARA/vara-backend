@@ -14,6 +14,7 @@ type BlastEdge struct {
 	Reason     string  // 드릴다운 설명 (예: "rbac: exec/attach/ephemeral ns=dev")
 	TargetName string  // 도달 대상 Pod 이름
 	RBACProb   float64 // p_rbac. win_channel이 host/network라도 >0이면 rbac 측면이동 권한이 실재.
+	NetProb    float64 // p_net. win_channel이 host/rbac라도 >0이면 네트워크 도달이 실재 → NetworkPolicy 권고 대상.
 }
 
 // ScenarioInput — pod 1개의 "이미 수집되는" 신호 모음.
@@ -233,7 +234,7 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 		}
 	}
 	res.AttackScenario = composeScenario(res.Incoming, res.NodeStates, res.Outgoing)
-	res.Mitigations = collectMitigations(fs)
+	res.Mitigations = collectMitigations(fs, networkReachableTargets(in))
 	res.Mitigation = composeMitigationText(res.Mitigations)
 
 	// 수집 갭 고지
@@ -340,6 +341,40 @@ func buildOutgoingFromBlast(edges []BlastEdge, sa, execPerms string) []ScenarioF
 		}
 		out = append(out, mkFinding(msta, DirOutgoing, a.tactic,
 			blastSentence(msta, sa, targets), "high", a.reason))
+	}
+	return out
+}
+
+// networkReachableTargets — 이 Pod에서 "네트워크로" 도달 가능한 대상 Pod 이름(중복 제거, 강한 순).
+//
+// NetworkPolicy는 특정 Pod↔Pod 통신 단위 통제라, "NetworkPolicy 없음" 보완을 한 줄로 퉁치는 대신
+// 연결되는 Pod마다 한 항목씩 권고하기 위한 입력이다(scenario.go collectMitigations).
+//
+// 대상 판정: blast_edges 중 win_channel=network 이거나 p_net>0(host/rbac에 가려진 잠재 네트워크 도달).
+// rbac-portforward(9034로 병합되지만 채널은 rbac)는 네트워크 채널이 아니라 제외한다.
+// 엣지가 없으면(폴백) NetworkPolicy 격리 상태가 열려 있을 때(none/unknown) ReachablePods를 쓴다.
+func networkReachableTargets(in ScenarioInput) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, e := range in.ReachEdges {
+		if e.TargetName == "" || seen[e.TargetName] {
+			continue
+		}
+		if e.Channel == "network" || e.NetProb > 0 {
+			seen[e.TargetName] = true
+			out = append(out, e.TargetName)
+		}
+	}
+	// 폴백: 전파 엣지가 없고 격리가 열려 있으면(none/unknown) 휴리스틱 도달 목록을 쓴다.
+	if len(in.ReachEdges) == 0 &&
+		(in.NetworkIsolation == "none" || in.NetworkIsolation == "" || in.NetworkIsolation == "unknown") {
+		for _, p := range in.ReachablePods {
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			out = append(out, p)
+		}
 	}
 	return out
 }

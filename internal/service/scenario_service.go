@@ -83,9 +83,13 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, companyID, cluster, p
 	}
 
 	// ── final_scores: RiskScore/RiskLevel + pod 대표 CVE(UsedTopCVE) ──
-	// best-effort: final 결과/CVE 조회 실패는 시나리오 생성을 막지 않는다.
+	// 저장된 final_scores를 읽지 않고 ComputeForPod로 즉시 재계산한다.
+	// 이유: 저장된 final_scores.toxic_multiplier는 배치 경로(LoadMultipliersForCluster의
+	// cluster-wide MAX(snapshot_at) 필터) 때문에 1.0으로 덮여 있을 수 있다. ComputeForPod는
+	// per-pod GetMultiplier(pod별 최신 1건)로 toxic을 robust하게 적용하므로 risk scoring 탭과 일치한다.
+	// best-effort: 재계산 실패는 시나리오 생성을 막지 않는다.
 	if s.finalScore != nil {
-		if fin, ferr := s.finalScore.GetByPodUID(ctx, cluster, podUID); ferr == nil && fin != nil {
+		if fin, ferr := s.finalScore.ComputeForPod(ctx, cluster, podUID); ferr == nil && fin != nil {
 			in.RiskScore = fin.FinalScore
 			in.RiskLevel = fin.RiskLevel
 			s.enrichCVE(ctx, &in, fin.UsedTopCVE)
@@ -105,6 +109,7 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, companyID, cluster, p
 					Reason:     e.Reason,
 					TargetName: e.TargetName,
 					RBACProb:   e.PRBAC,
+					NetProb:    e.PNet,
 				})
 			}
 		}
