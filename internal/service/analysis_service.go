@@ -302,15 +302,30 @@ func (s *AnalysisService) precomputeBlastPairs(ctx context.Context, cluster stri
 	}
 	rows.Close()
 
+	// src/dst uid → name (edges에서 직접; cluster_pods JOIN 불필요)
+	nameByUID := make(map[string]string)
+	for _, e := range edges {
+		if e.SourceName != "" {
+			nameByUID[e.SourceUID] = e.SourceName
+		}
+		if e.TargetName != "" {
+			nameByUID[e.TargetUID] = e.TargetName
+		}
+	}
+
 	// (src, dst, reach_prob) 모으기
 	var batch [][]any
 	for _, src := range srcs {
-		g := BuildBlastGraphFromPod(edges, src) // ⚠ 리턴 타입/필드는 go build로 확인
+		g := BuildBlastGraphFromPod(edges, src)
 		for _, n := range g.Nodes {
 			if n.ID == src {
-				continue // 자기 자신 제외
+				continue
 			}
-			batch = append(batch, []any{cluster, src, n.ID, n.ReachProb})
+			batch = append(batch, []any{
+				cluster, src, n.ID, n.ReachProb,
+				nameByUID[src], // src_pod_name (없으면 "")
+				n.Label,        // dst_pod_name (노드 표시 이름)
+			})
 		}
 	}
 
@@ -321,7 +336,7 @@ func (s *AnalysisService) precomputeBlastPairs(ctx context.Context, cluster stri
 	if len(batch) > 0 {
 		if _, err := s.pool.CopyFrom(ctx,
 			pgx.Identifier{"blast_pair_risk"},
-			[]string{"cluster_name", "src_pod_uid", "dst_pod_uid", "reach_prob"},
+			[]string{"cluster_name", "src_pod_uid", "dst_pod_uid", "reach_prob", "src_pod_name", "dst_pod_name"},
 			pgx.CopyFromRows(batch),
 		); err != nil {
 			return fmt.Errorf("copy pairs: %w", err)
