@@ -15,15 +15,18 @@ import (
 
 // WeightsService는 Risk Scoring 전역 가중치 조회/갱신 + 변경 시 재계산 + AI 추천을 담당합니다.
 type WeightsService struct {
-	repo     *postgres.ScoringWeightsRepo
-	finalSvc *FinalScoringService
-	toxicSvc *ToxicService
-	vlm      *vlm.Client // AI 가중치 추천(없으면 추천 비활성)
-	cluster  string
+	repo        *postgres.ScoringWeightsRepo
+	finalSvc    *FinalScoringService
+	toxicSvc    *ToxicService
+	vlm         *vlm.Client // AI 가중치 추천(없으면 추천 비활성)
+	globalRepo  *postgres.GlobalScoringRepo // Global 가중치 변경 시 cve_global_scores 제자리 재계산
+	imgCacheSvc *ImageGlobalCacheService    // 이미지 Global 캐시 재계산
+	sbomRepo    *postgres.SBOMRepo          // 재계산 대상 이미지 digest 목록
+	cluster     string
 }
 
-func NewWeightsService(repo *postgres.ScoringWeightsRepo, finalSvc *FinalScoringService, toxicSvc *ToxicService, vlmClient *vlm.Client, cluster string) *WeightsService {
-	return &WeightsService{repo: repo, finalSvc: finalSvc, toxicSvc: toxicSvc, vlm: vlmClient, cluster: cluster}
+func NewWeightsService(repo *postgres.ScoringWeightsRepo, finalSvc *FinalScoringService, toxicSvc *ToxicService, vlmClient *vlm.Client, globalRepo *postgres.GlobalScoringRepo, imgCacheSvc *ImageGlobalCacheService, sbomRepo *postgres.SBOMRepo, cluster string) *WeightsService {
+	return &WeightsService{repo: repo, finalSvc: finalSvc, toxicSvc: toxicSvc, vlm: vlmClient, globalRepo: globalRepo, imgCacheSvc: imgCacheSvc, sbomRepo: sbomRepo, cluster: cluster}
 }
 
 // Get은 현재 가중치를 반환합니다.
@@ -77,12 +80,33 @@ func (s *WeightsService) Update(ctx context.Context, w scoring.Weights) (*Weight
 	if err := validateWeights(w); err != nil {
 		return nil, err
 	}
+	old, _ := s.repo.Get(ctx) // 변경 전 가중치(Global 변경 여부 판단용)
 	if err := s.repo.Upsert(ctx, w); err != nil {
 		return nil, err
 	}
 	scoring.SetWeights(w)
 
 	res := &WeightsUpdateResult{Weights: w}
+
+	// Global 가중치(CVSS/EPSS/SSVC)가 바뀐 경우에만 cve/image Global을 제자리 재계산.
+	// raw 신호가 이미 저장돼 있어 외부 API 호출 없이 즉시 반영된다.
+	globalChanged := old.GlobalCVSS != w.GlobalCVSS || old.GlobalEPSS != w.GlobalEPSS || old.GlobalSSVC != w.GlobalSSVC
+	if globalChanged && s.globalRepo != nil {
+		if _, err := s.globalRepo.ReweightAll(ctx, w); err != nil {
+			fmt.Printf("warn: weights update — cve global reweight failed: %v\n", err)
+		}
+		if s.sbomRepo != nil && s.imgCacheSvc != nil {
+			digests, err := s.sbomRepo.ListDistinctDigests(ctx)
+			if err != nil {
+				fmt.Printf("warn: weights update — list digests failed: %v\n", err)
+			}
+			for _, d := range digests {
+				if _, err := s.imgCacheSvc.RecomputeAndStore(ctx, d); err != nil {
+					fmt.Printf("warn: weights update — image global recompute failed (%s): %v\n", d, err)
+				}
+			}
+		}
+	}
 
 	// Toxic 재계산 (새 배수 반영)
 	if s.toxicSvc != nil {
@@ -101,7 +125,7 @@ func (s *WeightsService) Update(ctx context.Context, w scoring.Weights) (*Weight
 		}
 	}
 
-	res.Note = "Final·Toxic 가중치는 즉시 반영되었습니다. Global 가중치 변경은 이미지 Global 재계산(force 또는 스캔) 후 반영됩니다."
+	res.Note = "Final·Toxic 가중치는 즉시 반영되었습니다. Global 가중치 변경 시 cve/image Global도 즉시 재계산됩니다."
 	return res, nil
 }
 

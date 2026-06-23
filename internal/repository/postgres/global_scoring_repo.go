@@ -115,6 +115,44 @@ func (r *GlobalScoringRepo) Upsert(
 	return nil
 }
 
+// ReweightAll은 Global 가중치 변경 시 cve_global_scores 전 행을 외부 API 호출 없이
+// 제자리(in-place) 재계산합니다. raw 신호(cvss_score, epss_score, ssvc_exploitation,
+// imputation_source, imputation_confidence)가 이미 저장돼 있으므로 단일 UPDATE로 충분합니다.
+//
+// 가중치: $1=w.GlobalCVSS, $2=w.GlobalEPSS, $3=w.GlobalSSVC.
+// 영향받은 행 수를 반환합니다.
+func (r *GlobalScoringRepo) ReweightAll(ctx context.Context, w scoring.Weights) (int64, error) {
+	const q = `
+		WITH terms AS (
+			SELECT
+				cve_id,
+				LEAST(GREATEST(COALESCE(cvss_score, 0) / 10.0, 0), 1)
+					* CASE WHEN imputation_source = 'ai' THEN COALESCE(imputation_confidence, 1) ELSE 1 END
+					* $1                                                              AS cvss_term,
+				LEAST(GREATEST(COALESCE(epss_score, 0), 0), 1) * $2                  AS epss_term,
+				(CASE ssvc_exploitation
+					WHEN 'active' THEN 1.0
+					WHEN 'poc'    THEN 0.5
+					ELSE 0.0
+				END) * $3                                                           AS ssvc_term
+			FROM cve_global_scores
+		)
+		UPDATE cve_global_scores g SET
+			cvss_contribution = ROUND((t.cvss_term * 100)::numeric, 2),
+			epss_contribution = ROUND((t.epss_term * 100)::numeric, 2),
+			ssvc_contribution = ROUND((t.ssvc_term * 100)::numeric, 2),
+			global_score      = ROUND(((t.cvss_term + t.epss_term + t.ssvc_term) * 100)::numeric, 2)
+		FROM terms t
+		WHERE g.cve_id = t.cve_id
+	`
+
+	tag, err := r.pool.Exec(ctx, q, w.GlobalCVSS, w.GlobalEPSS, w.GlobalSSVC)
+	if err != nil {
+		return 0, fmt.Errorf("reweight all cve_global_scores: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // GetByCVEID는 단일 CVE의 점수를 조회합니다. 없으면 nil 반환.
 func (r *GlobalScoringRepo) GetByCVEID(ctx context.Context, cveID string) (*scoring.GlobalScore, error) {
 	return r.getByCVEIDInternal(ctx, cveID, false)
