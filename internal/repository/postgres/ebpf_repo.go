@@ -85,6 +85,61 @@ func (r *EbpfRepo) UpsertNetworkFlows(ctx context.Context, customerID string, re
     return saved, nil
 }
 
+// UpsertFlowAgg : tcp_sendmsg 전용. 개별 row 대신 (src,dst,port,분) 단위로 누적 집계.
+// 매핑(dst_pod_id, mapping_status)이 끝난 이벤트를 받아서 분 버킷에 더한다.
+func (r *EbpfRepo) UpsertFlowAgg(ctx context.Context, customerID string, req ebpf.NetworkFlowsRequest) (int, error) {
+	if len(req.Events) == 0 {
+		return 0, nil
+	}
+
+	tx, err := r.pg.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("tx begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const q = `
+		INSERT INTO ebpf_flow_agg (
+			customer_id, cluster_name, src_pod_id,
+			dst_pod_id, dst_ip, dst_port, mapping_status,
+			minute_bucket, flow_count, total_size, last_seen
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7,
+			date_trunc('minute', $8::timestamptz), 1, $9, $8
+		)
+		ON CONFLICT (customer_id, cluster_name, src_pod_id, dst_ip, dst_port, minute_bucket)
+		DO UPDATE SET
+			flow_count     = ebpf_flow_agg.flow_count + 1,
+			total_size     = ebpf_flow_agg.total_size + EXCLUDED.total_size,
+			last_seen      = GREATEST(ebpf_flow_agg.last_seen, EXCLUDED.last_seen),
+			dst_pod_id     = EXCLUDED.dst_pod_id,
+			mapping_status = EXCLUDED.mapping_status
+	`
+
+	saved := 0
+	for _, e := range req.Events {
+		var size int64 = 0
+		if e.Size > 0 {
+			size = e.Size
+		}
+		_, err := tx.Exec(ctx, q,
+			customerID, customerID, e.Src.PodID,
+			e.Dst.PodID, e.Dst.IP, e.Dst.Port, e.Dst.MappingStatus,
+			e.Timestamp, size,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("upsert flow agg %s:%d→%s:%d: %w",
+				e.Src.IP, e.Src.Port, e.Dst.IP, e.Dst.Port, err)
+		}
+		saved++
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("tx commit: %w", err)
+	}
+	return saved, nil
+}
+
 // UpsertDNSQueries : DNS 쿼리 이벤트 일괄 UPSERT
 func (r *EbpfRepo) UpsertDNSQueries(ctx context.Context, customerID string, req ebpf.DNSQueriesRequest) (int, error) {
 	if len(req.Events) == 0 {
@@ -277,19 +332,19 @@ func (r *EbpfRepo) QueryFlowFeed(
 				     AND (src_pod_id LIKE 'train-ticket/ts-gateway-service-%'
 				       OR src_pod_id LIKE 'train-ticket/ts-ui-dashboard-%') THEN 'unauthorized_db_access'
 			END, '') AS anomaly_reason,
-			count(*)               AS flow_count,
-			COALESCE(sum(size), 0) AS total_bytes,
-			max(timestamp)         AS last_seen
-		FROM ebpf_network_flows
+			COALESCE(sum(flow_count), 0) AS flow_count,   -- ← count(*) 에서 변경
+			COALESCE(sum(total_size), 0) AS total_bytes,  -- ← sum(size) 에서 변경
+			max(last_seen)               AS last_seen      -- ← max(timestamp) 에서 변경
+		FROM ebpf_flow_agg                                 -- ← ebpf_network_flows 에서 변경
 		WHERE customer_id = $1
-		  AND received_at > $2
-		  AND event_type = 'tcp_sendmsg'
+		  AND minute_bucket > $2                            -- ← received_at > $2 에서 변경
 		  AND src_pod_id NOT LIKE 'default/vara-%'
-		  AND src_pod_id NOT LIKE 'train-ticket/nacos-%'   -- nacos를 src로도 제외 (역방향 하트비트)
+		  AND src_pod_id NOT LIKE 'train-ticket/nacos-%'
 		  AND (
-		        (mapping_status = 'mapped' AND dst_pod_id NOT LIKE 'train-ticket/nacos-%')  -- 정상 서비스-투-서비스
-		     OR mapping_status IN ('external','imds')                                       -- 이상: R1 외부 / R2 IMDS
+		        (mapping_status = 'mapped' AND dst_pod_id NOT LIKE 'train-ticket/nacos-%')
+		     OR mapping_status IN ('external','imds')
 		  )
+		  AND mapping_status != 'loopback'
 		GROUP BY src_service, dst_service, severity, anomaly_reason
 		ORDER BY last_seen DESC
 		LIMIT $3
