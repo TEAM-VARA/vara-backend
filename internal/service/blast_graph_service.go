@@ -15,6 +15,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 
 	"github.com/gin-gonic/gin"
@@ -46,6 +47,7 @@ type GraphNode struct {
 	Namespace string `json:"namespace"` // 4계층 띠 배치 등에 사용
 	ReachProb float64 `json:"reach_prob"` // A→이 노드 도달확률 (0~1, A 자신=1.0)
 	ChokeScore int `json:"choke_score"`// 이 노드 제거 시 A의 blast 감소량
+	RiskScore  float64 `json:"risk_score"` // 이 파드 자체 위험(final_scores.final_score), FE 색용
 }
 
 
@@ -216,8 +218,41 @@ func (h *BlastGraphHandler) Handle(c *gin.Context) {
 	for i := range result.Nodes {
 		result.Nodes[i].ChokeScore = chokeScores[result.Nodes[i].ID]
 	}
-	
+
+	// ── ③ 노드별 risk_score = final_scores.final_score (FE 색용) ──
+	if rs, err := LoadFinalScores(c.Request.Context(), h.Pool, cluster); err != nil {
+		log.Printf("blast-graph: final_scores 로드 실패 (risk_score 비움): %v", err) // 그래프는 계속 그림
+	} else {
+		for i := range result.Nodes {
+			result.Nodes[i].RiskScore = rs[result.Nodes[i].ID] // 없으면 0
+		}
+	}
+
 	c.JSON(200, result)
+}	
+
+// 최신 스냅샷의 파드별 final_score → map[pod_uid]score
+func LoadFinalScores(ctx context.Context, pool *pgxpool.Pool, cluster string) (map[string]float64, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT pod_uid, final_score::float8
+		FROM final_scores
+		WHERE cluster_name = $1
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM final_scores WHERE cluster_name = $1)
+	`, cluster)
+	if err != nil {
+		return nil, fmt.Errorf("load final_scores: %w", err)
+	}
+	defer rows.Close()
+	m := make(map[string]float64)
+	for rows.Next() {
+		var uid string
+		var sc float64
+		if err := rows.Scan(&uid, &sc); err != nil {
+			return nil, err
+		}
+		m[uid] = sc
+	}
+	return m, rows.Err()
 }
 
 // ── 붙일 곳 3군데 ────────────────────────────────────────────

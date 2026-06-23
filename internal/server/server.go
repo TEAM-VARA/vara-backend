@@ -110,7 +110,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	packageVulnSvc := service.NewPackageVulnService(osvClient, packageVulnRepo, sbomPackageRepo) // 신규 (B-6)
 	depsDevSvc := service.NewDepsDevService(depsDevClient, versionReleaseRepo, sbomPackageRepo, packageVulnRepo) // 신규 (deps.dev)
 	notifSvc := service.NewNotificationService(notifRepo)                                        // 신규 (대시보드 알림)
-	analysisSvc := service.NewAnalysisService(edgesRepo, analysisCacheRepo)                      // 신규 (그래프 분석)
+	analysisSvc := service.NewAnalysisService(edgesRepo, analysisCacheRepo, pg)                      // 신규 (그래프 분석)
 	edgeSvc := service.NewEdgeService(edgesRepo)                                                 // 신규 (blast radius)  ← 추가
 	// RBAC Chain: DB 직접 로더(PostgresLoader) + fixpoint 엔진
 	rbacChainLoader := loader.NewPostgresLoader(pg)
