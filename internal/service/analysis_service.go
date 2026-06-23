@@ -6,6 +6,8 @@ import (
 	"log"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vara/backend/internal/domain/edge"
 	"github.com/vara/backend/internal/repository/postgres"
 )
@@ -24,15 +26,18 @@ type edgeTopology = edge.TopologyResponse
 type AnalysisService struct {
 	edgeRepo  *postgres.EdgesRepo
 	cacheRepo *postgres.AnalysisCacheRepo
+	pool      *pgxpool.Pool
 }
 
 func NewAnalysisService(
 	edgeRepo *postgres.EdgesRepo,
 	cacheRepo *postgres.AnalysisCacheRepo,
+	pool *pgxpool.Pool,
 ) *AnalysisService {
 	return &AnalysisService{
 		edgeRepo:  edgeRepo,
 		cacheRepo: cacheRepo,
+		pool:      pool,
 	}
 }
 
@@ -60,6 +65,11 @@ func (s *AnalysisService) PrecomputeAll(ctx context.Context, cluster string) err
 	// 2. BFS Blast Radius (모든 Pod)
 	if err := s.precomputeBlastRadius(ctx, cluster, topo); err != nil {
 		log.Printf("analysis: blast radius failed: %v", err)
+	}
+
+	// 2.5. Total Risk (blast_edges 기반 MC) — pod_blast_radius row가 있어야 UPDATE되므로 뒤에 ⭐
+	if err := s.precomputeBlastPairs(ctx, cluster); err != nil {
+		log.Printf("analysis: blast_pair_risk failed: %v", err)
 	}
 
 	// 3. PageRank + Betweenness (전역)
@@ -261,4 +271,62 @@ func (s *AnalysisService) PrecomputeIfStale(ctx context.Context, cluster string)
 		return false, err
 	}
 	return true, nil
+}
+
+// precomputeBlastPairs는 각 소스 파드 → 도달 노드까지의 전파 위험도(reach_prob, A→B)를
+// (src,dst) 쌍으로 blast_pair_risk에 저장합니다.
+// orbital이 소스 1개에 대해 즉석 계산하는 reach_prob를 전체 소스에 대해 미리 계산 →
+// "가장 위험한 경로 top N" 쿼리 가능.
+func (s *AnalysisService) precomputeBlastPairs(ctx context.Context, cluster string) error {
+	edges, err := LoadBlastEdges(ctx, s.pool, cluster)
+	if err != nil {
+		return fmt.Errorf("load blast_edges: %w", err)
+	}
+	if len(edges) == 0 {
+		return nil
+	}
+
+	// 소스 파드 목록 (pod_blast_radius에 파드들이 이미 있음)
+	rows, err := s.pool.Query(ctx, `SELECT pod_uid FROM pod_blast_radius WHERE cluster_name=$1`, cluster)
+	if err != nil {
+		return fmt.Errorf("list pods: %w", err)
+	}
+	var srcs []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			rows.Close()
+			return err
+		}
+		srcs = append(srcs, uid)
+	}
+	rows.Close()
+
+	// (src, dst, reach_prob) 모으기
+	var batch [][]any
+	for _, src := range srcs {
+		g := BuildBlastGraphFromPod(edges, src) // ⚠ 리턴 타입/필드는 go build로 확인
+		for _, n := range g.Nodes {
+			if n.ID == src {
+				continue // 자기 자신 제외
+			}
+			batch = append(batch, []any{cluster, src, n.ID, n.ReachProb})
+		}
+	}
+
+	// 전체 재계산이므로 이 클러스터 행 갈아엎고 새로 적재
+	if _, err := s.pool.Exec(ctx, `DELETE FROM blast_pair_risk WHERE cluster_name=$1`, cluster); err != nil {
+		return fmt.Errorf("clear pairs: %w", err)
+	}
+	if len(batch) > 0 {
+		if _, err := s.pool.CopyFrom(ctx,
+			pgx.Identifier{"blast_pair_risk"},
+			[]string{"cluster_name", "src_pod_uid", "dst_pod_uid", "reach_prob"},
+			pgx.CopyFromRows(batch),
+		); err != nil {
+			return fmt.Errorf("copy pairs: %w", err)
+		}
+	}
+	log.Printf("analysis: blast_pair_risk computed (%d pairs, %d sources, cluster=%s)", len(batch), len(srcs), cluster)
+	return nil
 }
