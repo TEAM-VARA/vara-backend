@@ -108,6 +108,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	breakdownH := handler.NewBreakdownHandler(breakdownSvc)
 	sbomPackageSvc := service.NewSBOMPackageService(pg, sbomPackageRepo)
 	packageVulnSvc := service.NewPackageVulnService(osvClient, packageVulnRepo, sbomPackageRepo) // 신규 (B-6)
+	// SBOM 스캔 직후 sbom_packages 추출 + osv 매칭 자동 보강 (이미지 교체 시 수동 backfill 불필요)
+	sbomSvc.SetEnrichment(sbomPackageSvc, packageVulnSvc)
 	depsDevSvc := service.NewDepsDevService(depsDevClient, versionReleaseRepo, sbomPackageRepo, packageVulnRepo) // 신규 (deps.dev)
 	notifSvc := service.NewNotificationService(notifRepo)                                        // 신규 (대시보드 알림)
 	analysisSvc := service.NewAnalysisService(edgesRepo, analysisCacheRepo, pg)                      // 신규 (그래프 분석)
