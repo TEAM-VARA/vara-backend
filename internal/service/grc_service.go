@@ -636,7 +636,14 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		// No clear failures but R NO_DATA or F NEEDS_REVIEW or GL INDETERMINATE → NEEDS_REVIEW (확인필요)
 		// 실제 통과 룰 존재 → MET (준수)
 		// 전부 해당없음 → N_A (점검 대상 부재 — 준수로 부풀리지 않음)
-		if item.Failed > 0 {
+		// 인프라(K8s 기술 R룰 보유) 항목: 검토필요 없이 준수/미준수로만 판정 (overview와 동일).
+		if s.hasK8sNativeRules(itemID) {
+			if countRLayerFailures(&item) > 0 {
+				item.Verdict = grc.VerdictNOT_MET
+			} else {
+				item.Verdict = grc.VerdictMET
+			}
+		} else if item.Failed > 0 {
 			item.Verdict = grc.VerdictNOT_MET
 		} else if item.NeedsReview > 0 || item.NoData > 0 || item.Indeterminate > 0 {
 			item.Verdict = grc.VerdictNEEDS_REVIEW
@@ -921,7 +928,17 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 		item := &result.Items[i]
 
 		// Determine verdict
-		if item.Failed > 0 {
+		// 인프라(K8s 기술 R룰 보유) 항목: 검토필요 없이 준수/미준수로만 판정한다.
+		// R레이어 NOT_MET 1건↑ → 미준수, 아니면 준수 (GL/정책룰의 NEEDS_REVIEW·NO_DATA는 무시).
+		if s.hasK8sNativeRules(item.ISMSPItemID) {
+			if countRLayerFailures(item) > 0 {
+				item.Verdict = "미준수"
+				result.NonCompliantItems++
+			} else {
+				item.Verdict = "준수"
+				result.CompliantItems++
+			}
+		} else if item.Failed > 0 {
 			item.Verdict = "미준수"
 			result.NonCompliantItems++
 		} else if item.NeedsReview > 0 || item.NoData > 0 || item.Indeterminate > 0 {
@@ -1057,6 +1074,37 @@ func (s *GRCService) expectedRuleCount(itemID string) int {
 			continue // 인벤토리/방증·보류 룰은 판정 분모에서 제외
 		}
 		n++
+	}
+	return n
+}
+
+// hasK8sNativeRules reports whether an item's ruleset defines any K8s 자동측정 룰
+// (judgment_source k8s_api/k8s_native). 이런 항목을 "인프라"로 보고 준수/미준수 이진 판정한다.
+func (s *GRCService) hasK8sNativeRules(itemID string) bool {
+	rs, err := s.rulesetStore.Load(itemID)
+	if err != nil || rs == nil {
+		return false
+	}
+	for i := range rs.Rules {
+		switch rs.Rules[i].JudgmentSource {
+		case "k8s_api", "k8s_native":
+			return true
+		}
+	}
+	return false
+}
+
+// countRLayerFailures counts NOT_MET results in an item's R(기술측정) layer.
+// 인프라 이진 판정의 분자 — GL/F 레이어의 NEEDS_REVIEW 등은 세지 않는다.
+func countRLayerFailures(item *grc.ItemComplianceResult) int {
+	if item == nil || item.Layers == nil {
+		return 0
+	}
+	n := 0
+	for _, rr := range item.Layers.R {
+		if grc.NormalizeVerdict(rr.Verdict) == grc.VerdictNOT_MET {
+			n++
+		}
 	}
 	return n
 }
