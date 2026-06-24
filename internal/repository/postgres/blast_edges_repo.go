@@ -223,6 +223,68 @@ func (r *BlastEdgesRepo) GetOutgoingBySource(ctx context.Context, cluster, sourc
 	return out, rows.Err()
 }
 
+// BlastInEdge — 이 pod을 target으로 하는(들어오는) 전파 엣지 1건 (시나리오용 읽기 뷰, src=상대 pod).
+type BlastInEdge struct {
+	SourcePodUID    string
+	SourceName      string
+	SourceNamespace string
+	WinChannel      string // host | rbac | network (= max 채널)
+	Reason          string
+	PEdge           float64
+	PHost           float64
+	PRBAC           float64
+	PNet            float64
+}
+
+// GetIncomingByTarget — 이 pod으로 들어오는(target_pod_uid = this) 전파 엣지를 최신 snapshot 기준으로 읽는다.
+// p_edge 내림차순으로 반환. 공격 시나리오 categories(권한/NetworkPolicy)의 "이 pod이 dst인 엣지"에 쓴다.
+func (r *BlastEdgesRepo) GetIncomingByTarget(ctx context.Context, cluster, targetPodUID string) ([]BlastInEdge, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT source_pod_uid, COALESCE(source_name, ''), COALESCE(source_namespace, ''),
+		       win_channel, COALESCE(reason, ''), p_edge,
+		       COALESCE(p_host, 0), COALESCE(p_rbac, 0), COALESCE(p_net, 0)
+		FROM blast_edges
+		WHERE cluster_name = $1 AND target_pod_uid = $2
+		  AND snapshot_at = (
+		      SELECT MAX(snapshot_at) FROM blast_edges WHERE cluster_name = $1
+		  )
+		ORDER BY p_edge DESC`,
+		cluster, targetPodUID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("blast: get incoming by target: %w", err)
+	}
+	defer rows.Close()
+
+	var out []BlastInEdge
+	for rows.Next() {
+		var e BlastInEdge
+		if err := rows.Scan(&e.SourcePodUID, &e.SourceName, &e.SourceNamespace,
+			&e.WinChannel, &e.Reason, &e.PEdge, &e.PHost, &e.PRBAC, &e.PNet); err != nil {
+			return nil, fmt.Errorf("blast: scan incoming edge: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// GetPodSA — pod uid의 service account(namespace, name)를 최신 cluster_pods snapshot에서 읽는다.
+// SA namespace = pod namespace. service_account이 비면 "default"(automount 기본 SA). 행이 없으면 에러.
+// 공격 시나리오 권한 뷰에서 들어오는(dst) 엣지의 "출발 pod SA"를 풀어 초기권한을 조회하는 데 쓴다.
+func (r *BlastEdgesRepo) GetPodSA(ctx context.Context, cluster, podUID string) (saNamespace, saName string, err error) {
+	if err = r.pool.QueryRow(ctx, `
+		SELECT namespace, COALESCE(NULLIF(service_account, ''), 'default')
+		FROM cluster_pods
+		WHERE cluster_name = $1 AND pod_uid = $2
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+		LIMIT 1`,
+		cluster, podUID,
+	).Scan(&saNamespace, &saName); err != nil {
+		return "", "", fmt.Errorf("blast: get pod SA: %w", err)
+	}
+	return saNamespace, saName, nil
+}
+
 // Replace — 해당 cluster의 blast_edges를 현재 snapshot으로 통째 교체(클러스터 전체 삭제 후 일괄 삽입 → 최신 snapshot만 유지).
 // src/dst 표시용 name/namespace는 pods에서 채운다. 적재된 행 수를 반환.
 func (r *BlastEdgesRepo) Replace(
