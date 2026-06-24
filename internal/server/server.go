@@ -225,6 +225,10 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, depsDevH, ebpfH, edgeH, podRefreshH,
 		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH, scenarioH, authH)
 	r.GET("/api/v1/scoring/blast-graph", blastGraph.Handle)
+	// ── blast_pair_risk 읽기 (orbital 랭킹/가중치) ──
+	r.GET("/api/v1/scoring/blast-pairs", blastGraph.PairsBySource)          // ?cluster=&src=   : 소스별 도달 목록(reach_prob+total_risk)
+	r.GET("/api/v1/scoring/blast-pairs/top-sources", blastGraph.TopSources) // ?cluster=&limit= : total_risk 랭킹(폭발원 top N)
+	r.GET("/api/v1/scoring/blast-pairs/top-pairs", blastGraph.TopPairs)     // ?cluster=&limit= : reach_prob 랭킹(위험 쌍 top N)
 
 	// ── 데모용: 특정 vuln_id로 신규 CVE 알림+점수변화 즉시 실행 (발표 실연, dedup 없음, 임시) ──
 	r.POST("/api/v1/scoring/demo/new-cve", func(c *gin.Context) {
