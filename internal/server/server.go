@@ -307,6 +307,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 			}
 		}
 
+		scoreRetentionRepo := postgres.NewScoreRetentionRepo(pg)
 		analysisScheduler := scheduler.NewAnalysisScheduler(
 			analysisSvc,
 			edgesRepo,
@@ -316,6 +317,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 			localScoringSvc,
 			toxicSvc,
 			finalScoringSvc,
+			scoreRetentionRepo,
 			clusterName,
 			analysisInterval,
 		)
