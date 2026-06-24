@@ -177,7 +177,10 @@ func (s *CVEEnrichmentService) enrich(ctx context.Context, cveID string) error {
 	e.Attack = scoring.DeriveAttack(e.Impact, e.Remote, e.Unauth)
 	e.Mitigations = scoring.DeriveMitigations(e.FixedVersions, e.Preconditions)
 
-	// ── 6) 캐시 ──
+	// ── 6) T0 노드 카드 한 줄 조립 (CVE-intrinsic, per-CVE 저장 — OpenAPI rendered.card) ──
+	e.Rendered = scoring.BuildRenderedCard(e)
+
+	// ── 7) 캐시 ──
 	return s.enrichRepo.Upsert(ctx, e, sourceHash)
 }
 

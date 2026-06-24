@@ -636,12 +636,27 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		// No clear failures but R NO_DATA or F NEEDS_REVIEW or GL INDETERMINATE → NEEDS_REVIEW (확인필요)
 		// 실제 통과 룰 존재 → MET (준수)
 		// 전부 해당없음 → N_A (점검 대상 부재 — 준수로 부풀리지 않음)
-		if item.Failed > 0 {
+		// 인프라(K8s 기술 R룰 보유) 항목: 검토필요 없이 준수/미준수로만 판정 (overview와 동일).
+		if s.hasK8sNativeRules(itemID) {
+			if countRLayerFailures(&item) > 0 {
+				item.Verdict = grc.VerdictNOT_MET
+			} else {
+				item.Verdict = grc.VerdictMET
+			}
+		} else if item.Failed > 0 {
 			item.Verdict = grc.VerdictNOT_MET
 		} else if item.NeedsReview > 0 || item.NoData > 0 || item.Indeterminate > 0 {
 			item.Verdict = grc.VerdictNEEDS_REVIEW
 		} else if item.Passed > 0 {
-			item.Verdict = grc.VerdictMET
+			// 커버리지 게이트(overview와 동일): 정의된 룰 중 미평가가 남아 있으면
+			// 통과만으로 준수 단정하지 않고 NEEDS_REVIEW로 둔다.
+			expected := s.expectedRuleCount(itemID)
+			evaluated := distinctEvaluatedRules(it.ruleResults)
+			if expected > 0 && evaluated < expected {
+				item.Verdict = grc.VerdictNEEDS_REVIEW
+			} else {
+				item.Verdict = grc.VerdictMET
+			}
 		} else if item.NotApplicable > 0 {
 			item.Verdict = grc.VerdictNA
 		} else {
@@ -857,6 +872,7 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 			item.Passed += gl.Passed
 			item.Failed += gl.Failed
 			item.NeedsReview += gl.NeedsReview
+			item.NotApplicable += gl.Skipped // N_A/리포트형 버킷 — 이전엔 통째로 누락돼 accounting gap 발생
 			result.TotalRules += gl.TotalRules
 			if item.Layers == nil {
 				item.Layers = &grc.ItemLayers{}
@@ -873,13 +889,14 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 				name = gl.ISMSPItemID
 			}
 			item := grc.ItemComplianceResult{
-				ISMSPItemID: gl.ISMSPItemID,
-				ItemName:    name,
-				TotalRules:  gl.TotalRules,
-				Passed:      gl.Passed,
-				Failed:      gl.Failed,
-				NeedsReview: gl.NeedsReview,
-				Layers:      &grc.ItemLayers{GL: glRuleResults},
+				ISMSPItemID:   gl.ISMSPItemID,
+				ItemName:      name,
+				TotalRules:    gl.TotalRules,
+				Passed:        gl.Passed,
+				Failed:        gl.Failed,
+				NeedsReview:   gl.NeedsReview,
+				NotApplicable: gl.Skipped, // N_A/리포트형 버킷 — 누락 방지
+				Layers:        &grc.ItemLayers{GL: glRuleResults},
 			}
 			result.Items = append(result.Items, item)
 			itemMap[gl.ISMSPItemID] = len(result.Items) - 1
@@ -911,15 +928,34 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 		item := &result.Items[i]
 
 		// Determine verdict
-		if item.Failed > 0 {
+		// 인프라(K8s 기술 R룰 보유) 항목: 검토필요 없이 준수/미준수로만 판정한다.
+		// R레이어 NOT_MET 1건↑ → 미준수, 아니면 준수 (GL/정책룰의 NEEDS_REVIEW·NO_DATA는 무시).
+		if s.hasK8sNativeRules(item.ISMSPItemID) {
+			if countRLayerFailures(item) > 0 {
+				item.Verdict = "미준수"
+				result.NonCompliantItems++
+			} else {
+				item.Verdict = "준수"
+				result.CompliantItems++
+			}
+		} else if item.Failed > 0 {
 			item.Verdict = "미준수"
 			result.NonCompliantItems++
 		} else if item.NeedsReview > 0 || item.NoData > 0 || item.Indeterminate > 0 {
 			item.Verdict = "검토필요"
 			result.NeedsReviewItems++
 		} else if item.Passed > 0 {
-			item.Verdict = "준수"
-			result.CompliantItems++
+			// 커버리지 게이트: 정의된 룰 중 실제 판정난 distinct 룰이 적으면(미실행 룰 존재)
+			// 통과만으로 '준수'를 단정하지 않고 '검토필요'로 둔다.
+			expected := s.expectedRuleCount(item.ISMSPItemID)
+			evaluated := distinctEvaluatedRules(collectItemRuleResults(item))
+			if expected > 0 && evaluated < expected {
+				item.Verdict = "검토필요"
+				result.NeedsReviewItems++
+			} else {
+				item.Verdict = "준수"
+				result.CompliantItems++
+			}
 		} else if item.NotApplicable > 0 {
 			item.Verdict = "해당없음"
 			result.NotApplicableItems++
@@ -965,8 +1001,14 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 		case "검토필요":
 			if item.NeedsReview > 0 {
 				item.Note = fmt.Sprintf("%d개 룰 검토 필요 (자동 판단 불가, 수동 확인 권장)", item.NeedsReview)
-			} else {
+			} else if item.NoData > 0 || item.Indeterminate > 0 {
 				item.Note = fmt.Sprintf("데이터 부족 (NO_DATA %d건, 확인불가 %d건) — 수동 확인 권장", item.NoData, item.Indeterminate)
+			} else {
+				// 커버리지 부족 강등: 통과 룰은 있으나 정의된 룰 일부가 아직 미평가
+				expected := s.expectedRuleCount(item.ISMSPItemID)
+				evaluated := distinctEvaluatedRules(collectItemRuleResults(item))
+				item.Note = fmt.Sprintf("정의된 룰 %d개 중 %d개만 평가됨 (%d개 미실행) — 통과만으로 준수 단정 불가, 나머지 룰 평가 필요",
+					expected, evaluated, expected-evaluated)
 			}
 		case "준수":
 			if item.NotApplicable > 0 {
@@ -1015,6 +1057,74 @@ func collectItemRuleResults(item *grc.ItemComplianceResult) []grc.RuleResult {
 	all = append(all, item.Layers.F...)
 	all = append(all, item.Layers.Report...)
 	return all
+}
+
+// expectedRuleCount returns how many of an item's ruleset-defined rules are
+// expected to yield a verdict, excluding report/deferred rules (합격률 분모 제외).
+// 룰셋 캐시는 호출 전 LoadAll로 데워져 있어 pod 룰셋까지 병합된 정의 수를 반환한다.
+func (s *GRCService) expectedRuleCount(itemID string) int {
+	rs, err := s.rulesetStore.Load(itemID)
+	if err != nil || rs == nil {
+		return 0
+	}
+	n := 0
+	for i := range rs.Rules {
+		r := &rs.Rules[i]
+		if r.OutputType == "report" || r.ReclassifiedFrom != "" || r.DeferredFrom != "" {
+			continue // 인벤토리/방증·보류 룰은 판정 분모에서 제외
+		}
+		n++
+	}
+	return n
+}
+
+// hasK8sNativeRules reports whether an item's ruleset defines any K8s 자동측정 룰
+// (judgment_source k8s_api/k8s_native). 이런 항목을 "인프라"로 보고 준수/미준수 이진 판정한다.
+func (s *GRCService) hasK8sNativeRules(itemID string) bool {
+	rs, err := s.rulesetStore.Load(itemID)
+	if err != nil || rs == nil {
+		return false
+	}
+	for i := range rs.Rules {
+		switch rs.Rules[i].JudgmentSource {
+		case "k8s_api", "k8s_native":
+			return true
+		}
+	}
+	return false
+}
+
+// countRLayerFailures counts NOT_MET results in an item's R(기술측정) layer.
+// 인프라 이진 판정의 분자 — GL/F 레이어의 NEEDS_REVIEW 등은 세지 않는다.
+func countRLayerFailures(item *grc.ItemComplianceResult) int {
+	if item == nil || item.Layers == nil {
+		return 0
+	}
+	n := 0
+	for _, rr := range item.Layers.R {
+		if grc.NormalizeVerdict(rr.Verdict) == grc.VerdictNOT_MET {
+			n++
+		}
+	}
+	return n
+}
+
+// distinctEvaluatedRules counts unique rule IDs that produced a real verdict
+// (MET/NOT_MET/NEEDS_REVIEW/NO_DATA/INDETERMINATE/N_A). per-pod 팬아웃으로 같은
+// 룰이 여러 번 나와도 rule_id 기준 distinct로 집계해 커버리지를 정확히 센다.
+func distinctEvaluatedRules(results []grc.RuleResult) int {
+	seen := map[string]bool{}
+	for _, rr := range results {
+		if rr.RuleID == "" {
+			continue
+		}
+		switch grc.NormalizeVerdict(rr.Verdict) {
+		case grc.VerdictMET, grc.VerdictNOT_MET, grc.VerdictNEEDS_REVIEW,
+			grc.VerdictNO_DATA, grc.VerdictINDETERMINATE, grc.VerdictNA:
+			seen[rr.RuleID] = true
+		}
+	}
+	return len(seen)
 }
 
 // mapKeys returns sorted keys from a map[string]bool.

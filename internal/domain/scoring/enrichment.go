@@ -1,6 +1,7 @@
 package scoring
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -22,7 +23,8 @@ import (
 const EnrichmentTTL = 7 * 24 * time.Hour
 
 // EnrichmentExtractorVersion — 추출 파이프라인 버전. 프롬프트/스키마 변경 시 올려 캐시 무효화.
-const EnrichmentExtractorVersion = "v1"
+// v2: rendered.card(T0 노드 카드 한 줄) 추가 — v1 캐시는 카드가 없어 재추출 필요.
+const EnrichmentExtractorVersion = "v2"
 
 // ConfidenceUnconfirmed — L2(config/reachability) 미구현 동안 모든 enrichment의 기본 confidence.
 // 비대칭 원칙(설계서 §2-5): 미확인 ≠ 안전. 강등/dismiss 하지 않는다.
@@ -76,6 +78,16 @@ type CVEEnrichment struct {
 	// 메타: ATT&CK 매핑은 정책이므로 _validated:false.
 	Validated  bool              `json:"_validated"`
 	Provenance map[string]string `json:"_provenance,omitempty"`
+
+	// T0 노드 카드 한 줄 (CVE-intrinsic 조립 결과). per-CVE 저장·재사용.
+	// finding.scenario(per-pod 프로즈)와 별개의 컴팩트 배지 줄 (설계서 §4, OpenAPI rendered.card).
+	Rendered *RenderedText `json:"rendered,omitempty"`
+}
+
+// RenderedText — T0 노드 카드용 CVE-intrinsic 한 줄 (신뢰도 배지·pod 상태 제외).
+type RenderedText struct {
+	Lang string `json:"lang,omitempty"`
+	Card string `json:"card"`
 }
 
 // MechanismSpan — mechanism 조립에 쓰인 advisory 연속 span (검증 증적).
@@ -284,4 +296,70 @@ func DeriveMitigations(fixedVersions []string, pre []Precondition) []Mitigation 
 		Source:           "general",
 	})
 	return out
+}
+
+// ─────────────────────────────────────────
+// T0 노드 카드 렌더 (설계서 §4, OpenAPI rendered.card)
+// ─────────────────────────────────────────
+
+// BuildRenderedCard — enrichment 필드(전부 CVE-intrinsic)로 T0 노드 카드 한 줄을 조립한다.
+//
+//	형식: "{컴포넌트} · {클래스 영향} · {CVE-ID} CVSS {점수} · KEV · PoC"
+//	예  : "HTTP/2 · DoS · CVE-2023-44487 CVSS 7.5 · KEV · PoC"
+//
+// finding.scenario(per-pod 프로즈)와 별개의 컴팩트 배지 줄. pod 상태·confidence 배지는 제외.
+// 모든 토막은 추출/검증된 값에서만 오므로 환각 0 — 빈 값은 자연히 생략된다(메서드명 생성 금지).
+func BuildRenderedCard(e *CVEEnrichment) *RenderedText {
+	if e == nil {
+		return nil
+	}
+
+	// ① 컴포넌트 (module_short → module → "취약 컴포넌트" 폴백)
+	comp := e.ModuleShort
+	if comp == "" {
+		comp = e.Module
+	}
+	if comp == "" {
+		comp = "취약 컴포넌트"
+	}
+
+	// ② 클래스 · 영향 (중복이면 한 번만: class="DoS" ∧ impact="DoS" → "DoS")
+	class := e.VulnClassLabelShort
+	if class == "" {
+		class = e.VulnClassLabel
+	}
+	var kind string
+	switch {
+	case class != "" && e.Impact != "" && !strings.EqualFold(class, e.Impact):
+		kind = class + " " + e.Impact // "역직렬화 RCE"
+	case class != "":
+		kind = class
+	default:
+		kind = e.Impact
+	}
+
+	// ③ CVE · CVSS
+	idSeg := e.CVEID
+	if e.CVSS != nil && e.CVSS.Resolved.DisplayScore > 0 {
+		idSeg += fmt.Sprintf(" CVSS %.1f", e.CVSS.Resolved.DisplayScore)
+	}
+
+	parts := []string{comp}
+	if kind != "" {
+		parts = append(parts, kind)
+	}
+	parts = append(parts, idSeg)
+	card := strings.Join(parts, " · ")
+
+	// ④ 신호 배지 (우선순위 kev > public_poc, 설계서 §4)
+	if e.Signals != nil {
+		if e.Signals.KEV {
+			card += " · KEV"
+		}
+		if e.Signals.PublicPoC {
+			card += " · PoC"
+		}
+	}
+
+	return &RenderedText{Lang: "ko", Card: card}
 }

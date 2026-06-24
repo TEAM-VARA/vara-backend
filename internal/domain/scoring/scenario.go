@@ -52,7 +52,8 @@ type ScenarioFinding struct {
 	Tactic     string   `json:"tactic"`     // 한국어 tactic 라벨
 	Scenario   string   `json:"scenario"`   // 한 문장 시나리오 줄글
 	Mitigation string   `json:"mitigation"` // 한 문장 보완 줄글
-	MitreM     []string `json:"mitre_m,omitempty"`
+	MitreM     []string `json:"mitre_m,omitempty"` // MITRE ATT&CK mitigation(범주)
+	MSM        []string `json:"ms_m,omitempty"`    // Microsoft Threat Matrix mitigation(K8s 구체, 공식)
 	Confidence string   `json:"confidence"` // high|heuristic|low
 	Caveat     string   `json:"caveat,omitempty"`
 
@@ -72,7 +73,8 @@ type ScenarioMitigation struct {
 	Bucket string   `json:"bucket"` // RBAC|NET|MOUNT|VULN
 	CVE    string   `json:"cve,omitempty"`
 	Text   string   `json:"text"`             // 보완 줄글 (한 항목, MITRE 태그 제외)
-	MitreM []string `json:"mitre_m,omitempty"` // 클릭 시 참조할 MITRE mitigation 코드
+	MitreM []string `json:"mitre_m,omitempty"` // 클릭 시 참조할 MITRE ATT&CK mitigation 코드(범주)
+	MSM    []string `json:"ms_m,omitempty"`    // Microsoft Threat Matrix mitigation 코드(K8s 구체, 공식)
 
 	// Target — 이 보완이 겨냥하는 특정 대상. MS-TA9034(NetworkPolicy)는 Pod↔Pod 통신 단위 통제라
 	// 연결되는 대상 Pod마다 한 항목씩 쪼개며, 그 대상 Pod 이름이 여기 담긴다. 그 외엔 빈 값(Pod 전역 조치).
@@ -117,6 +119,9 @@ type PodScenarioResult struct {
 	ISMSAddend float64       `json:"isms_addend,omitempty"`
 	ISMSRules  []ISMSRuleHit `json:"isms_rules,omitempty"`
 
+	// 3분류 구조화 뷰(CVE / 권한 / NetworkPolicy). 기존 출력과 별개(비파괴).
+	Categories *ScenarioCategories `json:"categories,omitempty"`
+
 	Notes []string `json:"notes,omitempty"` // 수집 갭 등 한계 고지
 }
 
@@ -125,39 +130,42 @@ type techMeta struct {
 	Name       string
 	MitreT     string
 	Bucket     string
-	MitreM     []string
-	Mitigation string // 보완대책 줄글 (정적)
+	MitreM     []string // MITRE ATT&CK mitigation 코드(통제 "범주") — attack.mitre.org
+	MSM        []string // Microsoft Threat Matrix for Kubernetes mitigation(K8s "구체 조치", 공식) — technique 페이지 원문
+	Mitigation string   // 보완대책 줄글 (정적)
 }
 
 // techCatalog — technique_catalog.csv 와 동기화된 임베드 카탈로그
+// MitreM = MITRE ATT&CK mitigation(범주), MSM = Microsoft Threat Matrix for Kubernetes mitigation(K8s 구체, 공식).
+// MSM·MitreT는 Microsoft Threat Matrix 원문(microsoft.github.io/Threat-Matrix-for-Kubernetes)과 13개 technique 대조 완료.
 var techCatalog = map[string]techMeta{
-	"MS-TA9005": {"Exposed sensitive interface", "T1133", "NET", []string{"M1035", "M1030"},
+	"MS-TA9005": {"Exposed sensitive interface", "T1133", "NET", []string{"M1035", "M1030"}, []string{"MS-M9008", "MS-M9009", "MS-M9014"},
 		"외부 노출을 최소화하고(Service type LB/NodePort 지양) Ingress 인증 게이트웨이와 ingress NetworkPolicy로 접근을 제한하세요."},
-	"MS-TA9006": {"Exec into container", "T1609", "RBAC", []string{"M1038", "M1026"},
+	"MS-TA9006": {"Exec into container", "T1609", "RBAC", []string{"M1038", "M1026"}, []string{"MS-M9003", "MS-M9010", "MS-M9011"},
 		"서비스계정에서 pods/exec·attach 권한을 회수하고 exec 호출을 감사 로깅하세요."},
-	"MS-TA9008": {"New container", "T1610", "RBAC", []string{"M1038", "M1042"},
+	"MS-TA9008": {"New container", "T1610", "RBAC", []string{"M1038", "M1042"}, []string{"MS-M9003", "MS-M9013", "MS-M9005.003"},
 		"워크로드 생성 권한을 CD 파이프라인·운영 주체로 한정하고 PSA restricted·이미지 출처 검증을 적용하세요."},
-	"MS-TA9012": {"Backdoor container", "T1543", "RBAC", []string{"M1045", "M1047"},
+	"MS-TA9012": {"Backdoor container", "T1543", "RBAC", []string{"M1045", "M1047"}, []string{"MS-M9003", "MS-M9013", "MS-M9005.003"},
 		"컨트롤러 생성 권한을 제한하고 이미지 서명 검증·GitOps drift 탐지를 적용하세요."},
-	"MS-TA9013": {"Writable hostPath mount", "T1611", "MOUNT", []string{"M1048", "M1038"},
+	"MS-TA9013": {"Writable hostPath mount", "T1611", "MOUNT", []string{"M1048", "M1038"}, []string{"MS-M9013", "MS-M9016", "MS-M9011", "MS-M9017"},
 		"PSA restricted로 hostPath를 차단하고, 불가피하면 readOnly 마운트로 강제하세요."},
-	"MS-TA9015": {"Malicious admission controller", "T1546", "RBAC", []string{"M1026", "M1047"},
+	"MS-TA9015": {"Malicious admission controller", "T1546", "RBAC", []string{"M1026", "M1047"}, []string{"MS-M9003"},
 		"웹훅 구성(webhookconfiguration) 쓰기 권한을 cluster-admin으로만 한정하고 변경을 모니터링하세요."},
-	"MS-TA9016": {"Container service account", "T1528", "RBAC", []string{"M1026", "M1041"},
+	"MS-TA9016": {"Container service account", "T1528", "RBAC", []string{"M1026", "M1041"}, []string{"MS-M9025", "MS-M9003"},
 		"automountServiceAccountToken=false로 토큰 마운트를 끄고 SA 권한을 최소화하며 단명 토큰을 쓰세요."},
-	"MS-TA9018": {"Privileged container", "T1610", "MOUNT", []string{"M1048", "M1038"},
+	"MS-TA9018": {"Privileged container", "T1610", "MOUNT", []string{"M1048", "M1038"}, []string{"MS-M9013", "MS-M9017", "MS-M9005.003"},
 		"privileged 설정을 제거하고 PSA restricted(allowPrivilegeEscalation=false, capabilities drop)를 적용하세요."},
-	"MS-TA9019": {"Cluster-admin binding", "T1078.003", "RBAC", []string{"M1026", "M1018"},
+	"MS-TA9019": {"Cluster-admin binding", "T1078.003", "RBAC", []string{"M1026", "M1018"}, []string{"MS-M9003"},
 		"bind·escalate·rolebinding 생성 권한을 회수하고 cluster-admin 바인딩을 감사하세요."},
-	"MS-TA9020": {"Access cloud resources", "T1078.004", "RBAC", []string{"M1026", "M1032"},
+	"MS-TA9020": {"Access cloud resources", "T1078.004", "RBAC", []string{"M1026", "M1030"}, []string{"MS-M9003", "MS-M9018", "MS-M9019", "MS-M9013"},
 		"IMDSv2 hop-limit=1을 강제하고 IRSA IAM 권한을 최소화하며 IMDS egress를 NetworkPolicy로 차단하세요."},
-	"MS-TA9022": {"Delete K8s events", "T1070", "RBAC", []string{"M1029", "M1022"},
+	"MS-TA9022": {"Delete K8s events", "T1070", "RBAC", []string{"M1029", "M1022"}, []string{"MS-M9020", "MS-M9003"},
 		"events 삭제 권한을 회수하고 감사 로그를 외부에 불변 저장(SIEM)하세요."},
-	"MS-TA9025": {"List K8s secrets", "T1552.007", "RBAC", []string{"M1041", "M1026"},
+	"MS-TA9025": {"List K8s secrets", "T1552.007", "RBAC", []string{"M1041", "M1026"}, []string{"MS-M9003", "MS-M9022", "MS-M9023", "MS-M9024"},
 		"secrets 읽기 권한을 최소화하고 etcd 암호화·외부 시크릿 매니저를 적용하세요."},
-	"MS-TA9034": {"Cluster internal networking", "T1210", "NET", []string{"M1030", "M1035"},
+	"MS-TA9034": {"Cluster internal networking", "T1210", "NET", []string{"M1030", "M1035"}, []string{"MS-M9014", "MS-M9005"},
 		"default-deny NetworkPolicy로 통신을 차단하고 필요한 경로만 허용(마이크로세분화)하세요."},
-	"VULN": {"Known vulnerability (CVE)", "", "VULN", []string{"M1051"},
+	"VULN": {"Known vulnerability (CVE)", "", "VULN", []string{"M1051"}, []string{"MS-M9005"},
 		"영향받는 패키지를 패치(fixed) 버전으로 업그레이드하고, KEV 등재·EPSS 높은 취약점을 우선 처리하세요."},
 }
 
@@ -173,6 +181,7 @@ func mkFinding(id, dir, tactic, scenario, confidence, caveat string) ScenarioFin
 		Scenario:   scenario,
 		Mitigation: m.Mitigation,
 		MitreM:     m.MitreM,
+		MSM:        m.MSM,
 		Confidence: confidence,
 		Caveat:     caveat,
 	}
@@ -250,6 +259,7 @@ func collectMitigations(fs []ScenarioFinding, netTargets []string) []ScenarioMit
 			CVE:    f.CVE,
 			Text:   f.Mitigation,
 			MitreM: f.MitreM,
+			MSM:    f.MSM,
 		})
 	}
 	return out
@@ -272,6 +282,7 @@ func networkPolicyMitigations(base ScenarioFinding, targets []string) []Scenario
 			Text: fmt.Sprintf(
 				"'%s' Pod과의 통신에 default-deny 기반 NetworkPolicy를 적용해 필요한 포트만 허용하고 나머지는 차단하세요.", t),
 			MitreM: base.MitreM,
+			MSM:    base.MSM,
 		})
 	}
 	return out

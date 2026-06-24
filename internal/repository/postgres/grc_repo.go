@@ -1661,6 +1661,7 @@ type GLCheckSummary struct {
 	Passed      int
 	Failed      int
 	NeedsReview int
+	Skipped     int // 해당없음(N_A)+리포트형 버킷 — 합격률 분모 제외 (이전엔 병합 시 누락됨)
 	CheckID     string
 }
 
@@ -1699,6 +1700,7 @@ func (r *GRCRepo) GetLatestGLCheckPerItem(ctx context.Context, companyID string)
 			s.Failed = *failed
 		}
 		if skipped != nil {
+			s.Skipped = *skipped
 			s.NeedsReview = *total - *passed - *failed - *skipped
 		}
 		items = append(items, s)
