@@ -95,6 +95,45 @@ func (s *ScenarioService) buildRemediation(ctx context.Context, companyID, clust
 
 	res.RemediationItems = set.Items
 	res.RemediationGroups = set.Groups
+
+	// ── 공격 시나리오 3분류 뷰(categories) — 같은 신호 재사용 + 양방향 blast 엣지 ──
+	// CVE/권한/NetworkPolicy. 권한·NetworkPolicy는 이 pod이 src/dst인 엣지를 모두 본다.
+	s.buildCategories(ctx, cluster, podUID, ap.NetworkDetails.Isolation, in, res)
+}
+
+// buildCategories — 이미 모은 신호(in) + 격리등급에 양방향 blast 엣지를 더해 3분류 뷰를 만든다.
+// 점수/리듀스와 무관한 표시용 구조화 출력(res.Categories). refetch는 엣지 2건뿐.
+func (s *ScenarioService) buildCategories(ctx context.Context, cluster, podUID, isolation string, in scoring.RemediationInput, res *scoring.PodScenarioResult) {
+	catIn := scoring.CategoriesInput{
+		CVEs:                 in.CVEs,
+		SAName:               in.SAName,
+		AllPerms:             in.AllPerms,
+		PrivilegedContainers: in.PrivilegedContainers,
+		HostPathVolumes:      in.HostPathVolumes,
+		HostNetwork:          in.HostNetwork,
+		HostPID:              in.HostPID,
+		NetworkIsolation:     isolation,
+	}
+	if s.blastRepo != nil {
+		if oe, err := s.blastRepo.GetOutgoingBySource(ctx, cluster, podUID); err == nil {
+			for _, e := range oe {
+				catIn.OutEdges = append(catIn.OutEdges, scoring.CatEdge{
+					Peer: e.TargetName, Namespace: e.TargetNamespace, WinChannel: e.WinChannel,
+					Reason: e.Reason, PHost: e.PHost, PRBAC: e.PRBAC, PNet: e.PNet,
+				})
+			}
+		}
+		if ie, err := s.blastRepo.GetIncomingByTarget(ctx, cluster, podUID); err == nil {
+			for _, e := range ie {
+				catIn.InEdges = append(catIn.InEdges, scoring.CatEdge{
+					Peer: e.SourceName, Namespace: e.SourceNamespace, WinChannel: e.WinChannel,
+					Reason: e.Reason, PHost: e.PHost, PRBAC: e.PRBAC, PNet: e.PNet,
+				})
+			}
+		}
+	}
+	cats := scoring.BuildCategories(catIn)
+	res.Categories = &cats
 }
 
 // attachISMSReductions — GRC에서 이 pod의 ISMS-P 미준수 가산 breakdown을 받아,

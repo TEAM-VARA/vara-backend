@@ -46,7 +46,7 @@ type GraphNode struct {
 	Label     string `json:"label"`     // 표시 이름 (없으면 uid 앞 8자)
 	Namespace string `json:"namespace"` // 4계층 띠 배치 등에 사용
 	ReachProb float64 `json:"reach_prob"` // A→이 노드 도달확률 (0~1, A 자신=1.0)
-	ChokeScore int `json:"choke_score"`// 이 노드 제거 시 A의 blast 감소량
+	ChokeScore float64 `json:"choke_score"`// = reach_prob(A→X) × total_risk(X): X를 통과하는 기대 위험(risk-hub)
 	RiskScore  float64 `json:"risk_score"` // 이 파드 자체 위험(final_scores.final_score), FE 색용
 }
 
@@ -214,9 +214,14 @@ func (h *BlastGraphHandler) Handle(c *gin.Context) {
 	result := BuildBlastGraphFromPod(edges, pod)
 	result.TotalRisk = ComputeCriticalityMC(edges, pod, 5000, rand.New(rand.NewSource(42)))
 
-	chokeScores := ComputeChokeScores(edges, pod)
-	for i := range result.Nodes {
-		result.Nodes[i].ChokeScore = chokeScores[result.Nodes[i].ID]
+	// choke = risk-hub score: reach_prob(A→X) × total_risk(X)
+	// blast_pair_risk(MC 사전계산)에서 조회 — MC 재실행 없이 조회+곱셈만.
+	if chokeScores, err := loadRiskHubChoke(c.Request.Context(), h.Pool, cluster, pod); err != nil {
+		log.Printf("blast-graph: choke(risk-hub) 로드 실패 (choke 비움): %v", err) // 그래프는 계속 그림
+	} else {
+		for i := range result.Nodes {
+			result.Nodes[i].ChokeScore = chokeScores[result.Nodes[i].ID] // 없으면 0
+		}
 	}
 
 	// ── ③ 노드별 risk_score = final_scores.final_score (FE 색용) ──
@@ -230,6 +235,42 @@ func (h *BlastGraphHandler) Handle(c *gin.Context) {
 
 	c.JSON(200, result)
 }	
+
+// loadRiskHubChoke: choke 점수를 blast_pair_risk(MC 사전계산)에서 계산.
+//
+//	choke(X) = reach_prob(A→X) × total_risk(X)
+//	         = "A가 X에 닿을 확률" × "X가 퍼뜨리는 기대 규모"
+//
+// MC 재실행 없이 조회+곱셈만. reach_prob(A→X)=(src=A,dst=X)행, total_risk(X)=(src=X)행의 total_risk.
+// ⚠ blast_pair_risk가 채워져 있어야 함(POST /api/v1/analysis/refresh). 비어 있으면 choke=0.
+func loadRiskHubChoke(ctx context.Context, pool *pgxpool.Pool, cluster, source string) (map[string]float64, error) {
+	const q = `
+		SELECT b1.dst_pod_uid,
+		       (b1.reach_prob * COALESCE(b2.total_risk, 0))::float8 AS score
+		FROM blast_pair_risk b1
+		LEFT JOIN LATERAL (
+			SELECT total_risk FROM blast_pair_risk
+			WHERE cluster_name = b1.cluster_name AND src_pod_uid = b1.dst_pod_uid LIMIT 1
+		) b2 ON TRUE
+		WHERE b1.cluster_name = $1 AND b1.src_pod_uid = $2`
+
+	rows, err := pool.Query(ctx, q, cluster, source)
+	if err != nil {
+		return nil, fmt.Errorf("risk-hub choke query: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]float64)
+	for rows.Next() {
+		var uid string
+		var sc float64
+		if err := rows.Scan(&uid, &sc); err != nil {
+			return nil, err
+		}
+		out[uid] = sc
+	}
+	return out, rows.Err()
+}
 
 // 최신 스냅샷의 파드별 final_score → map[pod_uid]score
 func LoadFinalScores(ctx context.Context, pool *pgxpool.Pool, cluster string) (map[string]float64, error) {
