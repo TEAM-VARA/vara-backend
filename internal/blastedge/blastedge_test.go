@@ -7,6 +7,30 @@ import (
 
 func ns(s string) *string { return &s }
 
+// IsLateralMovement은 classifyRBAC(엣지 생성 기준)과 동일하게 측면이동 권한만 true.
+func TestIsLateralMovement(t *testing.T) {
+	cases := []struct {
+		name string
+		p    Perm
+		want bool
+	}{
+		{"exec create", Perm{Resource: "pods/exec", Verb: "create"}, true},
+		{"attach get", Perm{Resource: "pods/attach", Verb: "get"}, true},
+		{"ephemeral patch", Perm{Resource: "pods/ephemeralcontainers", Verb: "patch"}, true},
+		{"portforward create", Perm{Resource: "pods/portforward", Verb: "create"}, true},
+		{"nodes/proxy get", Perm{Resource: "nodes/proxy", Verb: "get"}, true},
+		{"core wildcard", Perm{Resource: "*", Verb: "*"}, true},
+		{"secrets get (비측면)", Perm{Resource: "secrets", Verb: "get"}, false},
+		{"pods get (비측면)", Perm{Resource: "pods", Verb: "get"}, false},
+		{"non-core group exec (비측면)", Perm{APIGroup: "apps", Resource: "pods/exec", Verb: "create"}, false},
+	}
+	for _, tc := range cases {
+		if got := IsLateralMovement(tc.p); got != tc.want {
+			t.Errorf("%s: IsLateralMovement=%v want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func findEdge(edges []Edge, src, dst string) *Edge {
 	for i := range edges {
 		if edges[i].SrcUID == src && edges[i].DstUID == dst {

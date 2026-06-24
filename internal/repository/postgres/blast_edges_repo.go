@@ -268,6 +268,23 @@ func (r *BlastEdgesRepo) GetIncomingByTarget(ctx context.Context, cluster, targe
 	return out, rows.Err()
 }
 
+// GetPodSA — pod uid의 service account(namespace, name)를 최신 cluster_pods snapshot에서 읽는다.
+// SA namespace = pod namespace. service_account이 비면 "default"(automount 기본 SA). 행이 없으면 에러.
+// 공격 시나리오 권한 뷰에서 들어오는(dst) 엣지의 "출발 pod SA"를 풀어 초기권한을 조회하는 데 쓴다.
+func (r *BlastEdgesRepo) GetPodSA(ctx context.Context, cluster, podUID string) (saNamespace, saName string, err error) {
+	if err = r.pool.QueryRow(ctx, `
+		SELECT namespace, COALESCE(NULLIF(service_account, ''), 'default')
+		FROM cluster_pods
+		WHERE cluster_name = $1 AND pod_uid = $2
+		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+		LIMIT 1`,
+		cluster, podUID,
+	).Scan(&saNamespace, &saName); err != nil {
+		return "", "", fmt.Errorf("blast: get pod SA: %w", err)
+	}
+	return saNamespace, saName, nil
+}
+
 // Replace — 해당 cluster의 blast_edges를 현재 snapshot으로 통째 교체(클러스터 전체 삭제 후 일괄 삽입 → 최신 snapshot만 유지).
 // src/dst 표시용 name/namespace는 pods에서 채운다. 적재된 행 수를 반환.
 func (r *BlastEdgesRepo) Replace(

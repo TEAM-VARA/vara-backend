@@ -104,6 +104,14 @@ func classifyRBAC(p Perm) rbacKind {
 	return kNone
 }
 
+// IsLateralMovement reports whether p is a lateral-movement permission that can
+// create an RBAC blast edge (exec/attach/ephemeral, nodes/proxy, pods/portforward,
+// or a core wildcard). Mirrors classifyRBAC so the scenario "권한" 뷰가 엣지 생성과
+// 같은 기준으로 "측면이동 권한"을 추려낸다 (단일 출처).
+func IsLateralMovement(p Perm) bool {
+	return classifyRBAC(p) != kNone
+}
+
 func anyVerb(v string, opts ...string) bool {
 	if v == "*" {
 		return true

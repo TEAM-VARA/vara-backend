@@ -119,3 +119,66 @@ func TestDeriveMitigations_NoFixedVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildRenderedCard(t *testing.T) {
+	score := func(s float64) *CVSSInfo {
+		return &CVSSInfo{Resolved: CVSSResolved{DisplayScore: s}}
+	}
+	tests := []struct {
+		name string
+		e    *CVEEnrichment
+		want string
+	}{
+		{
+			name: "DoS — class==impact → 한 번만, KEV+PoC 배지 (OpenAPI example)",
+			e: &CVEEnrichment{
+				CVEID: "CVE-2023-44487", ModuleShort: "HTTP/2",
+				VulnClassLabelShort: "DoS", Impact: "DoS",
+				CVSS: score(7.5), Signals: &EnrichSignals{KEV: true, PublicPoC: true},
+			},
+			want: "HTTP/2 · DoS · CVE-2023-44487 CVSS 7.5 · KEV · PoC",
+		},
+		{
+			name: "RCE — class≠impact → 결합, KEV+PoC (OpenAPI example)",
+			e: &CVEEnrichment{
+				CVEID: "CVE-2025-24813", ModuleShort: "Tomcat Default Servlet",
+				VulnClassLabelShort: "역직렬화", Impact: "RCE",
+				CVSS: score(9.8), Signals: &EnrichSignals{KEV: true, PublicPoC: true},
+			},
+			want: "Tomcat Default Servlet · 역직렬화 RCE · CVE-2025-24813 CVSS 9.8 · KEV · PoC",
+		},
+		{
+			name: "module 미추출 → '취약 컴포넌트' 폴백, 배지 없음",
+			e: &CVEEnrichment{
+				CVEID: "CVE-2025-24813", Impact: "RCE",
+				CVSS: score(9.8), Signals: &EnrichSignals{},
+			},
+			want: "취약 컴포넌트 · RCE · CVE-2025-24813 CVSS 9.8",
+		},
+		{
+			name: "CVSS 결측 → 점수 토막 생략 (환각 점수 금지)",
+			e: &CVEEnrichment{
+				CVEID: "CVE-9999-00001", ModuleShort: "foo", Impact: "DoS",
+			},
+			want: "foo · DoS · CVE-9999-00001",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BuildRenderedCard(tt.e)
+			if got == nil || got.Card != tt.want {
+				t.Errorf("card mismatch\n got: %q\nwant: %q", cardOf(got), tt.want)
+			}
+		})
+	}
+	if BuildRenderedCard(nil) != nil {
+		t.Error("nil enrichment → nil rendered")
+	}
+}
+
+func cardOf(r *RenderedText) string {
+	if r == nil {
+		return "<nil>"
+	}
+	return r.Card
+}

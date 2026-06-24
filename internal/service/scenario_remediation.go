@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/vara/backend/internal/blastedge"
 	"github.com/vara/backend/internal/domain/scoring"
 )
 
@@ -98,12 +99,16 @@ func (s *ScenarioService) buildRemediation(ctx context.Context, companyID, clust
 
 	// ── 공격 시나리오 3분류 뷰(categories) — 같은 신호 재사용 + 양방향 blast 엣지 ──
 	// CVE/권한/NetworkPolicy. 권한·NetworkPolicy는 이 pod이 src/dst인 엣지를 모두 본다.
-	s.buildCategories(ctx, cluster, podUID, ap.NetworkDetails.Isolation, in, res)
+	s.buildCategories(ctx, cluster, podUID, ap.PodNamespace, ap.NetworkDetails.Isolation, in, res)
 }
 
 // buildCategories — 이미 모은 신호(in) + 격리등급에 양방향 blast 엣지를 더해 3분류 뷰를 만든다.
-// 점수/리듀스와 무관한 표시용 구조화 출력(res.Categories). refetch는 엣지 2건뿐.
-func (s *ScenarioService) buildCategories(ctx context.Context, cluster, podUID, isolation string, in scoring.RemediationInput, res *scoring.PodScenarioResult) {
+// 점수/리듀스와 무관한 표시용 구조화 출력(res.Categories).
+//
+// rbac 엣지에는 그 엣지를 만든 "출발 SA의 실제 초기권한"을 붙인다(권한 항목이 "…권한을 해제하세요"로
+// 구체 지목하도록). 출발 SA = src 엣지는 이 pod의 SA, dst 엣지는 상대(출발) pod의 SA(uid→SA 조회).
+// rbac_sa_initial_permissions를 SA당 1회만 조회하도록 캐시한다.
+func (s *ScenarioService) buildCategories(ctx context.Context, cluster, podUID, podNamespace, isolation string, in scoring.RemediationInput, res *scoring.PodScenarioResult) {
 	catIn := scoring.CategoriesInput{
 		CVEs:                 in.CVEs,
 		SAName:               in.SAName,
@@ -115,25 +120,94 @@ func (s *ScenarioService) buildCategories(ctx context.Context, cluster, podUID, 
 		NetworkIsolation:     isolation,
 	}
 	if s.blastRepo != nil {
+		// SA(ns/name)당 측면이동 초기권한 캐시 — 같은 SA 중복 조회 방지.
+		lateralCache := map[string][]string{}
+		lateralFor := func(ns, saName string) []string {
+			if ns == "" || saName == "" {
+				return nil
+			}
+			key := ns + "/" + saName
+			if v, ok := lateralCache[key]; ok {
+				return v
+			}
+			v := s.lateralInitialPerms(ctx, cluster, ns, saName)
+			lateralCache[key] = v
+			return v
+		}
+		// 출발 pod uid → (saNamespace, saName) 캐시 — dst 엣지용.
+		saCache := map[string][2]string{}
+		saForPod := func(uid string) (string, string) {
+			if uid == "" {
+				return "", ""
+			}
+			if v, ok := saCache[uid]; ok {
+				return v[0], v[1]
+			}
+			ns, name, err := s.blastRepo.GetPodSA(ctx, cluster, uid)
+			if err != nil {
+				ns, name = "", ""
+			}
+			saCache[uid] = [2]string{ns, name}
+			return ns, name
+		}
+
 		if oe, err := s.blastRepo.GetOutgoingBySource(ctx, cluster, podUID); err == nil {
 			for _, e := range oe {
+				// 출발 = 이 pod → 출발 SA = 이 pod의 SA(in.SAName), ns = 이 pod namespace.
 				catIn.OutEdges = append(catIn.OutEdges, scoring.CatEdge{
 					Peer: e.TargetName, Namespace: e.TargetNamespace, WinChannel: e.WinChannel,
 					Reason: e.Reason, PHost: e.PHost, PRBAC: e.PRBAC, PNet: e.PNet,
+					SrcSA: in.SAName, LateralPerms: lateralFor(podNamespace, in.SAName),
 				})
 			}
 		}
 		if ie, err := s.blastRepo.GetIncomingByTarget(ctx, cluster, podUID); err == nil {
 			for _, e := range ie {
+				// 출발 = 상대 pod → 출발 SA = 상대 pod의 SA(uid로 조회).
+				saNS, saName := saForPod(e.SourcePodUID)
+				if saNS == "" {
+					saNS = e.SourceNamespace
+				}
 				catIn.InEdges = append(catIn.InEdges, scoring.CatEdge{
 					Peer: e.SourceName, Namespace: e.SourceNamespace, WinChannel: e.WinChannel,
 					Reason: e.Reason, PHost: e.PHost, PRBAC: e.PRBAC, PNet: e.PNet,
+					SrcSA: saName, LateralPerms: lateralFor(saNS, saName),
 				})
 			}
 		}
 	}
 	cats := scoring.BuildCategories(catIn)
 	res.Categories = &cats
+}
+
+// lateralInitialPerms — SA의 흡수 전(initial) 권한 중 측면이동 verb(exec/attach/ephemeral·
+// pods/portforward·nodes/proxy·core 와일드카드)만 "verb resource"로 추려 반환(중복 제거).
+// rbac_sa_initial_permissions를 읽어, 엣지 생성과 같은 기준(blastedge.IsLateralMovement)으로 필터한다.
+// 조회 실패·해당 권한 없음이면 nil → edgePriv가 reason/일반 문구로 폴백한다.
+func (s *ScenarioService) lateralInitialPerms(ctx context.Context, cluster, ns, saName string) []string {
+	if s.rbacChain == nil {
+		return nil
+	}
+	perms, err := s.rbacChain.ListSAInitialPermissions(ctx, cluster, ns, saName)
+	if err != nil || len(perms) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range perms {
+		if !blastedge.IsLateralMovement(blastedge.Perm{
+			APIGroup: p.APIGroup, Resource: p.Resource, Verb: p.Verb,
+			Namespace: p.Namespace, ResourceName: p.ResourceName,
+		}) {
+			continue
+		}
+		label := p.Verb + " " + p.Resource
+		if !seen[label] {
+			seen[label] = true
+			out = append(out, label)
+		}
+	}
+	return out
 }
 
 // attachISMSReductions — GRC에서 이 pod의 ISMS-P 미준수 가산 breakdown을 받아,

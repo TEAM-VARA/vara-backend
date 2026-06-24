@@ -28,13 +28,15 @@ type CatCVE struct {
 
 // CatPrivilege — 권한 항목(이 Pod 자체 또는 엣지 1건).
 type CatPrivilege struct {
-	Kind    string `json:"kind"`              // rbac | privileged | hostPath | hostNetwork | hostPID
-	Dir     string `json:"dir"`               // node(이 Pod 자체) | src(이 Pod→peer) | dst(peer→이 Pod)
-	Peer    string `json:"peer,omitempty"`    // 엣지 상대 Pod (dir=src/dst)
-	Channel string `json:"channel,omitempty"` // rbac | host (엣지일 때)
-	Remove  string `json:"remove"`            // 없앨 권한/설정
-	Text    string `json:"text"`
-	Reason  string `json:"reason,omitempty"` // 엣지 근거(blast reason 원문)
+	Kind    string   `json:"kind"`              // rbac | privileged | hostPath | hostNetwork | hostPID
+	Dir     string   `json:"dir"`               // node(이 Pod 자체) | src(이 Pod→peer) | dst(peer→이 Pod)
+	Peer    string   `json:"peer,omitempty"`    // 엣지 상대 Pod (dir=src/dst)
+	SA      string   `json:"sa,omitempty"`      // 해제 대상 권한을 가진 출발 SA (rbac 엣지)
+	Channel string   `json:"channel,omitempty"` // rbac | host (엣지일 때)
+	Perms   []string `json:"perms,omitempty"`   // 해제할 초기권한 "verb resource" 목록 (rbac 엣지)
+	Remove  string   `json:"remove"`            // 없앨 권한/설정
+	Text    string   `json:"text"`
+	Reason  string   `json:"reason,omitempty"` // 엣지 근거(blast reason 원문)
 }
 
 type CatNetPeer struct {
@@ -62,6 +64,13 @@ type CatEdge struct {
 	WinChannel         string // host|rbac|network (max 채널)
 	Reason             string
 	PHost, PRBAC, PNet float64
+
+	// rbac 엣지 출발 측 신원·초기권한(서비스가 rbac_sa_initial_permissions에서 채움).
+	//   SrcSA        : 그 엣지를 만든 권한을 가진 출발 pod의 SA 이름.
+	//   LateralPerms : 그 SA의 흡수 전(initial) 권한 중 측면이동 verb만 "verb resource"로 추린 것.
+	// 비어 있으면 edgePriv가 reason→일반 문구 순으로 폴백한다.
+	SrcSA        string
+	LateralPerms []string
 }
 
 type CategoriesInput struct {
@@ -161,15 +170,33 @@ func BuildCategories(in CategoriesInput) ScenarioCategories {
 }
 
 // edgePriv — 엣지 1건 → 권한 항목(채널·방향별 remove 문구).
+//
+// rbac 엣지는 그 엣지를 만든 "출발 SA의 실제 초기권한"(e.LateralPerms, rbac_sa_initial_permissions)을
+// 직접 지목해 "…권한을 해제하세요"로 안내한다. 초기권한 조회가 비면(흡수로 생긴 권한·테이블 미적재 등)
+// blast reason의 rbac 상세 → 일반 문구 순으로 폴백한다.
 func edgePriv(channel, dir string, e CatEdge, sa string) CatPrivilege {
 	p := CatPrivilege{Kind: channel, Dir: dir, Peer: e.Peer, Channel: channel, Reason: e.Reason}
 	switch {
 	case channel == "rbac" && dir == "src":
-		p.Remove = sa + "의 측면이동 권한(exec/attach 등) 회수"
-		p.Text = fmt.Sprintf("이 Pod→'%s': 권한으로 침투 가능 — %s의 해당 권한을 회수", e.Peer, sa)
+		srcSA := firstNonEmpty(e.SrcSA, sa)
+		p.SA, p.Perms = srcSA, e.LateralPerms
+		if detail := permLabel(e.LateralPerms, e.Reason); detail != "" {
+			p.Remove = fmt.Sprintf("%s의 '%s' 권한 해제", srcSA, detail)
+			p.Text = fmt.Sprintf("이 Pod→'%s': %s의 '%s' 권한으로 측면 이동 가능 — 해당 권한을 해제하세요", e.Peer, srcSA, detail)
+		} else {
+			p.Remove = srcSA + "의 측면이동 권한(exec/attach 등) 회수"
+			p.Text = fmt.Sprintf("이 Pod→'%s': 권한으로 침투 가능 — %s의 해당 권한을 회수", e.Peer, srcSA)
+		}
 	case channel == "rbac" && dir == "dst":
-		p.Remove = fmt.Sprintf("출발 Pod '%s'의 이 Pod 대상 권한 회수", e.Peer)
-		p.Text = fmt.Sprintf("'%s'→이 Pod: 권한으로 침투당함 — 출발 측 SA 권한을 회수", e.Peer)
+		p.SA, p.Perms = e.SrcSA, e.LateralPerms
+		srcLabel := firstNonEmpty(e.SrcSA, "출발 측 SA")
+		if detail := permLabel(e.LateralPerms, e.Reason); detail != "" {
+			p.Remove = fmt.Sprintf("출발 Pod '%s'의 %s '%s' 권한 해제", e.Peer, srcLabel, detail)
+			p.Text = fmt.Sprintf("'%s'→이 Pod: 출발 SA %s의 '%s' 권한으로 침투당함 — 해당 권한을 해제하세요", e.Peer, srcLabel, detail)
+		} else {
+			p.Remove = fmt.Sprintf("출발 Pod '%s'의 이 Pod 대상 권한 회수", e.Peer)
+			p.Text = fmt.Sprintf("'%s'→이 Pod: 권한으로 침투당함 — 출발 측 SA 권한을 회수", e.Peer)
+		}
 	case channel == "host" && dir == "src":
 		p.Remove = "이 Pod의 노드 공유(privileged/hostPath) 제거"
 		p.Text = fmt.Sprintf("이 Pod→'%s': 노드 공유로 도달 — 이 Pod의 host 설정 제거", e.Peer)
@@ -178,6 +205,25 @@ func edgePriv(channel, dir string, e CatEdge, sa string) CatPrivilege {
 		p.Text = fmt.Sprintf("'%s'→이 Pod: 노드 공유로 도달당함 — 출발 측 host 설정 제거", e.Peer)
 	}
 	return p
+}
+
+// permLabel — rbac 엣지에서 보여줄 권한 문자열. 초기권한 목록(perms)이 있으면 그것을,
+// 없으면 blast reason의 rbac 상세("rbac: …"의 뒤쪽)를 쓴다. 둘 다 없으면 "".
+func permLabel(perms []string, reason string) string {
+	if len(perms) > 0 {
+		return strings.Join(perms, ", ")
+	}
+	if rest, ok := strings.CutPrefix(reason, "rbac:"); ok {
+		return strings.TrimSpace(rest)
+	}
+	return ""
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // networkPeers — 엣지 중 network 채널(win=network 또는 p_net>0)의 상대 peer를 중복 제거해 반환.

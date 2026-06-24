@@ -1,6 +1,9 @@
 package scoring
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // 3분류 빌더: CVE 정렬, 권한 node+양방향 엣지(rbac/host), NetworkPolicy ingress(dst)/egress(src) 분리 + isolation별 recommendation.
 func TestBuildCategories(t *testing.T) {
@@ -81,5 +84,71 @@ func TestBuildCategories(t *testing.T) {
 	}
 	if BuildCategories(CategoriesInput{NetworkIsolation: "both"}).NetworkPolicy.Recommendation != "whitelist_prune" {
 		t.Errorf("both → whitelist_prune 여야")
+	}
+}
+
+// rbac 엣지 권한 항목: 출발 SA의 초기권한(LateralPerms)을 지목해 "…해제하세요",
+// 비면 blast reason의 rbac 상세 → 일반 회수 문구 순으로 폴백한다(양방향).
+func TestEdgePrivInitialPerms(t *testing.T) {
+	in := CategoriesInput{
+		SAName: "ci-sa",
+		OutEdges: []CatEdge{
+			// 초기권한 직접 지목 (출발 = 이 Pod, SA = ci-sa)
+			{Peer: "batch", WinChannel: "rbac", PRBAC: 1, SrcSA: "ci-sa", LateralPerms: []string{"create pods/exec", "get nodes/proxy"}},
+			// 초기권한 없음 → reason(rbac:) 폴백
+			{Peer: "api", WinChannel: "rbac", PRBAC: 1, Reason: "rbac: portforward (포트 접근) ns=default"},
+			// 초기권한 없음 + reason이 rbac 아님 → 일반 폴백(회수)
+			{Peer: "host-svc", WinChannel: "rbac", PRBAC: 1, Reason: "host: escape same node n1"},
+		},
+		InEdges: []CatEdge{
+			// 들어오는 엣지: 출발 pod의 SA 지목
+			{Peer: "attacker", WinChannel: "rbac", PRBAC: 1, SrcSA: "batch-sa", LateralPerms: []string{"create pods/exec"}},
+		},
+	}
+	c := BuildCategories(in)
+
+	find := func(dir, peer string) *CatPrivilege {
+		for i := range c.Privilege {
+			if c.Privilege[i].Kind == "rbac" && c.Privilege[i].Dir == dir && c.Privilege[i].Peer == peer {
+				return &c.Privilege[i]
+			}
+		}
+		return nil
+	}
+
+	// src + 초기권한 직접 지목
+	if p := find("src", "batch"); p == nil {
+		t.Fatal("src/batch rbac 권한 항목 누락")
+	} else {
+		if !strings.Contains(p.Text, "create pods/exec") || !strings.Contains(p.Text, "해제하세요") {
+			t.Errorf("초기권한 지목 실패: text=%q", p.Text)
+		}
+		if p.SA != "ci-sa" || len(p.Perms) != 2 {
+			t.Errorf("SA/Perms 미설정: sa=%q perms=%v", p.SA, p.Perms)
+		}
+		if !strings.Contains(p.Remove, "create pods/exec") {
+			t.Errorf("remove에 권한 누락: %q", p.Remove)
+		}
+	}
+
+	// src + reason 폴백 (초기권한 없음)
+	if p := find("src", "api"); p == nil {
+		t.Fatal("src/api rbac 권한 항목 누락")
+	} else if !strings.Contains(p.Text, "portforward") || !strings.Contains(p.Text, "해제하세요") {
+		t.Errorf("reason 폴백 실패: text=%q", p.Text)
+	}
+
+	// src + 일반 폴백 (reason이 rbac 아님) → "회수", "해제하세요" 아님
+	if p := find("src", "host-svc"); p == nil {
+		t.Fatal("src/host-svc rbac 권한 항목 누락")
+	} else if strings.Contains(p.Text, "해제하세요") || !strings.Contains(p.Text, "회수") {
+		t.Errorf("일반 폴백이어야: text=%q", p.Text)
+	}
+
+	// dst + 출발 SA 지목
+	if p := find("dst", "attacker"); p == nil {
+		t.Fatal("dst/attacker rbac 권한 항목 누락")
+	} else if !strings.Contains(p.Text, "batch-sa") || !strings.Contains(p.Text, "create pods/exec") || !strings.Contains(p.Text, "해제하세요") {
+		t.Errorf("dst 출발 SA 지목 실패: text=%q", p.Text)
 	}
 }
