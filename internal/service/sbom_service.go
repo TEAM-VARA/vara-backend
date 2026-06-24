@@ -37,7 +37,15 @@ type SBOMService struct {
 	// 진행 중인 스캔 추적 (같은 프로세스 내 중복 방지)
 	inFlight   map[string]struct{}
 	inFlightMu sync.Mutex
+
+	// 영구성 스캔 실패 백오프 (ECR 401 등 풀 불가 이미지가 매 pod 보고마다
+	// 재스캔→실패를 반복하는 루프 방지). digest별 마지막 실패 시각 기록.
+	failedAt map[string]time.Time
+	failedMu sync.Mutex
 }
+
+// scanFailureBackoff는 영구성 실패 후 재스캔을 보류하는 기간입니다.
+const scanFailureBackoff = 1 * time.Hour
 
 // SBOMServiceConfig는 서비스 생성 옵션입니다.
 type SBOMServiceConfig struct {
@@ -63,6 +71,7 @@ func NewSBOMService(
 		rdb:      rdb,
 		sem:      make(chan struct{}, cfg.MaxConcurrent),
 		inFlight: make(map[string]struct{}),
+		failedAt: map[string]time.Time{},
 	}
 }
 
@@ -138,11 +147,41 @@ func (s *SBOMService) scanOne(ctx context.Context, req ScanRequest) {
 		return
 	}
 
+	// 2.5단계: 최근 영구성 실패한 digest는 백오프 기간 동안 재스캔 스킵
+	// (ECR 401 등 풀 불가 이미지가 매 보고마다 실패 반복하는 루프 방지)
+	if s.recentlyFailed(req.Digest) {
+		fmt.Printf("debug: skipping sbom scan (recent failure backoff) image=%s digest=%s\n",
+			req.Image, req.Digest)
+		return
+	}
+
 	// 3단계: 실제 스캔 수행 (재시도 포함)
 	if err := s.performScanWithRetry(ctx, req); err != nil {
 		fmt.Printf("error: sbom scan failed after retries image=%s digest=%s err=%v\n",
 			req.Image, req.Digest, err)
+		// 락 충돌이 아닌 영구성 실패만 백오프 대상 (락 에러는 기존 재시도로 처리)
+		if !isCacheLockError(err) {
+			s.markFailed(req.Digest)
+		}
 	}
+}
+
+// recentlyFailed는 digest가 scanFailureBackoff 이내에 영구성 실패했는지 반환합니다.
+func (s *SBOMService) recentlyFailed(digest string) bool {
+	s.failedMu.Lock()
+	defer s.failedMu.Unlock()
+	ts, ok := s.failedAt[digest]
+	if !ok {
+		return false
+	}
+	return ts.After(time.Now().Add(-scanFailureBackoff))
+}
+
+// markFailed는 digest의 마지막 영구성 실패 시각을 기록합니다.
+func (s *SBOMService) markFailed(digest string) {
+	s.failedMu.Lock()
+	defer s.failedMu.Unlock()
+	s.failedAt[digest] = time.Now()
 }
 
 // performScanWithRetry는 trivy cache lock 충돌 대비 재시도를 합니다.
