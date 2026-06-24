@@ -223,6 +223,34 @@ func (r *BlastEdgesRepo) GetOutgoingBySource(ctx context.Context, cluster, sourc
 	return out, rows.Err()
 }
 
+// RecomputeForCluster — 입력(pods/perms/flows) 로딩 → blast 엣지 계산 → Replace를 한 번에 수행.
+// AnalysisScheduler.computeBlastEdges와 동일 로직. 데모 CVE 트리거처럼 점수 갱신 직후
+// blast_edges를 즉시 재적재해야 할 때 사용한다. 적재된 행 수를 반환.
+func (r *BlastEdgesRepo) RecomputeForCluster(ctx context.Context, cluster string) (int, error) {
+	pods, snap, err := r.LoadPods(ctx, cluster)
+	if err != nil {
+		return 0, fmt.Errorf("blast: recompute load pods: %w", err)
+	}
+	if len(pods) == 0 {
+		return 0, nil
+	}
+	perms, err := r.LoadPerms(ctx, cluster)
+	if err != nil {
+		return 0, fmt.Errorf("blast: recompute load perms: %w", err)
+	}
+	// 관측 flow는 non-fatal(스케줄러와 동일): 실패 시 nil로 진행.
+	flows, err := r.LoadObservedFlows(ctx, cluster)
+	if err != nil {
+		flows = nil
+	}
+	edges := blastedge.BuildEdges(pods, perms, flows)
+	n, err := r.Replace(ctx, cluster, snap, edges, pods)
+	if err != nil {
+		return 0, fmt.Errorf("blast: recompute replace: %w", err)
+	}
+	return n, nil
+}
+
 // Replace — 해당 cluster의 blast_edges를 현재 snapshot으로 통째 교체(클러스터 전체 삭제 후 일괄 삽입 → 최신 snapshot만 유지).
 // src/dst 표시용 name/namespace는 pods에서 채운다. 적재된 행 수를 반환.
 func (r *BlastEdgesRepo) Replace(

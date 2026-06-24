@@ -242,6 +242,11 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		// 점수 갱신 직후 blast_edges도 즉시 재계산 → 데모 직후 blast 그래프 전파(굵기/반경)가 바로 반영.
+		// (B.Risk가 final_scores를 읽으므로 RunDemoForVuln 이후 순서로 호출.)
+		if _, berr := blastEdgesRepo.RecomputeForCluster(c.Request.Context(), vulnClusterName); berr != nil {
+			log.Printf("demo new-cve: blast recompute failed: %v", berr)
+		}
 		c.JSON(http.StatusOK, res)
 	})
 
