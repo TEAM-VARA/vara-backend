@@ -242,11 +242,15 @@ func (h *BlastGraphHandler) Handle(c *gin.Context) {
 
 // 최신 스냅샷의 파드별 final_score → map[pod_uid]score
 func LoadFinalScores(ctx context.Context, pool *pgxpool.Pool, cluster string) (map[string]float64, error) {
+	// 파드별 최신 final_score (단일 MAX 스냅샷에 묶지 않음).
+	// 단일/소수 파드만 담긴 부분 스냅샷이 MAX가 되면 MAX 기준 조인은 거의 미스 → risk_score 0.
+	// DISTINCT ON으로 각 파드의 가장 최근 점수를 가져와 스냅샷 시점 어긋남에 강건하게 한다.
+	// (근본: 부분 스냅샷 생성 + retention 충돌은 별도 이슈 todo-partial-snapshot-retention)
 	rows, err := pool.Query(ctx, `
-		SELECT pod_uid, final_score::float8
+		SELECT DISTINCT ON (pod_uid) pod_uid, final_score::float8
 		FROM final_scores
 		WHERE cluster_name = $1
-		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM final_scores WHERE cluster_name = $1)
+		ORDER BY pod_uid, snapshot_at DESC
 	`, cluster)
 	if err != nil {
 		return nil, fmt.Errorf("load final_scores: %w", err)
