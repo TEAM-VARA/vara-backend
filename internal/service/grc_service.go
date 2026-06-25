@@ -636,12 +636,27 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		// No clear failures but R NO_DATA or F NEEDS_REVIEW or GL INDETERMINATE → NEEDS_REVIEW (확인필요)
 		// 실제 통과 룰 존재 → MET (준수)
 		// 전부 해당없음 → N_A (점검 대상 부재 — 준수로 부풀리지 않음)
-		if item.Failed > 0 {
+		// 인프라(K8s 기술 R룰 보유) 항목: 검토필요 없이 준수/미준수로만 판정 (overview와 동일).
+		if s.hasK8sNativeRules(itemID) {
+			if countRLayerFailures(&item) > 0 {
+				item.Verdict = grc.VerdictNOT_MET
+			} else {
+				item.Verdict = grc.VerdictMET
+			}
+		} else if item.Failed > 0 {
 			item.Verdict = grc.VerdictNOT_MET
 		} else if item.NeedsReview > 0 || item.NoData > 0 || item.Indeterminate > 0 {
 			item.Verdict = grc.VerdictNEEDS_REVIEW
 		} else if item.Passed > 0 {
-			item.Verdict = grc.VerdictMET
+			// 커버리지 게이트(overview와 동일): 정의된 룰 중 미평가가 남아 있으면
+			// 통과만으로 준수 단정하지 않고 NEEDS_REVIEW로 둔다.
+			expected := s.expectedRuleCount(itemID)
+			evaluated := distinctEvaluatedRules(it.ruleResults)
+			if expected > 0 && evaluated < expected {
+				item.Verdict = grc.VerdictNEEDS_REVIEW
+			} else {
+				item.Verdict = grc.VerdictMET
+			}
 		} else if item.NotApplicable > 0 {
 			item.Verdict = grc.VerdictNA
 		} else {
@@ -857,6 +872,7 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 			item.Passed += gl.Passed
 			item.Failed += gl.Failed
 			item.NeedsReview += gl.NeedsReview
+			item.NotApplicable += gl.Skipped // N_A/리포트형 버킷 — 이전엔 통째로 누락돼 accounting gap 발생
 			result.TotalRules += gl.TotalRules
 			if item.Layers == nil {
 				item.Layers = &grc.ItemLayers{}
@@ -873,13 +889,14 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 				name = gl.ISMSPItemID
 			}
 			item := grc.ItemComplianceResult{
-				ISMSPItemID: gl.ISMSPItemID,
-				ItemName:    name,
-				TotalRules:  gl.TotalRules,
-				Passed:      gl.Passed,
-				Failed:      gl.Failed,
-				NeedsReview: gl.NeedsReview,
-				Layers:      &grc.ItemLayers{GL: glRuleResults},
+				ISMSPItemID:   gl.ISMSPItemID,
+				ItemName:      name,
+				TotalRules:    gl.TotalRules,
+				Passed:        gl.Passed,
+				Failed:        gl.Failed,
+				NeedsReview:   gl.NeedsReview,
+				NotApplicable: gl.Skipped, // N_A/리포트형 버킷 — 누락 방지
+				Layers:        &grc.ItemLayers{GL: glRuleResults},
 			}
 			result.Items = append(result.Items, item)
 			itemMap[gl.ISMSPItemID] = len(result.Items) - 1
@@ -911,15 +928,34 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 		item := &result.Items[i]
 
 		// Determine verdict
-		if item.Failed > 0 {
+		// 인프라(K8s 기술 R룰 보유) 항목: 검토필요 없이 준수/미준수로만 판정한다.
+		// R레이어 NOT_MET 1건↑ → 미준수, 아니면 준수 (GL/정책룰의 NEEDS_REVIEW·NO_DATA는 무시).
+		if s.hasK8sNativeRules(item.ISMSPItemID) {
+			if countRLayerFailures(item) > 0 {
+				item.Verdict = "미준수"
+				result.NonCompliantItems++
+			} else {
+				item.Verdict = "준수"
+				result.CompliantItems++
+			}
+		} else if item.Failed > 0 {
 			item.Verdict = "미준수"
 			result.NonCompliantItems++
 		} else if item.NeedsReview > 0 || item.NoData > 0 || item.Indeterminate > 0 {
 			item.Verdict = "검토필요"
 			result.NeedsReviewItems++
 		} else if item.Passed > 0 {
-			item.Verdict = "준수"
-			result.CompliantItems++
+			// 커버리지 게이트: 정의된 룰 중 실제 판정난 distinct 룰이 적으면(미실행 룰 존재)
+			// 통과만으로 '준수'를 단정하지 않고 '검토필요'로 둔다.
+			expected := s.expectedRuleCount(item.ISMSPItemID)
+			evaluated := distinctEvaluatedRules(collectItemRuleResults(item))
+			if expected > 0 && evaluated < expected {
+				item.Verdict = "검토필요"
+				result.NeedsReviewItems++
+			} else {
+				item.Verdict = "준수"
+				result.CompliantItems++
+			}
 		} else if item.NotApplicable > 0 {
 			item.Verdict = "해당없음"
 			result.NotApplicableItems++
@@ -965,8 +1001,14 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 		case "검토필요":
 			if item.NeedsReview > 0 {
 				item.Note = fmt.Sprintf("%d개 룰 검토 필요 (자동 판단 불가, 수동 확인 권장)", item.NeedsReview)
-			} else {
+			} else if item.NoData > 0 || item.Indeterminate > 0 {
 				item.Note = fmt.Sprintf("데이터 부족 (NO_DATA %d건, 확인불가 %d건) — 수동 확인 권장", item.NoData, item.Indeterminate)
+			} else {
+				// 커버리지 부족 강등: 통과 룰은 있으나 정의된 룰 일부가 아직 미평가
+				expected := s.expectedRuleCount(item.ISMSPItemID)
+				evaluated := distinctEvaluatedRules(collectItemRuleResults(item))
+				item.Note = fmt.Sprintf("정의된 룰 %d개 중 %d개만 평가됨 (%d개 미실행) — 통과만으로 준수 단정 불가, 나머지 룰 평가 필요",
+					expected, evaluated, expected-evaluated)
 			}
 		case "준수":
 			if item.NotApplicable > 0 {
@@ -1015,6 +1057,99 @@ func collectItemRuleResults(item *grc.ItemComplianceResult) []grc.RuleResult {
 	all = append(all, item.Layers.F...)
 	all = append(all, item.Layers.Report...)
 	return all
+}
+
+// expectedRuleCount returns how many of an item's ruleset-defined rules are
+// expected to yield a verdict, excluding report/deferred rules (합격률 분모 제외).
+// 룰셋 캐시는 호출 전 LoadAll로 데워져 있어 pod 룰셋까지 병합된 정의 수를 반환한다.
+func (s *GRCService) expectedRuleCount(itemID string) int {
+	rs, err := s.rulesetStore.Load(itemID)
+	if err != nil || rs == nil {
+		return 0
+	}
+	n := 0
+	for i := range rs.Rules {
+		r := &rs.Rules[i]
+		if r.OutputType == "report" || r.ReclassifiedFrom != "" || r.DeferredFrom != "" {
+			continue // 인벤토리/방증·보류 룰은 판정 분모에서 제외
+		}
+		n++
+	}
+	return n
+}
+
+// podUIDRe matches a full UUID or a short hex prefix(8+). 일반 pod 이름은 비-hex
+// 문자(s,t,v,r 등)를 포함하므로 이 패턴에 안 걸린다 → UID와 이름을 안전하게 구분.
+var podUIDRe = regexp.MustCompile(`^[0-9a-f]{8}(-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$`)
+
+// resolvePodIdentifier converts a pod identifier that may be a UID(full/short)
+// into the actual pod_name(+namespace) via pod_master. UID가 아니면(=이름이면)
+// 원본을 그대로 돌려준다. 프론트가 pod을 UID로 식별하는 경우를 백엔드에서 흡수.
+func (s *GRCService) resolvePodIdentifier(ctx context.Context, clusters []string, identifier string) (name, namespace string) {
+	if identifier == "" || !podUIDRe.MatchString(identifier) || s.clusterRepo == nil {
+		return identifier, ""
+	}
+	for _, cl := range clusters {
+		if cl == "" {
+			continue
+		}
+		if n, ns, ok := s.clusterRepo.LookupPodByUID(ctx, cl, identifier); ok {
+			return n, ns
+		}
+	}
+	if n, ns, ok := s.clusterRepo.LookupPodByUID(ctx, "", identifier); ok { // cluster 무관 폴백
+		return n, ns
+	}
+	return identifier, "" // 못 찾으면 원본 유지(이름일 수도)
+}
+
+// hasK8sNativeRules reports whether an item's ruleset defines any K8s 자동측정 룰
+// (judgment_source k8s_api/k8s_native). 이런 항목을 "인프라"로 보고 준수/미준수 이진 판정한다.
+func (s *GRCService) hasK8sNativeRules(itemID string) bool {
+	rs, err := s.rulesetStore.Load(itemID)
+	if err != nil || rs == nil {
+		return false
+	}
+	for i := range rs.Rules {
+		switch rs.Rules[i].JudgmentSource {
+		case "k8s_api", "k8s_native":
+			return true
+		}
+	}
+	return false
+}
+
+// countRLayerFailures counts NOT_MET results in an item's R(기술측정) layer.
+// 인프라 이진 판정의 분자 — GL/F 레이어의 NEEDS_REVIEW 등은 세지 않는다.
+func countRLayerFailures(item *grc.ItemComplianceResult) int {
+	if item == nil || item.Layers == nil {
+		return 0
+	}
+	n := 0
+	for _, rr := range item.Layers.R {
+		if grc.NormalizeVerdict(rr.Verdict) == grc.VerdictNOT_MET {
+			n++
+		}
+	}
+	return n
+}
+
+// distinctEvaluatedRules counts unique rule IDs that produced a real verdict
+// (MET/NOT_MET/NEEDS_REVIEW/NO_DATA/INDETERMINATE/N_A). per-pod 팬아웃으로 같은
+// 룰이 여러 번 나와도 rule_id 기준 distinct로 집계해 커버리지를 정확히 센다.
+func distinctEvaluatedRules(results []grc.RuleResult) int {
+	seen := map[string]bool{}
+	for _, rr := range results {
+		if rr.RuleID == "" {
+			continue
+		}
+		switch grc.NormalizeVerdict(rr.Verdict) {
+		case grc.VerdictMET, grc.VerdictNOT_MET, grc.VerdictNEEDS_REVIEW,
+			grc.VerdictNO_DATA, grc.VerdictINDETERMINATE, grc.VerdictNA:
+			seen[rr.RuleID] = true
+		}
+	}
+	return len(seen)
 }
 
 // mapKeys returns sorted keys from a map[string]bool.
@@ -1160,14 +1295,26 @@ type PodComplianceResult struct {
 // GetPodCompliance filters the latest cluster finding summary for findings
 // that affect the specified pod, based on AffectedResources.
 func (s *GRCService) GetPodCompliance(ctx context.Context, companyID, clusterName, namespace, podName string) (*PodComplianceResult, error) {
+	// pod 식별자가 UID(프론트)면 이름으로 변환, company_id 자리의 cluster명도 수용.
+	cluster := clusterName
+	if cluster == "" {
+		cluster = companyID
+	}
+	if name, ns := s.resolvePodIdentifier(ctx, []string{clusterName, companyID}, podName); name != "" {
+		podName = name
+		if namespace == "" {
+			namespace = ns
+		}
+	}
+
 	result := &PodComplianceResult{
 		PodName:     podName,
 		Namespace:   namespace,
-		ClusterName: clusterName,
+		ClusterName: cluster,
 	}
 
-	// Build rule_compliance from R-rule pod graph evaluation (most recent snapshot)
-	podEval, err := s.repo.GetLatestPodGraphEvalByPod(ctx, companyID, clusterName, namespace, podName)
+	// Build rule_compliance from R-rule pod graph evaluation (company_id 무시 — cluster+pod_name 매칭)
+	podEval, err := s.repo.GetLatestPodGraphEvalByPod(ctx, "", cluster, namespace, podName)
 	if err == nil && podEval != nil {
 		result.Summary.RuleCompliance = RuleComplianceSummary{
 			Compliant:    podEval.Passed,
@@ -1301,17 +1448,35 @@ type PodViolationsResult struct {
 
 // GetPodViolations returns ISMS-P items that a specific pod violates.
 func (s *GRCService) GetPodViolations(ctx context.Context, companyID, clusterName, namespace, podName string) (*PodViolationsResult, error) {
-	if companyID == "" {
-		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
-	}
 	if podName == "" {
 		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "pod_name 필수", HTTPStatus: 400}
 	}
 
-	// 1. Get latest evaluation metadata
-	evalItem, err := s.repo.GetLatestPodGraphEvalByPod(ctx, companyID, clusterName, namespace, podName)
+	// pod 식별자가 UID(프론트)면 이름으로 변환. cluster 후보로 company_id도 받는다
+	// (프론트가 company_id 자리에 cluster명을 넣는 경우 수용).
+	cluster := clusterName
+	if cluster == "" {
+		cluster = companyID
+	}
+	if name, ns := s.resolvePodIdentifier(ctx, []string{clusterName, companyID}, podName); name != "" {
+		podName = name
+		if namespace == "" {
+			namespace = ns
+		}
+	}
+
+	// 1. Get latest evaluation metadata (company_id 무시 — cluster+pod_name로 매칭)
+	evalItem, err := s.repo.GetLatestPodGraphEvalByPod(ctx, "", cluster, namespace, podName)
 	if err != nil {
-		return nil, &GRCError{Code: "NOT_FOUND", Message: fmt.Sprintf("Pod 평가 결과 없음: %v", err), HTTPStatus: 404}
+		// 평가 결과가 없는 파드(미평가 또는 위반 없음)는 에러가 아니라 빈 결과로 응답한다.
+		// (FE가 파드 클릭 시 404 콘솔 에러를 내지 않도록 — 위반 0건과 동일하게 취급)
+		return &PodViolationsResult{
+			PodName:        podName,
+			Namespace:      namespace,
+			ClusterName:    cluster,
+			OverallVerdict: "평가없음",
+			ViolatedItems:  []PodViolatedISMSPItem{},
+		}, nil
 	}
 
 	// 2. Get full rule_results

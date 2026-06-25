@@ -7,7 +7,7 @@
 //   - win_channel 은 그대로 내려주고 색 매핑은 프론트(Cytoscape)에서 한다.
 //   - p (= p_edge) 도 같이 내려줘서 프론트의 threshold 슬라이더가 쓰게 한다.
 //     ⚠ 슬라이더는 "화면에서 숨기기"로만. 총위험도(OR) 계산은 절대 필터 안 건 전체 그래프로.
-//	
+//
 // FE 색 매핑 참고:  host → 핑크(#EC4899) / network → 파랑(#3B82F6) / rbac → 주황(#F97316)
 
 package service
@@ -16,7 +16,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool" // pgx v4면 "github.com/jackc/pgx/v4/pgxpool"
@@ -42,14 +42,14 @@ type BlastEdge struct {
 // 프론트로 내려줄 그래프
 // ─────────────────────────────────────────────────────────────
 type GraphNode struct {
-	ID        string `json:"id"`        // pod_uid (고유 식별자)
-	Label     string `json:"label"`     // 표시 이름 (없으면 uid 앞 8자)
-	Namespace string `json:"namespace"` // 4계층 띠 배치 등에 사용
-	ReachProb float64 `json:"reach_prob"` // A→이 노드 도달확률 (0~1, A 자신=1.0)
-	ChokeScore int `json:"choke_score"`// 이 노드 제거 시 A의 blast 감소량
-	RiskScore  float64 `json:"risk_score"` // 이 파드 자체 위험(final_scores.final_score), FE 색용
+	ID         string  `json:"id"`          // pod_uid (고유 식별자)
+	Label      string  `json:"label"`       // 표시 이름 (없으면 uid 앞 8자)
+	Namespace  string  `json:"namespace"`   // 4계층 띠 배치 등에 사용
+	Hop        int     `json:"hop"`         // A→이 노드 최단 hop 수 (A=0). orbital 반지름(링)용 ⭐
+	ReachProb  float64 `json:"reach_prob"`  // A→이 노드 max-path 도달확률 (0~1, A=1.0). 참고용
+	ChokeScore float64 `json:"choke_score"` // = reach_prob(A→X) × total_risk(X): X를 통과하는 기대 위험(risk-hub)
+	RiskScore  float64 `json:"risk_score"`  // 이 파드 자체 위험(final_scores.final_score), FE 색용
 }
-
 
 type GraphEdge struct {
 	Source     string  `json:"source"`
@@ -67,8 +67,9 @@ type BlastGraphResult struct {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 1) DB에서 "최신 스냅샷"의 blast_edges 로드
-//    real 컬럼은 ::float8 캐스팅해서 float64로 깔끔하게 스캔
+//  1. DB에서 "최신 스냅샷"의 blast_edges 로드
+//     real 컬럼은 ::float8 캐스팅해서 float64로 깔끔하게 스캔
+//
 // ─────────────────────────────────────────────────────────────
 func LoadBlastEdges(ctx context.Context, pool *pgxpool.Pool, cluster string) ([]BlastEdge, error) {
 	const q = `
@@ -109,9 +110,10 @@ func LoadBlastEdges(ctx context.Context, pool *pgxpool.Pool, cluster string) ([]
 
 // ─────────────────────────────────────────────────────────────
 // 2) A(source)에서 닿는 모든 엣지를 BFS로 수집 (전부 그리기)
-//    - 순수 함수라 DB 없이 단위테스트 가능 (이미 검증함)
-//    - 사이클 안전(방문 노드는 다시 큐에 안 넣음), self-loop 제외
-//    - 노드는 실제 포함된 엣지의 양 끝에서만 만들어서 dangling 엣지 0 보장
+//   - 순수 함수라 DB 없이 단위테스트 가능 (이미 검증함)
+//   - 사이클 안전(방문 노드는 다시 큐에 안 넣음), self-loop 제외
+//   - 노드는 실제 포함된 엣지의 양 끝에서만 만들어서 dangling 엣지 0 보장
+//
 // ─────────────────────────────────────────────────────────────
 func BuildBlastGraphFromPod(edges []BlastEdge, sourceUID string) BlastGraphResult {
 	// 인접 리스트: source_uid → 나가는 엣지들
@@ -141,6 +143,7 @@ func BuildBlastGraphFromPod(edges []BlastEdge, sourceUID string) BlastGraphResul
 	}
 
 	visited := map[string]bool{sourceUID: true}
+	depth := map[string]int{sourceUID: 0} // A로부터의 최단 hop 수 (BFS 레벨)
 	queue := []string{sourceUID}
 	var resultEdges []GraphEdge
 
@@ -161,6 +164,7 @@ func BuildBlastGraphFromPod(edges []BlastEdge, sourceUID string) BlastGraphResul
 
 			if !visited[e.TargetUID] {
 				visited[e.TargetUID] = true
+				depth[e.TargetUID] = depth[u] + 1
 				queue = append(queue, e.TargetUID)
 			}
 		}
@@ -176,7 +180,7 @@ func BuildBlastGraphFromPod(edges []BlastEdge, sourceUID string) BlastGraphResul
 		if label == "" {
 			label = shortUID(uid)
 		}
-		nodes = append(nodes, GraphNode{ID: uid, Label: label, Namespace: m.ns, ReachProb: reach[uid]})
+		nodes = append(nodes, GraphNode{ID: uid, Label: label, Namespace: m.ns, Hop: depth[uid], ReachProb: reach[uid]})
 	}
 
 	return BlastGraphResult{SourceUID: sourceUID, Nodes: nodes, Edges: resultEdges}
@@ -190,8 +194,9 @@ func shortUID(uid string) string {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 3) Gin 핸들러
-//    GET /api/v1/scoring/blast-graph?cluster=vara-eks-test&pod=<source_pod_uid>
+//  3. Gin 핸들러
+//     GET /api/v1/scoring/blast-graph?cluster=vara-eks-test&pod=<source_pod_uid>
+//
 // ─────────────────────────────────────────────────────────────
 type BlastGraphHandler struct {
 	Pool *pgxpool.Pool
@@ -212,11 +217,22 @@ func (h *BlastGraphHandler) Handle(c *gin.Context) {
 	}
 
 	result := BuildBlastGraphFromPod(edges, pod)
-	result.TotalRisk = ComputeCriticalityMC(edges, pod, 5000, rand.New(rand.NewSource(42)))
+	// total_risk: blast_pair_risk 사전계산값(MC)을 읽음. 소스 단위 동일값이라 MAX 1개로 충분.
+	// 행 없음(신규 파드/스케줄러 미실행)이면 COALESCE로 0. (라이브 MC 재계산 제거)
+	if err := h.Pool.QueryRow(c.Request.Context(),
+		`SELECT COALESCE(MAX(total_risk), 0)::float8 FROM blast_pair_risk
+		 WHERE cluster_name = $1 AND src_pod_uid = $2`, cluster, pod).Scan(&result.TotalRisk); err != nil {
+		log.Printf("blast-graph: total_risk 로드 실패 (0으로 둠): %v", err) // 그래프는 계속 그림
+	}
 
-	chokeScores := ComputeChokeScores(edges, pod)
-	for i := range result.Nodes {
-		result.Nodes[i].ChokeScore = chokeScores[result.Nodes[i].ID]
+	// choke = risk-hub score: reach_prob(A→X) × total_risk(X)
+	// blast_pair_risk(MC 사전계산)에서 조회 — MC 재실행 없이 조회+곱셈만.
+	if chokeScores, err := loadRiskHubChoke(c.Request.Context(), h.Pool, cluster, pod); err != nil {
+		log.Printf("blast-graph: choke(risk-hub) 로드 실패 (choke 비움): %v", err) // 그래프는 계속 그림
+	} else {
+		for i := range result.Nodes {
+			result.Nodes[i].ChokeScore = chokeScores[result.Nodes[i].ID] // 없으면 0
+		}
 	}
 
 	// ── ③ 노드별 risk_score = final_scores.final_score (FE 색용) ──
@@ -229,15 +245,55 @@ func (h *BlastGraphHandler) Handle(c *gin.Context) {
 	}
 
 	c.JSON(200, result)
-}	
+}
+
+// loadRiskHubChoke: choke 점수를 blast_pair_risk(MC 사전계산)에서 계산.
+//
+//	choke(X) = reach_prob(A→X) × total_risk(X)
+//	         = "A가 X에 닿을 확률" × "X가 퍼뜨리는 기대 규모"
+//
+// MC 재실행 없이 조회+곱셈만. reach_prob(A→X)=(src=A,dst=X)행, total_risk(X)=(src=X)행의 total_risk.
+// ⚠ blast_pair_risk가 채워져 있어야 함(POST /api/v1/analysis/refresh). 비어 있으면 choke=0.
+func loadRiskHubChoke(ctx context.Context, pool *pgxpool.Pool, cluster, source string) (map[string]float64, error) {
+	const q = `
+		SELECT b1.dst_pod_uid,
+		       (b1.reach_prob * COALESCE(b2.total_risk, 0))::float8 AS score
+		FROM blast_pair_risk b1
+		LEFT JOIN LATERAL (
+			SELECT total_risk FROM blast_pair_risk
+			WHERE cluster_name = b1.cluster_name AND src_pod_uid = b1.dst_pod_uid LIMIT 1
+		) b2 ON TRUE
+		WHERE b1.cluster_name = $1 AND b1.src_pod_uid = $2`
+
+	rows, err := pool.Query(ctx, q, cluster, source)
+	if err != nil {
+		return nil, fmt.Errorf("risk-hub choke query: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]float64)
+	for rows.Next() {
+		var uid string
+		var sc float64
+		if err := rows.Scan(&uid, &sc); err != nil {
+			return nil, err
+		}
+		out[uid] = sc
+	}
+	return out, rows.Err()
+}
 
 // 최신 스냅샷의 파드별 final_score → map[pod_uid]score
 func LoadFinalScores(ctx context.Context, pool *pgxpool.Pool, cluster string) (map[string]float64, error) {
+	// 파드별 최신 final_score (단일 MAX 스냅샷에 묶지 않음).
+	// 단일/소수 파드만 담긴 부분 스냅샷이 MAX가 되면 MAX 기준 조인은 거의 미스 → risk_score 0.
+	// DISTINCT ON으로 각 파드의 가장 최근 점수를 가져와 스냅샷 시점 어긋남에 강건하게 한다.
+	// (근본: 부분 스냅샷 생성 + retention 충돌은 별도 이슈 todo-partial-snapshot-retention)
 	rows, err := pool.Query(ctx, `
-		SELECT pod_uid, final_score::float8
+		SELECT DISTINCT ON (pod_uid) pod_uid, final_score::float8
 		FROM final_scores
 		WHERE cluster_name = $1
-		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM final_scores WHERE cluster_name = $1)
+		ORDER BY pod_uid, snapshot_at DESC
 	`, cluster)
 	if err != nil {
 		return nil, fmt.Errorf("load final_scores: %w", err)
@@ -253,6 +309,152 @@ func LoadFinalScores(ctx context.Context, pool *pgxpool.Pool, cluster string) (m
 		m[uid] = sc
 	}
 	return m, rows.Err()
+}
+
+// ─────────────────────────────────────────────────────────────
+// 4) blast_pair_risk 읽기 핸들러 (orbital 랭킹/가중치)
+//    그래프 "모양"은 blast-graph(blast_edges), "가중치·랭킹"은 여기(blast_pair_risk).
+//    reach_prob = MC 도달확률, total_risk = Σ_B reach_prob (소스별 동일값, 행마다 중복).
+// ─────────────────────────────────────────────────────────────
+
+// TopSources — total_risk 큰 순서로 소스 파드 랭킹 (orbital 시작점 고르기용).
+// GET /api/v1/scoring/blast-pairs/top-sources?cluster=<name>&limit=20
+func (h *BlastGraphHandler) TopSources(c *gin.Context) {
+	cluster := c.Query("cluster")
+	if cluster == "" {
+		c.JSON(400, gin.H{"error": "cluster 쿼리 파라미터가 필요합니다"})
+		return
+	}
+	limit := queryIntDefault(c, "limit", 20, 200)
+
+	rows, err := h.Pool.Query(c.Request.Context(), `
+		SELECT src_pod_uid, max(src_pod_name) AS src_pod_name,
+		       max(total_risk)::float8 AS total_risk, count(*) AS reached
+		FROM blast_pair_risk
+		WHERE cluster_name = $1
+		GROUP BY src_pod_uid
+		ORDER BY total_risk DESC
+		LIMIT $2`, cluster, limit)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type srcRow struct {
+		SrcUID    string  `json:"src_pod_uid"`
+		SrcName   string  `json:"src_pod_name"`
+		TotalRisk float64 `json:"total_risk"`
+		Reached   int     `json:"reached"`
+	}
+	out := make([]srcRow, 0, limit)
+	for rows.Next() {
+		var r srcRow
+		if err := rows.Scan(&r.SrcUID, &r.SrcName, &r.TotalRisk, &r.Reached); err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		out = append(out, r)
+	}
+	c.JSON(200, gin.H{"cluster": cluster, "sources": out})
+}
+
+// TopPairs — reach_prob 큰 순서로 A→B 쌍 랭킹 (가장 위험한 전파 쌍). idx_blast_pair_risk_top 사용.
+// GET /api/v1/scoring/blast-pairs/top-pairs?cluster=<name>&limit=50
+func (h *BlastGraphHandler) TopPairs(c *gin.Context) {
+	cluster := c.Query("cluster")
+	if cluster == "" {
+		c.JSON(400, gin.H{"error": "cluster 쿼리 파라미터가 필요합니다"})
+		return
+	}
+	limit := queryIntDefault(c, "limit", 50, 500)
+
+	rows, err := h.Pool.Query(c.Request.Context(), `
+		SELECT src_pod_uid, src_pod_name, dst_pod_uid, dst_pod_name,
+		       reach_prob::float8, total_risk::float8
+		FROM blast_pair_risk
+		WHERE cluster_name = $1
+		ORDER BY reach_prob DESC
+		LIMIT $2`, cluster, limit)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type pairRow struct {
+		SrcUID    string  `json:"src_pod_uid"`
+		SrcName   string  `json:"src_pod_name"`
+		DstUID    string  `json:"dst_pod_uid"`
+		DstName   string  `json:"dst_pod_name"`
+		ReachProb float64 `json:"reach_prob"`
+		TotalRisk float64 `json:"total_risk"`
+	}
+	out := make([]pairRow, 0, limit)
+	for rows.Next() {
+		var r pairRow
+		if err := rows.Scan(&r.SrcUID, &r.SrcName, &r.DstUID, &r.DstName, &r.ReachProb, &r.TotalRisk); err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		out = append(out, r)
+	}
+	c.JSON(200, gin.H{"cluster": cluster, "pairs": out})
+}
+
+// PairsBySource — 한 소스의 도달 대상별 MC 도달확률 + 총위험도 (orbital 노드 강조 오버레이용).
+// GET /api/v1/scoring/blast-pairs?cluster=<name>&src=<src_pod_uid>
+func (h *BlastGraphHandler) PairsBySource(c *gin.Context) {
+	cluster := c.Query("cluster")
+	src := c.Query("src")
+	if cluster == "" || src == "" {
+		c.JSON(400, gin.H{"error": "cluster, src 쿼리 파라미터가 필요합니다"})
+		return
+	}
+
+	rows, err := h.Pool.Query(c.Request.Context(), `
+		SELECT dst_pod_uid, dst_pod_name, reach_prob::float8, total_risk::float8
+		FROM blast_pair_risk
+		WHERE cluster_name = $1 AND src_pod_uid = $2
+		ORDER BY reach_prob DESC`, cluster, src)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type dstRow struct {
+		DstUID    string  `json:"dst_pod_uid"`
+		DstName   string  `json:"dst_pod_name"`
+		ReachProb float64 `json:"reach_prob"`
+	}
+	out := []dstRow{}
+	var totalRisk float64
+	for rows.Next() {
+		var r dstRow
+		if err := rows.Scan(&r.DstUID, &r.DstName, &r.ReachProb, &totalRisk); err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		out = append(out, r)
+	}
+	c.JSON(200, gin.H{"cluster": cluster, "src_pod_uid": src, "total_risk": totalRisk, "reaches": out})
+}
+
+// queryIntDefault — 양의 정수 쿼리 파라미터 파싱. 없거나 잘못되면 def, maxN 초과면 maxN.
+func queryIntDefault(c *gin.Context, name string, def, maxN int) int {
+	v := c.Query(name)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return def
+	}
+	if n > maxN {
+		return maxN
+	}
+	return n
 }
 
 // ── 붙일 곳 3군데 ────────────────────────────────────────────

@@ -111,6 +111,45 @@ func (r *NotificationRepo) List(ctx context.Context, req notification.ListReques
 }
 
 // ─────────────────────────────────────────
+// Count (List 와 동일 필터)
+// ─────────────────────────────────────────
+
+// CountList는 List 와 동일한 WHERE(카테고리/심각도/안읽음 필터 포함)로
+// total 과 unread 를 센다. 페이지네이션 total 이 필터별로 달라지도록.
+func (r *NotificationRepo) CountList(ctx context.Context, req notification.ListRequest) (int, int, error) {
+	query := `
+		SELECT
+			COUNT(*) AS total,
+			COUNT(*) FILTER (WHERE read_at IS NULL) AS unread
+		FROM notifications
+		WHERE cluster_name = $1
+		  AND dismissed = FALSE
+	`
+	args := []interface{}{req.ClusterName}
+	argN := 2
+
+	if req.UnreadOnly {
+		query += " AND read_at IS NULL"
+	}
+	if req.Severity != "" {
+		query += fmt.Sprintf(" AND severity = $%d", argN)
+		args = append(args, req.Severity)
+		argN++
+	}
+	if req.Category != "" {
+		query += fmt.Sprintf(" AND category = $%d", argN)
+		args = append(args, req.Category)
+		argN++
+	}
+
+	var total, unread int
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&total, &unread); err != nil {
+		return 0, 0, fmt.Errorf("count list: %w", err)
+	}
+	return total, unread, nil
+}
+
+// ─────────────────────────────────────────
 // Get By ID
 // ─────────────────────────────────────────
 

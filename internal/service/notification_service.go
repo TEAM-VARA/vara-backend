@@ -42,14 +42,15 @@ func (s *NotificationService) List(ctx context.Context, req notification.ListReq
 		return nil, fmt.Errorf("list: %w", err)
 	}
 
-	counts, err := s.repo.GetCounts(ctx, req.ClusterName)
+	// total/unread 는 List 와 동일 필터(카테고리/심각도/안읽음) 기준 — 페이지 수가 필터별로 달라지도록.
+	total, unread, err := s.repo.CountList(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("get counts: %w", err)
+		return nil, fmt.Errorf("count list: %w", err)
 	}
 
 	return &notification.ListResponse{
-		Total:         counts.Total,
-		Unread:        counts.Unread,
+		Total:         total,
+		Unread:        unread,
 		Notifications: notifs,
 	}, nil
 }

@@ -6,30 +6,26 @@ import (
 	"github.com/vara/backend/internal/domain/scoring"
 )
 
-// attachRiskReductions — 각 보완(ScenarioMitigation)에 "적용 시 점수 하락량"(risk_reduction)을
+// attachRiskReductions — 각 보완(ScenarioMitigation)에 "적용 시 하락량"(risk_reduction)을
 // 2축으로 채운다.
 //
-//	risk 축  (Final = likelihood) : CVE 패치 · 외부노출 차단(9005)
-//	impact 축 (attack_path)       : RBAC · Mount · network isolation(9034)
+//	risk 축  (Final = likelihood)        : CVE 패치 · 외부노출 차단(9005)
+//	blast 축 (전파 총위험도 total_risk)   : RBAC(측면이동) · NetworkPolicy(9034) · Mount(노드 공유)
 //
-// final_scoring_repo가 attack_path를 Final에서 제외하므로(노출 0/100만 사용), RBAC/Mount/net
-// 보완은 risk가 아니라 impact(attack_path) 점수를 내린다. delta는 "빼기"가 아니라 재계산
-// (현재 vs 그 항목 제거 후)이라 MAX/tier·Toxic 비선형을 정확히 반영한다.
+// CVE·노출은 risk_score(Final)를 내리고, RBAC/Network/Mount는 blast_risk(blast_pair_risk.total_risk)를
+// 내린다. blast 하락은 "그 보완이 닫는 채널(rbac/network/host)을 이 Pod의 나가는 엣지에서 0으로 두고
+// reach 재계산"이다(scenario_blastreduction.go). delta는 "빼기"가 아니라 재계산이라 멀티홉 전파를
+// 정확히 반영한다. NetworkPolicy(9034)만 대상 Pod별로 끊어 연결 단위 하락을 보인다.
 //
-// 한계: RBAC 점수가 5단계(cluster-admin/wildcard/secrets/exec/read)뿐이라, 그 level을 결정하지
-// 않는 RBAC 보완(webhook/backdoor/events 등)은 impact delta=0이 된다. 권한별 가중치로 RBAC
-// 점수를 세분화하면 해소된다.
-func (s *ScenarioService) attachRiskReductions(ctx context.Context, cluster, podUID string, res *scoring.PodScenarioResult) {
-	if s.attackPath == nil || s.finalScore == nil || res == nil {
+// 한계: blast_edges 채널 확률이 사전계산값이라 RBAC technique끼리 세분 구분은 못 한다(모두 같은 rbac
+// 채널 차단으로 처리). br(blastReducer)는 BuildForPod에서 1회 로드해 넘긴다.
+func (s *ScenarioService) attachRiskReductions(ctx context.Context, cluster, podUID string, res *scoring.PodScenarioResult, br *blastReducer) {
+	if s.finalScore == nil || res == nil {
 		return
-	}
-	ap, err := s.attackPath.GetByPodUID(ctx, cluster, podUID)
-	if err != nil || ap == nil {
-		return // 점수 정보 없으면 risk_reduction 생략(nil)
 	}
 	fin, ferr := s.finalScore.GetByPodUID(ctx, cluster, podUID)
 	if ferr != nil || fin == nil {
-		return
+		return // 점수 정보 없으면 risk_reduction 생략(nil)
 	}
 	exposed := false
 	if s.exposure != nil {
@@ -39,13 +35,10 @@ func (s *ScenarioService) attachRiskReductions(ctx context.Context, cluster, pod
 	}
 
 	curRisk := scoring.RiskInputs{GlobalImage: fin.GlobalImageScore, Exposed: exposed, Toxic: fin.ToxicMultiplier}
-	curImpact := scoring.ImpactInputs{RBAC: ap.RBACScore, Network: ap.NetworkScore, Mount: ap.MountScore}
-
-	riskShown := res.RiskScore  // 페이지에 보이는 risk_score(=fin.FinalScore)
+	riskShown := res.RiskScore  // 페이지에 보이는 risk_score(= 저장 final_score)
 	riskCalc := curRisk.Score() // 재계산 기준(내부 일관성용)
-	impactBefore := curImpact.Score()
 
-	// risk 축 RiskReduction (Toxic·clamp 때문에 표시값-재계산값 분리)
+	// risk 축 RiskReduction (Toxic·clamp 때문에 표시값-재계산값 분리). CVE·외부노출만 risk 축.
 	riskRR := func(afterScore float64) *scoring.RiskReduction {
 		delta := riskCalc - afterScore
 		if delta < 0 {
@@ -60,49 +53,25 @@ func (s *ScenarioService) attachRiskReductions(ctx context.Context, cluster, pod
 			After: scoring.RoundTo2(af), Delta: scoring.RoundTo2(delta),
 		}
 	}
-	// impact 축 RiskReduction (정수 합산이라 표시-재계산 차이 없음)
-	impactRR := func(afterScore float64) *scoring.RiskReduction {
-		delta := impactBefore - afterScore
-		if delta < 0 {
-			delta = 0
-		}
-		return &scoring.RiskReduction{
-			Axis: scoring.AxisImpact, Before: scoring.RoundTo2(impactBefore),
-			After: scoring.RoundTo2(afterScore), Delta: scoring.RoundTo2(delta),
-		}
-	}
 
-	// MS-TA9034(NetworkPolicy)는 연결되는 Pod마다 한 항목씩 쪼개져 있을 수 있다. 격리 점수는
-	// "이 Pod에 default-deny가 적용되는가"의 전부-아니면-전무(none→deny_all)라 연결 1건씩 더해지는 게
-	// 아니다. 따라서 네트워크 격리 하락량은 9034 항목 중 첫 1건에만 붙여 중복 합산을 막는다.
-	netRRDone := false
 	for i := range res.Mitigations {
 		m := &res.Mitigations[i]
 		switch {
-		case m.Bucket == "VULN": // CVE 패치(이미지 업그레이드) → Global 0
+		case m.Bucket == "VULN": // CVE 패치(이미지 업그레이드) → Global 0 (risk 축)
 			after := curRisk
 			after.GlobalImage = 0
 			m.RiskReduction = riskRR(after.Score())
-		case m.Bucket == "NET" && m.MSTA == "MS-TA9005": // 외부노출 차단
+		case m.Bucket == "NET" && m.MSTA == "MS-TA9005": // 외부노출 차단 (risk 축)
 			after := curRisk
 			after.Exposed = false
 			m.RiskReduction = riskRR(after.Score())
-		case m.Bucket == "NET" && m.MSTA == "MS-TA9034": // default-deny NetworkPolicy
-			if netRRDone {
-				break // 연결별로 쪼갠 나머지 항목은 격리 하락량을 중복으로 싣지 않는다.
-			}
-			netRRDone = true
-			after := curImpact
-			after.Network = scoring.ComputeNetworkScore(scoring.NetworkIsolationDenyAll)
-			m.RiskReduction = impactRR(after.Score())
-		case m.Bucket == "RBAC":
-			after := curImpact
-			after.RBAC = rbacScoreWithout(ap, m.MSTA)
-			m.RiskReduction = impactRR(after.Score())
-		case m.Bucket == "MOUNT":
-			after := curImpact
-			after.Mount = mountScoreWithout(ap.MountDetails, m.MSTA)
-			m.RiskReduction = impactRR(after.Score())
+		case m.Bucket == "NET" && m.MSTA == "MS-TA9034": // default-deny NetworkPolicy (blast: network 채널)
+			// 연결별로 쪼갠 항목이면 m.Target(대상 Pod 이름)으로 그 연결만 끊는다. 빈 값이면 이 Pod egress 전체.
+			m.RiskReduction = br.closeChannel(blastChannelNetwork, m.Target)
+		case m.Bucket == "RBAC": // 권한 회수 (blast: rbac=측면이동 채널)
+			m.RiskReduction = br.closeChannel(blastChannelRBAC, "")
+		case m.Bucket == "MOUNT": // privileged/hostPath 제거 (blast: host=노드 공유 채널)
+			m.RiskReduction = br.closeChannel(blastChannelHost, "")
 		}
 	}
 }

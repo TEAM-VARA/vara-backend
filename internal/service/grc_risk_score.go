@@ -110,6 +110,15 @@ func accumulateISMSPRisk(b *ISMSPRiskBreakdown, seen map[string]bool, ruleIDRaw,
 // 결과의 Addend를 FinalScore에 더하면 된다(ApplyISMSPToFinalScore 참고).
 // 평가 결과가 없으면 빈 Breakdown(Addend=0)을 반환한다(기존 동작 불변).
 func (s *GRCService) ComputePodISMSPAddend(ctx context.Context, companyID, clusterName, namespace, podName string) *ISMSPRiskBreakdown {
+	// 계정/클러스터 스코프 결함(상속)을 1회 투영해 위임한다.
+	inherited, _ := s.ProjectInheritedFindings(ctx, companyID, clusterName)
+	return s.ComputePodISMSPAddendWithInherited(ctx, companyID, clusterName, namespace, podName, inherited)
+}
+
+// ComputePodISMSPAddendWithInherited는 미리 1회 투영한 inherited findings를 재사용해
+// pod별 가산을 계산한다. 배치(클러스터 전체 재계산)에서 pod마다 ProjectInheritedFindings를
+// 반복 조회하지 않으려는 용도다. inherited가 nil/빈 슬라이스면 pod-local 결함만 가산한다.
+func (s *GRCService) ComputePodISMSPAddendWithInherited(ctx context.Context, companyID, clusterName, namespace, podName string, inherited []grc.RuleResult) *ISMSPRiskBreakdown {
 	b := &ISMSPRiskBreakdown{Rules: []ISMSPRiskRuleHit{}}
 	seen := map[string]bool{}
 
@@ -126,10 +135,8 @@ func (s *GRCService) ComputePodISMSPAddend(ctx context.Context, companyID, clust
 	}
 
 	// 2) 계정/클러스터 스코프 결함 투영(상속) — SG·CloudTrail·KMS 등 계정 룰도 pod에 가산한다.
-	if inh, err := s.ProjectInheritedFindings(ctx, companyID, clusterName); err == nil {
-		for _, rr := range inh {
-			accumulateISMSPRisk(b, seen, rr.RuleID, rr.Verdict, true)
-		}
+	for _, rr := range inherited {
+		accumulateISMSPRisk(b, seen, rr.RuleID, rr.Verdict, true)
 	}
 
 	return b

@@ -29,7 +29,12 @@ func (h *BreakdownHandler) GetBreakdown(c *gin.Context) {
 		return
 	}
 	if bd == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "not found",
+			"code":    "NOT_COMPUTED",
+			"pod_uid": pod,
+			"cluster": cluster,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, bd)

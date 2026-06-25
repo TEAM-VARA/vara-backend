@@ -1,10 +1,15 @@
 # Schema v1 (2026-05-16 신규, rbac-police steal_pods 발견).
 #
-# Multi-step 권한 상승:
-#   (a) delete/eviction pods + (b) update/patch nodes (taint/label로 unschedulable) 조합 →
-#   다른 노드의 강한 Pod이 본인 노드로 이동 → 그 Pod SA 토큰 흡수.
+# Multi-step 권한 상승 (2026-06: 제거벡터 완전화 + 발판 게이트):
+#   (a) Pod 제거(delete/eviction/라벨트릭 update·patch/pods·nodes status/nodes delete) +
+#   (b) nodes unschedulable(taint/cordon) +
+#   (c) 노드-읽기 발판(nodes/proxy 또는 hostPath Pod=pods create) — 셋 다 →
+#   다른 노드의 강한 Pod을 발판 노드로 이주시켜 그 SA 토큰 흡수.
 #
-# 두 권한이 동시에 있어야 실제 공격 가능. 한 쪽만 있으면 무관 → schema v1 match_all_of 필수.
+# 셋 다 있어야 실제 공격 가능(특히 (c) 발판 없으면 이주시켜도 못 읽음) → match_all_of.
+# 제거 벡터는 rbac-police steal_pods(pods update/patch 라벨트릭, nodes delete, pods/status)와 정합.
+# 발판 게이트는 per-identity 기준 steal_pods보다 보수적(FP↓). 흡수를 "발판 노드"로 좁히는
+# node-scoped(레벨 2)는 미구현 — 현재는 발판 있으면 all/ns Pod 흡수(상한).
 #
 # 참고: 발동 권한 (a)와 (b)는 cluster-wide 또는 ns-scope 무관. 즉 ns-X에서만 delete pods
 # 가능하고 cluster-wide nodes update이면 ns-X 한정으로 효과. 룰은 ns 안 따짐.
@@ -14,18 +19,34 @@
 
 schema_version: "1.0"
 id: R-INDIRECT-19
-description: "delete/eviction pods + nodes update/patch -> Pod 이주로 다른 SA 토큰 흡수"
+description: "(pod 제거) AND (nodes unschedulable) AND (노드-읽기 발판) -> Pod 이주로 co-located SA 토큰 흡수"
 category: indirect
 severity: high
 
 match_all_of:
+  # (1) Pod 제거: 직접 delete/eviction + 라벨트릭(update/patch) + pods/status + nodes delete(노드째)/taint
   - match_any_of:
       - { api_group: "", resource: "pods", verb: "delete" }
       - { api_group: "", resource: "pods", verb: "deletecollection" }
       - { api_group: "", resource: "pods/eviction", verb: "create" }
+      - { api_group: "", resource: "pods", verb: "update" }
+      - { api_group: "", resource: "pods", verb: "patch" }
+      - { api_group: "", resource: "pods/status", verb: "update" }
+      - { api_group: "", resource: "pods/status", verb: "patch" }
+      - { api_group: "", resource: "nodes", verb: "delete" }
+      - { api_group: "", resource: "nodes", verb: "update" }
+      - { api_group: "", resource: "nodes", verb: "patch" }
+  # (2) 노드 unschedulable: taint/cordon (NoExecute taint로 evict까지)
   - match_any_of:
       - { api_group: "", resource: "nodes", verb: "update" }
       - { api_group: "", resource: "nodes", verb: "patch" }
+      - { api_group: "", resource: "nodes/status", verb: "update" }
+      - { api_group: "", resource: "nodes/status", verb: "patch" }
+  # (3) 노드-읽기 발판: 이주한 Pod 토큰을 실제로 읽을 능력 (kubelet 또는 hostPath Pod)
+  - match_any_of:
+      - { api_group: "", resource: "nodes/proxy", verb: "get" }
+      - { api_group: "", resource: "nodes/proxy", verb: "create" }
+      - { api_group: "", resource: "pods", verb: "create" }
 
 sources:
   - type: tool

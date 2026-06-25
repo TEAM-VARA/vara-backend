@@ -28,6 +28,7 @@ type AnalysisScheduler struct {
 	localSvc    *service.LocalScoringService
 	toxicSvc    *service.ToxicService
 	finalSvc    *service.FinalScoringService
+	scoreRetentionRepo *postgres.ScoreRetentionRepo
 	clusterName string
 	interval    time.Duration
 	enabled     bool
@@ -43,6 +44,7 @@ func NewAnalysisScheduler(
 	localSvc *service.LocalScoringService,
 	toxicSvc *service.ToxicService,
 	finalSvc *service.FinalScoringService,
+	scoreRetentionRepo *postgres.ScoreRetentionRepo,
 	clusterName string,
 	interval time.Duration,
 ) *AnalysisScheduler {
@@ -58,6 +60,7 @@ func NewAnalysisScheduler(
 		localSvc:    localSvc,
 		toxicSvc:    toxicSvc,
 		finalSvc:    finalSvc,
+		scoreRetentionRepo: scoreRetentionRepo,
 		clusterName: clusterName,
 		interval:    interval,
 		enabled:     true,
@@ -130,6 +133,11 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 	} else {
 		edgesOK = true
 	}
+	if n, err := s.edgesRepo.ComputeDriftEdges(ctx, s.clusterName); err != nil {
+		log.Printf("analysis-scheduler: drift edges failed: %v", err)
+	} else {
+		log.Printf("analysis-scheduler: drift edges computed (%d violations)", n)
+	}
 	log.Printf("analysis-scheduler: edges recomputed (%v)", time.Since(start))
 
 	// 이번 사이클 이전(snapshot_at < start) 엣지 전부 삭제 → 이번 사이클에 재계산 안 된
@@ -165,6 +173,16 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 		log.Printf("analysis-scheduler: final failed: %v", err)
 	}
 	log.Printf("analysis-scheduler: scoring chain done (%v)", time.Since(start))
+
+	// 점수 스냅샷 retention: 각 점수 테이블에서 최신 snapshot(MAX) 미만 행 삭제.
+	// 최신 snapshot은 < MAX라 안 지워짐 = 이번 사이클 결과는 보존된다.
+	if s.scoreRetentionRepo != nil {
+		if n, err := s.scoreRetentionRepo.PruneOldSnapshots(ctx, s.clusterName); err != nil {
+			log.Printf("analysis-scheduler: score snapshot retention failed: %v", err)
+		} else if n > 0 {
+			log.Printf("analysis-scheduler: pruned %d old score snapshot rows", n)
+		}
+	}
 
 	// ─────────────────────────────────────────────
 	// Phase 2.5: blast 엣지 재계산 (network=B.Risk가 final_scores를 읽으므로 점수 체인 이후)

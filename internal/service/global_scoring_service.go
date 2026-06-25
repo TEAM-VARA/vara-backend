@@ -133,12 +133,20 @@ func (s *GlobalScoringService) ComputeImage(ctx context.Context, imageDigest str
 	if err != nil {
 		return nil, fmt.Errorf("list cves: %w", err)
 	}
-	if len(cves) == 0 {
-		return nil, fmt.Errorf("no CVEs found for image_digest %s (SBOM exists?)", imageDigest)
-	}
-
 	// 이미지 이름 조회 (응답용)
 	imageName, _ := s.repo.GetImageByDigest(ctx, imageDigest)
+
+	if len(cves) == 0 {
+		// CVE 0개 = 깨끗한 이미지. 에러가 아니라 0점 정상 결과로 반환한다
+		// (SBOM은 있는데 취약점이 없는 경우 — 매 보고마다 에러 로그가 쌓이지 않게).
+		return &scoring.ImageGlobalScore{
+			ImageDigest: imageDigest,
+			Image:       imageName,
+			CVECount:    0,
+			MaxScore:    0,
+			ComputedAt:  time.Now(),
+		}, nil
+	}
 
 	fmt.Printf("info: computing image global score image_digest=%s cves=%d\n", imageDigest, len(cves))
 

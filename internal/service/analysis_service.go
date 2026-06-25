@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -313,18 +314,30 @@ func (s *AnalysisService) precomputeBlastPairs(ctx context.Context, cluster stri
 		}
 	}
 
-	// (src, dst, reach_prob) 모으기
+	// (src, dst, reach_prob, total_risk) 모으기 — reach_prob = MC 도달확률(닿은 시행수/전체 시행수)
+	// total_risk = Σ_B reachProb(A→B) = MC 총위험도(소스 단위 동일값, 각 행에 중복 적재)
+	const mcTrials = 5000
 	var batch [][]any
-	for _, src := range srcs {
-		g := BuildBlastGraphFromPod(edges, src)
-		for _, n := range g.Nodes {
-			if n.ID == src {
+	for i, src := range srcs {
+		rng := rand.New(rand.NewSource(int64(i) + 1)) // 소스별 고정 시드 → 재현성
+		reachMC := ComputeReachProbMC(edges, src, mcTrials, rng)
+		var totalRisk float64
+		for _, p := range reachMC {
+			totalRisk += p
+		}
+		for dst, p := range reachMC {
+			if dst == src || p <= 0 {
 				continue
 			}
+			dstName := nameByUID[dst]
+			if dstName == "" {
+				dstName = shortUID(dst) // 같은 패키지(blast_graph_service.go)에 정의됨
+			}
 			batch = append(batch, []any{
-				cluster, src, n.ID, n.ReachProb,
+				cluster, src, dst, p,
 				nameByUID[src], // src_pod_name (없으면 "")
-				n.Label,        // dst_pod_name (노드 표시 이름)
+				dstName,        // dst_pod_name
+				totalRisk,      // total_risk (소스 단위 동일값)
 			})
 		}
 	}
@@ -336,7 +349,7 @@ func (s *AnalysisService) precomputeBlastPairs(ctx context.Context, cluster stri
 	if len(batch) > 0 {
 		if _, err := s.pool.CopyFrom(ctx,
 			pgx.Identifier{"blast_pair_risk"},
-			[]string{"cluster_name", "src_pod_uid", "dst_pod_uid", "reach_prob", "src_pod_name", "dst_pod_name"},
+			[]string{"cluster_name", "src_pod_uid", "dst_pod_uid", "reach_prob", "src_pod_name", "dst_pod_name", "total_risk"},
 			pgx.CopyFromRows(batch),
 		); err != nil {
 			return fmt.Errorf("copy pairs: %w", err)

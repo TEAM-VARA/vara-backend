@@ -14,19 +14,41 @@
 # 모이는 경우를 놓치면 false negative. 실제 cluster-admin 도달 여부 판정은 매처
 # 책임 외 - 그래프 빌더 단계에서 판단. R-DIRECT-01 (escalate)과 동일 논리.
 
-schema_version: "0.1"
+schema_version: "1.0"
 id: R-DIRECT-02
-description: "bind verb on roles/clusterroles -> 자기/타인에게 임의 (Cluster)Role 부착 가능"
+description: "(bind on roles/clusterroles) AND (create|update|patch on (cluster)rolebindings) -> 임의 (Cluster)Role 자가 바인딩"
 category: direct
 severity: critical
 
-match_any_of:
-  - api_group: "rbac.authorization.k8s.io"
-    resource:  "roles"
-    verb:      "bind"
-  - api_group: "rbac.authorization.k8s.io"
-    resource:  "clusterroles"
-    verb:      "bind"
+match_all_of:
+  # (a) bind: 임의 (Cluster)Role을 자신/타인에게 부착 (권한상승 제한 우회)
+  - match_any_of:
+      - api_group: "rbac.authorization.k8s.io"
+        resource:  "roles"
+        verb:      "bind"
+      - api_group: "rbac.authorization.k8s.io"
+        resource:  "clusterroles"
+        verb:      "bind"
+  # (b) 바인딩 생성/수정: 실제로 바인딩 객체를 만들거나(create) 기존 바인딩 subject에 자신 추가(update/patch)
+  - match_any_of:
+      - api_group: "rbac.authorization.k8s.io"
+        resource:  "rolebindings"
+        verb:      "create"
+      - api_group: "rbac.authorization.k8s.io"
+        resource:  "rolebindings"
+        verb:      "update"
+      - api_group: "rbac.authorization.k8s.io"
+        resource:  "rolebindings"
+        verb:      "patch"
+      - api_group: "rbac.authorization.k8s.io"
+        resource:  "clusterrolebindings"
+        verb:      "create"
+      - api_group: "rbac.authorization.k8s.io"
+        resource:  "clusterrolebindings"
+        verb:      "update"
+      - api_group: "rbac.authorization.k8s.io"
+        resource:  "clusterrolebindings"
+        verb:      "patch"
 
 # 5개 출처 매트릭스 매핑 (룰셋 검증 인덱스 2026-05-09 기준): K8s + KS + RT + KR + RP
 sources:

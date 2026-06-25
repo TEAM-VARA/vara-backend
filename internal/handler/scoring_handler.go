@@ -46,7 +46,10 @@ func (h *ScoringHandler) ComputeRisk(c *gin.Context) {
 	podInfo, err := h.repo.GetPodInfo(ctx, podID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Pod를 찾을 수 없습니다"})
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Pod를 찾을 수 없습니다",
+				"code":  "POD_NOT_FOUND",
+			})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -133,6 +136,7 @@ func (h *ScoringHandler) GetRiskDetails(c *gin.Context) {
 		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": "스코어링 결과 없음 — 먼저 POST /risk 를 호출하세요",
+				"code":  "NOT_COMPUTED",
 			})
 			return
 		}

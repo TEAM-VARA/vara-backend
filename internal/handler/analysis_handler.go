@@ -35,7 +35,12 @@ func (h *AnalysisHandler) GetBlastRadius(c *gin.Context) {
 		return
 	}
 	if row == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not computed yet"})
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "not computed yet",
+			"code":    "NOT_COMPUTED",
+			"pod_uid": pod,
+			"cluster": cluster,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, row)
