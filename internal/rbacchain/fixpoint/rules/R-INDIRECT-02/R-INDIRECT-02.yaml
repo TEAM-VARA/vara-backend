@@ -8,10 +8,11 @@
 # nonResourceURLs: 무시.
 # match_any_of: triple 중 하나라도 grant되면 매치 (OR).
 #
-# R-INDIRECT-02 단독 매칭 결정 (2026-05-10):
-# 3개 subresource × 2개 verb = 6 triple OR. 하나라도 가지면 위험으로 판정.
-# pods/exec, pods/attach, pods/portforward 모두 동일한 메커니즘 (실행 중 Pod의
-# SA 토큰 추출 또는 동등 효과)이므로 단독 매치로 충분.
+# R-INDIRECT-02 단독 매칭 결정 (2026-05-10, 2026-06 portforward 제외):
+# 2개 subresource × 2개 verb = 4 triple OR. 하나라도 가지면 위험으로 판정.
+# pods/exec, pods/attach 는 컨테이너 안에 셸/스트림을 얻어 SA 토큰 파일을 직접 읽으므로
+# 그 Pod SA 흡수로 모델링. pods/portforward 는 네트워크 포트 포워딩만 가능(셸·파일시스템
+# 접근 아님)이라 토큰 직접 탈취 벡터가 아니므로 제외 — 필요 시 별도 약한/lateral 룰로.
 #
 # verb 결정:
 #   K8s API 서버는 pods/exec 등에 대해 POST=create, GET=get 둘 다 받는다.
@@ -34,7 +35,7 @@
 
 schema_version: "0.1"
 id: R-INDIRECT-02
-description: "create/get on pods/exec|attach|portforward -> 실행 중 Pod 컨테이너에서 그 Pod SA 토큰 또는 동등 효과 획득"
+description: "create/get on pods/exec|attach -> 실행 중 Pod 컨테이너에서 그 Pod SA 토큰 획득"
 category: indirect
 severity: critical
 
@@ -50,12 +51,6 @@ match_any_of:
     verb:      "create"
   - api_group: ""
     resource:  "pods/attach"
-    verb:      "get"
-  - api_group: ""
-    resource:  "pods/portforward"
-    verb:      "create"
-  - api_group: ""
-    resource:  "pods/portforward"
     verb:      "get"
 
 # 5개 출처 매트릭스 매핑 (룰셋 검증 인덱스 2026-05-09 기준): K8s + KS + RT + KR + RP

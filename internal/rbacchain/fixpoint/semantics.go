@@ -617,6 +617,14 @@ func makePodInstanceTransition(ruleID string) TransitionFunc {
 				if !podIsRunning(pod) {
 					continue
 				}
+				// resourceNames 좁힘: pods/exec·ephemeralcontainers 는 서브리소스라 특정 Pod
+				// 이름으로 좁힐 수 있다. 좁혀졌으면 그 Pod 만 흡수(과대탐지 방지). 미지정이면 전체.
+				if !triggeringPerm.ResourceName.IsNull {
+					podMeta, _ := pod["metadata"].(map[string]any)
+					if getStringFromMap(podMeta, "name") != triggeringPerm.ResourceName.Value {
+						continue
+					}
+				}
 				absorbPodSA(sa, pod, allPerms, ruleID, matchGroup, emit)
 			}
 		}
