@@ -84,6 +84,7 @@ func newRouter(
 		api.POST("/agents/ebpf/process-events", ebpf.ProcessEvents)
 		api.GET("/feed/process", ebpf.GetProcessFeed)
 		api.GET("/feed/flow", ebpf.GetFlowFeed)
+		api.GET("/feed/drift", ebpf.GetDriftFeed)
 		api.GET("/events", ebpf.GetEvents)
 
 		// ── Edges (Blast Radius 그래프) ──
