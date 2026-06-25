@@ -57,6 +57,7 @@ func (h *ScenarioHandler) GetByPod(c *gin.Context) {
 	if res == nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "scenario not available",
+			"code":    "NOT_COMPUTED",
 			"hint":    "POST /api/v1/scoring/attack-path/compute 먼저 실행",
 			"pod_uid": podUID,
 			"cluster": cluster,
