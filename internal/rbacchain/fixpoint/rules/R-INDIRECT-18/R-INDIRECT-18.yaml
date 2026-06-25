@@ -40,6 +40,11 @@ match_any_of:
   - { api_group: "admissionregistration.k8s.io", resource: "validatingadmissionpolicybindings",  verb: "create" }
   - { api_group: "admissionregistration.k8s.io", resource: "validatingadmissionpolicybindings",  verb: "update" }
   - { api_group: "admissionregistration.k8s.io", resource: "validatingadmissionpolicybindings",  verb: "patch" }
+  # delete/deletecollection: 정책·바인딩 삭제 = admission 검증 통째 무력화(가드레일 제거 핵심 벡터)
+  - { api_group: "admissionregistration.k8s.io", resource: "validatingadmissionpolicies",        verb: "delete" }
+  - { api_group: "admissionregistration.k8s.io", resource: "validatingadmissionpolicies",        verb: "deletecollection" }
+  - { api_group: "admissionregistration.k8s.io", resource: "validatingadmissionpolicybindings",  verb: "delete" }
+  - { api_group: "admissionregistration.k8s.io", resource: "validatingadmissionpolicybindings",  verb: "deletecollection" }
 
 # 5개 출처 매트릭스 매핑 (룰셋 검증 인덱스 2026-05-09 기준): RT만
 sources:

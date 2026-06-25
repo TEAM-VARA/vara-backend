@@ -371,10 +371,146 @@ func makeClusterAdminTransition(ruleID string) TransitionFunc {
 	}
 }
 
+// ----------------------------------------------------------------------------
+// 그룹 A 정밀화 (2026-06 패치): scope 인지 자가권한부여 + impersonate 분기.
+//
+// 기존엔 01/02/03 모두 makeClusterAdminTransition 으로 전역 cluster-admin(*,*,*)을
+// 흡수시켰다. 그러나:
+//   - escalate/bind 가 namespaced roles/(cluster)rolebindings 범위면 결과는
+//     namespace-admin 이지 cluster-admin 이 아니다.
+//   - impersonate 는 대상이 groups(system:masters)일 때만 cluster-admin 이고,
+//     serviceaccounts 면 그 SA 권한 흡수, users 면 그 사용자 권한(데이터 의존).
+// ----------------------------------------------------------------------------
+
+// absorbNamespaceAdmin — 특정 네임스페이스 한정 와일드카드 {*,*,*, ns=X} 흡수.
+// ClusterAdmin({*,*,*, ns=null}) 의 namespace 한정판. Covers() 의 namespaceCovers 로
+// 그 ns 안의 권한만 커버하며, R-INDIRECT-01(pods create) 등 ns 스코프 전이에 체인된다.
+func absorbNamespaceAdmin(sa snapshot.SAKey, ns string, viaTransition string, matchedPerms []Permission, emit TransitionEmit) {
+	nsAdmin := Permission{
+		APIGroup:       "*",
+		Resource:       "*",
+		Verb:           "*",
+		Namespace:      snapshot.S(ns),
+		ResourceName:   snapshot.Null(),
+		NonResourceURL: snapshot.Null(),
+	}
+	prov := MakeTransitionProvenance(viaTransition, saKey(sa), matchedPerms, "")
+	emit(sa, nsAdmin, prov)
+}
+
+// isClusterScopedRBACResource — 매치된 권한이 클러스터 스코프 RBAC 리소스인가.
+func isClusterScopedRBACResource(r string) bool {
+	return r == "clusterroles" || r == "clusterrolebindings" || r == "*"
+}
+
+// emitScopedAdmin — rolePerm(+선택 bindingPerm)의 스코프에 따라 cluster-admin 또는
+// namespace-admin 을 흡수. 둘 다 클러스터 스코프여야 cluster-admin.
+func emitScopedAdmin(sa snapshot.SAKey, ruleID string, matchGroup []Permission, rolePerm Permission, bindingPerm *Permission, emit TransitionEmit) {
+	clusterScope := isClusterScopedRBACResource(rolePerm.Resource)
+	if bindingPerm != nil {
+		clusterScope = clusterScope && isClusterScopedRBACResource(bindingPerm.Resource)
+	}
+	if clusterScope {
+		absorbClusterAdmin(sa, ruleID, matchGroup, emit)
+		return
+	}
+	// namespace 결정: 바인딩 perm(있으면)의 ns 우선, 없으면 role perm 의 ns.
+	ns := rolePerm.Namespace
+	if bindingPerm != nil && !bindingPerm.Namespace.IsNull {
+		ns = bindingPerm.Namespace
+	}
+	if ns.IsNull {
+		// namespaced 리소스인데 바인딩이 cluster-wide(ns 미상) → 전 네임스페이스 admin.
+		// 보수적으로 cluster-admin (체인상 어차피 도달).
+		absorbClusterAdmin(sa, ruleID, matchGroup, emit)
+		return
+	}
+	absorbNamespaceAdmin(sa, ns.Value, ruleID, matchGroup, emit)
+}
+
+// transitionRDirect01 — escalate on roles/clusterroles. clusterroles→cluster-admin, roles→namespace-admin.
+func transitionRDirect01(sa snapshot.SAKey, allPerms map[snapshot.SAKey]*PermissionSet, snap map[string]any, emit TransitionEmit) error {
+	m, err := matches("R-DIRECT-01", allPerms[sa])
+	if err != nil {
+		return err
+	}
+	for _, mg := range m {
+		// match_any_of → mg[0] = 매치된 escalate perm.
+		emitScopedAdmin(sa, "R-DIRECT-01", mg, mg[0], nil, emit)
+	}
+	return nil
+}
+
+// transitionRDirect02 — (bind) AND (create|update|patch on (cluster)rolebindings).
+func transitionRDirect02(sa snapshot.SAKey, allPerms map[snapshot.SAKey]*PermissionSet, snap map[string]any, emit TransitionEmit) error {
+	m, err := matches("R-DIRECT-02", allPerms[sa])
+	if err != nil {
+		return err
+	}
+	for _, mg := range m {
+		// match_all_of 순서: mg[0] = bind perm, mg[1] = 바인딩 생성/수정 perm.
+		bindPerm := mg[0]
+		var bindingPerm *Permission
+		if len(mg) > 1 {
+			bp := mg[1]
+			bindingPerm = &bp
+		}
+		emitScopedAdmin(sa, "R-DIRECT-02", mg, bindPerm, bindingPerm, emit)
+	}
+	return nil
+}
+
+// transitionRDirect03 — impersonate. groups(masters)→cluster-admin, serviceaccounts→대상 SA 흡수,
+// users→evidence-only(user RBAC 데이터 미보유). uids 는 룰에서 제거됨.
+func transitionRDirect03(sa snapshot.SAKey, allPerms map[snapshot.SAKey]*PermissionSet, snap map[string]any, emit TransitionEmit) error {
+	m, err := matches("R-DIRECT-03", allPerms[sa])
+	if err != nil {
+		return err
+	}
+	for _, mg := range m {
+		p := mg[0] // match_any_of → 단일 매치 perm
+		switch {
+		case p.Resource == "groups" || p.Resource == "*":
+			// 매처가 resource_names:["system:masters"] 로 masters/미제한만 통과 → cluster-admin.
+			absorbClusterAdmin(sa, "R-DIRECT-03", mg, emit)
+		case p.Resource == "serviceaccounts":
+			absorbImpersonatedSAs(sa, p, allPerms, "R-DIRECT-03", mg, emit)
+		default:
+			// users 등: user→RBAC 매핑 데이터 미보유로 정밀 흡수 불가 → 흡수 없음(evidence-only).
+		}
+	}
+	return nil
+}
+
+// absorbImpersonatedSAs — impersonate serviceaccounts 로 가장 가능한 SA(들)의 권한 흡수.
+// resourceName 지정 시 그 이름의 SA만(ns 지정 시 ns도 일치), 미지정이면 전 SA.
+func absorbImpersonatedSAs(callerSA snapshot.SAKey, matchedPerm Permission, allPerms map[snapshot.SAKey]*PermissionSet, viaTransition string, matchGroup []Permission, emit TransitionEmit) {
+	scoped := !matchedPerm.ResourceName.IsNull
+	for _, targetSA := range sortedSAKeys(allPerms) {
+		if targetSA == callerSA {
+			continue
+		}
+		if scoped {
+			if targetSA.Name != matchedPerm.ResourceName.Value {
+				continue
+			}
+			if !matchedPerm.Namespace.IsNull && targetSA.Namespace != matchedPerm.Namespace.Value {
+				continue
+			}
+		}
+		ps := allPerms[targetSA]
+		absorbedFrom := saKey(targetSA)
+		for _, perm := range ps.Iter() {
+			prov := MakeTransitionProvenance(viaTransition, saKey(callerSA), matchGroup, absorbedFrom)
+			emit(callerSA, perm, prov)
+		}
+	}
+}
+
 var (
-	TransitionRDirect01    = makeClusterAdminTransition("R-DIRECT-01")
-	TransitionRDirect02    = makeClusterAdminTransition("R-DIRECT-02")
-	TransitionRDirect03    = makeClusterAdminTransition("R-DIRECT-03")
+	TransitionRDirect01 TransitionFunc = transitionRDirect01
+	TransitionRDirect02 TransitionFunc = transitionRDirect02
+	TransitionRDirect03 TransitionFunc = transitionRDirect03
 	TransitionRIndirect07  = makeClusterAdminTransition("R-INDIRECT-07")
 	TransitionRIndirect08  = makeClusterAdminTransition("R-INDIRECT-08")
 	TransitionRIndirect09  = makeClusterAdminTransition("R-INDIRECT-09")
@@ -499,8 +635,9 @@ var GroupATransitions = []TransitionFunc{
 	TransitionRDirect03,
 	TransitionRIndirect07,
 	TransitionRIndirect08,
-	TransitionRIndirect09,
-	TransitionRIndirect18,
+	// R-INDIRECT-09(apiservices)·R-INDIRECT-18(VAP) unwired (2026-06):
+	// 직접 cluster-admin 도달이 아닌 가로채기/방어약화 → 엔진 미구동.
+	// var 선언은 유지(재활성·문서용). 카탈로그 engine_status=unwired 참고.
 }
 
 var GroupBTransitions = []TransitionFunc{
