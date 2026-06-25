@@ -101,6 +101,7 @@ func (h *LocalScoringHandler) GetByPod(c *gin.Context) {
 	if result == nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "local score not found",
+			"code":    "NOT_COMPUTED",
 			"hint":    "POST /api/v1/scoring/local/compute first",
 			"pod_uid": podUID,
 			"cluster": clusterName,

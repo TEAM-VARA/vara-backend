@@ -99,6 +99,7 @@ func (h *FinalScoringHandler) GetByPod(c *gin.Context) {
 	if result == nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "final score not found",
+			"code":    "NOT_COMPUTED",
 			"hint":    "POST /api/v1/scoring/final/compute first",
 			"pod_uid": podUID,
 			"cluster": clusterName,
