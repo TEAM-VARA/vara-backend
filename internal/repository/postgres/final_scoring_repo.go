@@ -445,6 +445,26 @@ func (r *FinalScoringRepo) GetByPodUID(ctx context.Context, clusterName, podUID 
 	return &res, nil
 }
 
+// ListClusterNames는 final_scores에 존재하는 모든 cluster_name을 반환합니다(전체 재계산 스크립트용).
+func (r *FinalScoringRepo) ListClusterNames(ctx context.Context) ([]string, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT DISTINCT cluster_name FROM final_scores ORDER BY cluster_name`)
+	if err != nil {
+		return nil, fmt.Errorf("list cluster names: %w", err)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan cluster name: %w", err)
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+
 // ListByCluster는 클러스터의 최신 결과를 모두 반환합니다.
 func (r *FinalScoringRepo) ListByCluster(ctx context.Context, clusterName string) ([]scoring.FinalScoreResult, error) {
 	var latest *time.Time

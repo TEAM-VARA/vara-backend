@@ -1317,16 +1317,25 @@ func (r *GRCRepo) GetLatestClusterComplianceResult(ctx context.Context, companyI
 	var itemsRaw json.RawMessage
 	var snapshotAt, evaluatedAt time.Time
 
+	// company_id는 선택 — cluster_name만으로도 조회 가능(GetLatestPodGraphEvalByPod와 동일 정책).
+	// 점수 가산 경로(FinalScoringService)는 company_id 없이 cluster_name으로만 호출한다.
 	query := `
 		SELECT company_id, cluster_name, snapshot_at, evaluated_at,
 		       total_items, compliant_items, non_compliant_items, needs_review_items,
 		       total_rules, total_pods, items
 		FROM grc_cluster_compliance_results
-		WHERE company_id = $1`
-	args := []any{companyID}
+		WHERE 1=1`
+	args := []any{}
+	argIdx := 1
+	if companyID != "" {
+		query += fmt.Sprintf(" AND company_id = $%d", argIdx)
+		args = append(args, companyID)
+		argIdx++
+	}
 	if clusterName != "" {
-		query += " AND cluster_name = $2"
+		query += fmt.Sprintf(" AND cluster_name = $%d", argIdx)
 		args = append(args, clusterName)
+		argIdx++
 	}
 	query += " ORDER BY created_at DESC LIMIT 1"
 

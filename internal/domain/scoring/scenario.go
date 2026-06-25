@@ -94,6 +94,11 @@ type PodScenarioResult struct {
 	RiskScore   float64 `json:"risk_score"`
 	RiskLevel   string  `json:"risk_level"`
 
+	// BlastRisk — 이 Pod의 전파 총위험도(blast_pair_risk.total_risk, src_uid별 MC 사전계산값).
+	// = Σ_B reach_prob(A→B) ("A가 털리면 닿는 파드 기대 개수"). risk_score(발생가능성)와 별개 축이다.
+	// RBAC/NetworkPolicy/Mount 보완은 이 blast_risk를 내린다(reach 재계산 기반, scenario_blastreduction.go).
+	BlastRisk float64 `json:"blast_risk"`
+
 	// ★ 페이지에 그대로 출력되는 줄글
 	AttackScenario string `json:"attack_scenario"`
 	Mitigation     string `json:"mitigation"`

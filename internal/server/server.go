@@ -123,6 +123,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	rulesetStore := service.NewRulesetStore("rulesets")
 	embClient := embedding.NewClient(os.Getenv("EMBEDDING_SERVER_URL"))
 	grcSvc := service.NewGRCService(grcRepo, clusterReaderRepo, rulesetStore, embClient, vlmClient)
+	// Final Score에 ISMS-P 미준수 가산을 반영하도록 grc 제공자 주입(Risk Scoring/공격 시나리오/그래프 노드 일치).
+	finalScoringSvc.SetISMSPAddender(grcSvc)
 	// 이전 컨테이너 재시작으로 중단된 running/queued 체크를 failed로 초기화
 	{
 		resetCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -168,7 +170,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	// CVE narrative enrichment(설계서 §4): per-CVE 추출·캐시. nil-safe(의존성 미가동 시 generic 폴백).
 	cveEnrichmentRepo := postgres.NewCVEEnrichmentRepo(pg)
 	cveEnrichmentSvc := service.NewCVEEnrichmentService(cveEnrichmentRepo, globalScoringRepo, nvdClient, advisoryClient, vlmClient)
-	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo, blastEdgesRepo, exposureSvc, rbacChainSvc, grcSvc, cveEnrichmentSvc)
+	scenarioSvc := service.NewScenarioService(attackPathSvc, finalScoringSvc, globalScoringRepo, blastEdgesRepo, exposureSvc, rbacChainSvc, grcSvc, cveEnrichmentSvc, pg)
 	scenarioH := handler.NewScenarioHandler(scenarioSvc)
 	blastGraph := &service.BlastGraphHandler{Pool: pg}
 
