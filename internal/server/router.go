@@ -165,6 +165,7 @@ func newRouter(
 
 		// ── SBOM Packages (작업 B-5) ──
 		// 정적 경로를 동적 경로보다 먼저 등록
+		api.GET("/scoring/cves", packageVuln.TopCVEs) // 클러스터 CVE 랭킹(심각도순) — Risk Scoring CVE 목록 탭
 		api.GET("/sboms/packages/vulnerabilities/search", packageVuln.SearchByVulnID)
 		api.GET("/sboms/packages/vulnerabilities/by-purl", packageVuln.ListByPURL)
 		api.GET("/sboms/packages/vulnerabilities/timeline/pods/:pod_uid", packageVuln.CVETimelineByPod)

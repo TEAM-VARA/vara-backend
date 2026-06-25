@@ -567,3 +567,58 @@ func (r *PackageVulnerabilityRepo) ListRecentlyAdded(
 
 	return scanVulns(rows)
 }
+
+// ListClusterCVEsRanked: 클러스터 최신 스냅샷 Pod 들에 존재하는 CVE 를
+// 심각도(KEV → CVSS → EPSS) 순으로 랭킹해 반환. (Risk Scoring "전체 CVE 랭킹" 탭)
+func (r *PackageVulnerabilityRepo) ListClusterCVEsRanked(ctx context.Context, clusterName string, limit int) ([]sbom.ClusterCVE, error) {
+	const q = `
+		WITH latest_pods AS (
+			SELECT pod_uid, jsonb_array_elements(containers)->>'image' AS pod_image
+			FROM cluster_pods
+			WHERE cluster_name = $1
+			  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
+			  AND name NOT LIKE 'tetragon%'
+			  AND name NOT LIKE 'ebs-csi-node%'
+		),
+		pod_images AS (
+			SELECT DISTINCT lp.pod_uid, s.image_digest
+			FROM latest_pods lp
+			JOIN sboms s ON s.image = lp.pod_image
+		),
+		cve_rows AS (
+			SELECT pv.vuln_id, pi.pod_uid,
+			       pv.severity_score, pv.severity_label, pv.summary
+			FROM package_vulnerabilities pv
+			JOIN sbom_packages sp ON sp.purl = pv.purl
+			JOIN pod_images pi ON pi.image_digest = sp.image_digest
+			WHERE pv.withdrawn_at IS NULL
+		)
+		SELECT cr.vuln_id,
+		       COALESCE(MAX(cr.severity_label), '') AS severity_label,
+		       COALESCE(MAX(cr.severity_score), 0)::float8 AS cvss,
+		       MAX(COALESCE(g.epss_score, 0))::float8 AS epss,
+		       BOOL_OR(COALESCE(g.in_kev, false)) AS in_kev,
+		       COUNT(DISTINCT cr.pod_uid) AS affected_pods,
+		       COALESCE(MAX(cr.summary), '') AS summary
+		FROM cve_rows cr
+		LEFT JOIN cve_global_scores g ON g.cve_id = cr.vuln_id
+		GROUP BY cr.vuln_id
+		ORDER BY in_kev DESC, cvss DESC, epss DESC, affected_pods DESC
+		LIMIT $2`
+
+	rows, err := r.pool.Query(ctx, q, clusterName, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list cluster cves ranked: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]sbom.ClusterCVE, 0, limit)
+	for rows.Next() {
+		var c sbom.ClusterCVE
+		if err := rows.Scan(&c.VulnID, &c.SeverityLabel, &c.CVSS, &c.EPSS, &c.InKEV, &c.AffectedPods, &c.Summary); err != nil {
+			return nil, fmt.Errorf("scan cluster cve: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
