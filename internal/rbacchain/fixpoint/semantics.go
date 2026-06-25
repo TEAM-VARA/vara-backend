@@ -313,6 +313,43 @@ func absorbNSSAs(
 	}
 }
 
+// absorbNamedSAInNS — absorbNSSAs 의 resourceName-narrow 판: 대상 namespace(들)에서
+// 이름이 일치하는 SA만 흡수. R-INDIRECT-06 의 serviceaccounts/token resourceNames 좁힘용.
+func absorbNamedSAInNS(
+	callerSA snapshot.SAKey,
+	targetNS snapshot.NullString,
+	saName string,
+	allPerms map[snapshot.SAKey]*PermissionSet,
+	snap map[string]any,
+	viaTransition string,
+	matchedPerms []Permission,
+	emit TransitionEmit,
+) {
+	var targetNSList []string
+	if targetNS.IsNull {
+		targetNSList = allNamespaces(snap)
+		sort.Strings(targetNSList)
+	} else {
+		targetNSList = []string{targetNS.Value}
+	}
+	for _, ns := range targetNSList {
+		for _, targetSA := range sasInNamespace(snap, ns) {
+			if targetSA.Name != saName {
+				continue
+			}
+			ps, ok := allPerms[targetSA]
+			if !ok {
+				continue
+			}
+			absorbedFrom := saKey(targetSA)
+			for _, absorbedPerm := range ps.Iter() {
+				prov := MakeTransitionProvenance(viaTransition, saKey(callerSA), matchedPerms, absorbedFrom)
+				emit(callerSA, absorbedPerm, prov)
+			}
+		}
+	}
+}
+
 func absorbPodSA(
 	callerSA snapshot.SAKey,
 	targetPod map[string]any,
@@ -535,11 +572,31 @@ func makeNSAbsorbTransition(ruleID string) TransitionFunc {
 	}
 }
 
+// transitionRIndirect06 — serviceaccounts/token create. resourceNames 미지정이면 ns 전체 SA 흡수
+// (기존 makeNSAbsorbTransition 과 동일 동작), 지정이면 그 이름의 SA만 흡수. serviceaccounts/token 은
+// 서브리소스라 create 도 resourceName 으로 좁힐 수 있고 K8s authorizer 가 이를 강제한다.
+// 다른 그룹 B 룰(01/04/17, makeNSAbsorbTransition)과 그룹 A 에는 영향 없음.
+func transitionRIndirect06(sa snapshot.SAKey, allPerms map[snapshot.SAKey]*PermissionSet, snap map[string]any, emit TransitionEmit) error {
+	mtch, err := matches("R-INDIRECT-06", allPerms[sa])
+	if err != nil {
+		return err
+	}
+	for _, mg := range mtch {
+		tp := mg[0]
+		if tp.ResourceName.IsNull {
+			absorbNSSAs(sa, tp.Namespace, allPerms, snap, "R-INDIRECT-06", mg, emit)
+		} else {
+			absorbNamedSAInNS(sa, tp.Namespace, tp.ResourceName.Value, allPerms, snap, "R-INDIRECT-06", mg, emit)
+		}
+	}
+	return nil
+}
+
 var (
-	TransitionRIndirect01 = makeNSAbsorbTransition("R-INDIRECT-01")
-	TransitionRIndirect04 = makeNSAbsorbTransition("R-INDIRECT-04")
-	TransitionRIndirect06 = makeNSAbsorbTransition("R-INDIRECT-06")
-	TransitionRIndirect17 = makeNSAbsorbTransition("R-INDIRECT-17")
+	TransitionRIndirect01                = makeNSAbsorbTransition("R-INDIRECT-01")
+	TransitionRIndirect04                = makeNSAbsorbTransition("R-INDIRECT-04")
+	TransitionRIndirect06 TransitionFunc = transitionRIndirect06
+	TransitionRIndirect17                = makeNSAbsorbTransition("R-INDIRECT-17")
 )
 
 // ----------------------------------------------------------------------------
