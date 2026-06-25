@@ -8,9 +8,9 @@
 # nonResourceURLs: 무시.
 # match_any_of: triple 중 하나라도 grant되면 매치 (OR).
 #
-# R-INDIRECT-15 단독 매칭 결정 (2026-05-10):
-# 1 triple. PV create 단독으로 hostPath PV → host 파일시스템 마운트 → 노드 탈출
-# 가능. 단독 매치로 충분.
+# R-INDIRECT-15 매칭 결정 (2026-05-10, 2026-06 발판 게이트 추가):
+# PV create + pods create (match_all). PV create 단독은 hostPath PV를 만들 뿐, 그걸
+# 마운트할 Pod를 못 띄우면 공격 미완성 → 노드-읽기 발판(hostPath Pod=pods create) 함께 요구.
 #
 # 도달 모델:
 #   1) attacker가 PV create 권한으로 hostPath: { path: "/" } 같은 PV 생성
@@ -30,14 +30,21 @@
 #   PV는 클러스터 스코프 — RoleBinding으로는 부여 불가, ClusterRoleBinding 필요.
 #     매처는 binding 종류 무관하게 grant 자체를 봄.
 
-schema_version: "0.1"
+schema_version: "1.0"
 id: R-INDIRECT-15
-description: "create on persistentvolumes -> hostPath PV로 host 파일시스템 마운트, 같은 노드 토큰 탈취"
+description: "create persistentvolumes AND create pods(발판) -> hostPath PV로 노드 파일시스템 마운트, 같은 노드 토큰 탈취"
 category: indirect
 severity: critical
 
-match_any_of:
-  - { api_group: "", resource: "persistentvolumes", verb: "create" }
+match_all_of:
+  # (1) hostPath PV 생성
+  - api_group: ""
+    resource:  "persistentvolumes"
+    verb:      "create"
+  # (2) 노드-읽기 발판: PVC를 마운트할 Pod(hostPath)를 띄울 수 있어야 함. 없으면 PV만으론 미완성.
+  - api_group: ""
+    resource:  "pods"
+    verb:      "create"
 
 # 5개 출처 매트릭스 매핑 (룰셋 검증 인덱스 2026-05-09 기준): K8s + RT
 # (KS, KR, RP는 별도 룰로 다루지 않음)
