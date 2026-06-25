@@ -654,9 +654,47 @@ func makeAllPodsTransition(ruleID string) TransitionFunc {
 	}
 }
 
+// transitionRIndirect11 — nodes/proxy get/create. nodes/proxy 는 서브리소스라 resourceNames 로
+// 특정 노드만 좁힐 수 있고, kubelet API 는 그 노드 위의 *실행 중* Pod 에만 닿는다.
+// resourceNames 지정 시 그 노드의 running Pod SA 만, 미지정(전 노드)이면 모든 running Pod SA 흡수.
+// makeAllPodsTransition(R-INDIRECT-15 가 계속 사용)·absorbAllPodsSA(R-INDIRECT-19 공유)는 무수정.
+func transitionRIndirect11(sa snapshot.SAKey, allPerms map[snapshot.SAKey]*PermissionSet, snap map[string]any, emit TransitionEmit) error {
+	mtch, err := matches("R-INDIRECT-11", allPerms[sa])
+	if err != nil {
+		return err
+	}
+	for _, mg := range mtch {
+		node := "" // "" = 전 노드
+		if !mg[0].ResourceName.IsNull {
+			node = mg[0].ResourceName.Value
+		}
+		absorbRunningPodsOnNode(sa, node, allPerms, snap, "R-INDIRECT-11", mg, emit)
+	}
+	return nil
+}
+
+// absorbRunningPodsOnNode — node=="" 면 전 노드의 running Pod, 지정 시 그 노드(spec.nodeName)의
+// running Pod 만 그 SA 를 흡수. spec.nodeName 은 스냅샷에 이미 수집됨(snapshot_build.go).
+func absorbRunningPodsOnNode(callerSA snapshot.SAKey, node string, allPerms map[snapshot.SAKey]*PermissionSet, snap map[string]any, viaTransition string, matchedPerms []Permission, emit TransitionEmit) {
+	pods, _ := snap["pods"].([]any)
+	for _, e := range pods {
+		pod, _ := e.(map[string]any)
+		if pod == nil || !podIsRunning(pod) {
+			continue
+		}
+		if node != "" {
+			podSpec, _ := pod["spec"].(map[string]any)
+			if getStringFromMap(podSpec, "nodeName") != node {
+				continue
+			}
+		}
+		absorbPodSA(callerSA, pod, allPerms, viaTransition, matchedPerms, emit)
+	}
+}
+
 var (
-	TransitionRIndirect11 = makeAllPodsTransition("R-INDIRECT-11")
-	TransitionRIndirect15 = makeAllPodsTransition("R-INDIRECT-15")
+	TransitionRIndirect11 TransitionFunc = transitionRIndirect11
+	TransitionRIndirect15                = makeAllPodsTransition("R-INDIRECT-15")
 )
 
 // ----------------------------------------------------------------------------
