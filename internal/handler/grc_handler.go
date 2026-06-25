@@ -855,11 +855,7 @@ func (h *GRCHandler) GetPodCompliance(c *gin.Context) {
 		return
 	}
 
-	companyID := c.Query("company_id")
-	if companyID == "" {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
-		return
-	}
+	companyID := c.Query("company_id")     // optional — cluster_name으로도 조회 가능
 	clusterName := c.Query("cluster_name") // optional
 	namespace := c.Query("namespace")      // optional
 
@@ -908,11 +904,7 @@ func (h *GRCHandler) GetPodViolations(c *gin.Context) {
 		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "pod_name 필수")
 		return
 	}
-	companyID := c.Query("company_id")
-	if companyID == "" {
-		grcError(c, http.StatusBadRequest, "INVALID_REQUEST", "company_id 필수")
-		return
-	}
+	companyID := c.Query("company_id")     // optional — cluster_name으로도 조회 가능
 	clusterName := c.Query("cluster_name") // optional
 	namespace := c.Query("namespace")      // optional
 

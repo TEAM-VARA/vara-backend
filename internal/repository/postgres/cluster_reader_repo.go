@@ -785,6 +785,34 @@ func (r *ClusterReaderRepo) GetPodByName(ctx context.Context, clusterName, names
 	return &p, nil
 }
 
+// LookupPodByUID resolves a pod UID (full UUID or short hex prefix) to its
+// name+namespace via pod_master. 프론트가 pod을 UID로 식별하는 경우 GRC 조회를
+// 위해 이름으로 변환한다. clusterName이 비면 클러스터 무관 조회. found=false면 미발견.
+func (r *ClusterReaderRepo) LookupPodByUID(ctx context.Context, clusterName, uid string) (name, namespace string, found bool) {
+	if uid == "" {
+		return "", "", false
+	}
+	var q string
+	args := []any{}
+	if len(uid) == 36 { // full UUID → 정확 매칭
+		q = `SELECT name, COALESCE(namespace,'') FROM pod_master WHERE pod_uid = $1`
+		args = append(args, uid)
+	} else { // short prefix (예: 8b4f732c) → 접두 매칭
+		q = `SELECT name, COALESCE(namespace,'') FROM pod_master WHERE pod_uid LIKE $1`
+		args = append(args, uid+"%")
+	}
+	if clusterName != "" {
+		q += fmt.Sprintf(" AND cluster_name = $%d", len(args)+1)
+		args = append(args, clusterName)
+	}
+	q += " AND deleted_at IS NULL ORDER BY last_seen_at DESC LIMIT 1"
+
+	if err := r.pg.QueryRow(ctx, q, args...).Scan(&name, &namespace); err != nil {
+		return "", "", false
+	}
+	return name, namespace, true
+}
+
 // PodMasterRow holds lifecycle metadata from the pod_master table.
 type PodMasterRow struct {
 	FirstSeenAt time.Time

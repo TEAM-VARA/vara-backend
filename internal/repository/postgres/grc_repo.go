@@ -1167,10 +1167,16 @@ func (r *GRCRepo) GetLatestPodGraphEvalByPod(ctx context.Context, companyID, clu
 		SELECT id, company_id, cluster_name, pod_name, namespace,
 		       overall_verdict, total_rules, passed, failed, skipped, created_at
 		FROM grc_pod_graph_evaluations
-		WHERE company_id = $1 AND pod_name = $2`
-	args := []any{companyID, podName}
-	argIdx := 3
+		WHERE pod_name = $1`
+	args := []any{podName}
+	argIdx := 2
 
+	// company_id는 선택 — 프론트가 cluster_name으로만 조회하는 경우를 지원.
+	if companyID != "" {
+		query += fmt.Sprintf(" AND company_id = $%d", argIdx)
+		args = append(args, companyID)
+		argIdx++
+	}
 	if clusterName != "" {
 		query += fmt.Sprintf(" AND cluster_name = $%d", argIdx)
 		args = append(args, clusterName)

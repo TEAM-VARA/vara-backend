@@ -1078,6 +1078,31 @@ func (s *GRCService) expectedRuleCount(itemID string) int {
 	return n
 }
 
+// podUIDRe matches a full UUID or a short hex prefix(8+). 일반 pod 이름은 비-hex
+// 문자(s,t,v,r 등)를 포함하므로 이 패턴에 안 걸린다 → UID와 이름을 안전하게 구분.
+var podUIDRe = regexp.MustCompile(`^[0-9a-f]{8}(-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$`)
+
+// resolvePodIdentifier converts a pod identifier that may be a UID(full/short)
+// into the actual pod_name(+namespace) via pod_master. UID가 아니면(=이름이면)
+// 원본을 그대로 돌려준다. 프론트가 pod을 UID로 식별하는 경우를 백엔드에서 흡수.
+func (s *GRCService) resolvePodIdentifier(ctx context.Context, clusters []string, identifier string) (name, namespace string) {
+	if identifier == "" || !podUIDRe.MatchString(identifier) || s.clusterRepo == nil {
+		return identifier, ""
+	}
+	for _, cl := range clusters {
+		if cl == "" {
+			continue
+		}
+		if n, ns, ok := s.clusterRepo.LookupPodByUID(ctx, cl, identifier); ok {
+			return n, ns
+		}
+	}
+	if n, ns, ok := s.clusterRepo.LookupPodByUID(ctx, "", identifier); ok { // cluster 무관 폴백
+		return n, ns
+	}
+	return identifier, "" // 못 찾으면 원본 유지(이름일 수도)
+}
+
 // hasK8sNativeRules reports whether an item's ruleset defines any K8s 자동측정 룰
 // (judgment_source k8s_api/k8s_native). 이런 항목을 "인프라"로 보고 준수/미준수 이진 판정한다.
 func (s *GRCService) hasK8sNativeRules(itemID string) bool {
@@ -1270,14 +1295,26 @@ type PodComplianceResult struct {
 // GetPodCompliance filters the latest cluster finding summary for findings
 // that affect the specified pod, based on AffectedResources.
 func (s *GRCService) GetPodCompliance(ctx context.Context, companyID, clusterName, namespace, podName string) (*PodComplianceResult, error) {
+	// pod 식별자가 UID(프론트)면 이름으로 변환, company_id 자리의 cluster명도 수용.
+	cluster := clusterName
+	if cluster == "" {
+		cluster = companyID
+	}
+	if name, ns := s.resolvePodIdentifier(ctx, []string{clusterName, companyID}, podName); name != "" {
+		podName = name
+		if namespace == "" {
+			namespace = ns
+		}
+	}
+
 	result := &PodComplianceResult{
 		PodName:     podName,
 		Namespace:   namespace,
-		ClusterName: clusterName,
+		ClusterName: cluster,
 	}
 
-	// Build rule_compliance from R-rule pod graph evaluation (most recent snapshot)
-	podEval, err := s.repo.GetLatestPodGraphEvalByPod(ctx, companyID, clusterName, namespace, podName)
+	// Build rule_compliance from R-rule pod graph evaluation (company_id 무시 — cluster+pod_name 매칭)
+	podEval, err := s.repo.GetLatestPodGraphEvalByPod(ctx, "", cluster, namespace, podName)
 	if err == nil && podEval != nil {
 		result.Summary.RuleCompliance = RuleComplianceSummary{
 			Compliant:    podEval.Passed,
@@ -1411,17 +1448,35 @@ type PodViolationsResult struct {
 
 // GetPodViolations returns ISMS-P items that a specific pod violates.
 func (s *GRCService) GetPodViolations(ctx context.Context, companyID, clusterName, namespace, podName string) (*PodViolationsResult, error) {
-	if companyID == "" {
-		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
-	}
 	if podName == "" {
 		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "pod_name 필수", HTTPStatus: 400}
 	}
 
-	// 1. Get latest evaluation metadata
-	evalItem, err := s.repo.GetLatestPodGraphEvalByPod(ctx, companyID, clusterName, namespace, podName)
+	// pod 식별자가 UID(프론트)면 이름으로 변환. cluster 후보로 company_id도 받는다
+	// (프론트가 company_id 자리에 cluster명을 넣는 경우 수용).
+	cluster := clusterName
+	if cluster == "" {
+		cluster = companyID
+	}
+	if name, ns := s.resolvePodIdentifier(ctx, []string{clusterName, companyID}, podName); name != "" {
+		podName = name
+		if namespace == "" {
+			namespace = ns
+		}
+	}
+
+	// 1. Get latest evaluation metadata (company_id 무시 — cluster+pod_name로 매칭)
+	evalItem, err := s.repo.GetLatestPodGraphEvalByPod(ctx, "", cluster, namespace, podName)
 	if err != nil {
-		return nil, &GRCError{Code: "NOT_FOUND", Message: fmt.Sprintf("Pod 평가 결과 없음: %v", err), HTTPStatus: 404}
+		// 평가 결과가 없는 파드(미평가 또는 위반 없음)는 에러가 아니라 빈 결과로 응답한다.
+		// (FE가 파드 클릭 시 404 콘솔 에러를 내지 않도록 — 위반 0건과 동일하게 취급)
+		return &PodViolationsResult{
+			PodName:        podName,
+			Namespace:      namespace,
+			ClusterName:    cluster,
+			OverallVerdict: "평가없음",
+			ViolatedItems:  []PodViolatedISMSPItem{},
+		}, nil
 	}
 
 	// 2. Get full rule_results
