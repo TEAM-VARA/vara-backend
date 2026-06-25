@@ -73,6 +73,7 @@ func newRouter(
 		api.POST("/agents/aws-reader/security-groups", awsReader.SecurityGroups)
 		api.POST("/agents/aws-reader/kms-keys", awsReader.KmsKeys)
 		api.POST("/agents/aws-reader/cloudtrail-trails", awsReader.CloudTrailTrails)
+		api.POST("/agents/aws-reader/iam-authorization", awsReader.IamAuthorization)
 
 		api.POST("/agents/cluster-reader/pod-events", agent.PodEvents)
 		api.POST("/agents/ebpf/traffic", agent.Traffic)

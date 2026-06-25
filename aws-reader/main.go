@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"net/http"
 	"os"
 	"time"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -98,6 +101,7 @@ func main() {
 	ec2c := ec2.NewFromConfig(cfg)
 	kmsClient := kms.NewFromConfig(cfg)
 	ctClient := cloudtrail.NewFromConfig(cfg)
+	iamClient := iam.NewFromConfig(cfg)
 
 	log.Printf("aws-reader starting (region=%s, account=%s, backend=%s, interval=%s)", region, accountID, backendURL, interval)
 
@@ -110,6 +114,9 @@ func main() {
 		}
 		if err := collectAndSendCloudTrail(ctx, ctClient, backendURL, accountID, region); err != nil {
 			log.Printf("[cloudtrail] error: %v", err)
+		}
+		if err := collectAndSendIam(ctx, iamClient, backendURL, accountID); err != nil {
+			log.Printf("[iam] error: %v", err)
 		}
 	}
 	run() // 즉시 1회
@@ -272,4 +279,114 @@ func collectAndSendCloudTrail(ctx context.Context, ctc *cloudtrail.Client, backe
 	}
 	log.Printf("[cloudtrail] sent: %d trails", len(trails))
 	return nil
+}
+
+// ───────────────────────── IAM Authorization ─────────────────────────
+// 기존 SG/KMS/CloudTrail 과 다른 점:
+//   1) payload 에 Region 없음 (IAM 은 글로벌)
+//   2) 응답 원소를 필드별로 매핑하지 않고 통째로 Marshal (RawMessage 로 전송)
+//   3) Marshal 전에 정책 문서 URL 디코딩 필수 (Go SDK 는 자동 디코딩 안 함)
+type iamPayload struct {
+	AccountID    string          `json:"account_id"`
+	AccountAlias string          `json:"account_alias"`
+	Partition    string          `json:"partition"`
+	SnapshotAt   time.Time       `json:"snapshot_at"`
+	CapturedBy   string          `json:"captured_by"`
+	UserDetailList  json.RawMessage `json:"user_detail_list"`
+	RoleDetailList  json.RawMessage `json:"role_detail_list"`
+	GroupDetailList json.RawMessage `json:"group_detail_list"`
+	Policies        json.RawMessage `json:"policies"`
+}
+
+func collectAndSendIam(ctx context.Context, ic *iam.Client, backendURL, accountID string) error {
+	// 4종 리스트를 페이지네이션 끝까지 누적
+	var users, roles, groups, policies []any
+	pager := iam.NewGetAccountAuthorizationDetailsPaginator(ic,
+		&iam.GetAccountAuthorizationDetailsInput{
+			Filter: []iamtypes.EntityType{
+				iamtypes.EntityTypeUser, iamtypes.EntityTypeRole, iamtypes.EntityTypeGroup,
+				iamtypes.EntityTypeLocalManagedPolicy, iamtypes.EntityTypeAWSManagedPolicy,
+			},
+		})
+	for pager.HasMorePages() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		users = append(users, toDecodedJSON(page.UserDetailList)...)
+		roles = append(roles, toDecodedJSON(page.RoleDetailList)...)
+		groups = append(groups, toDecodedJSON(page.GroupDetailList)...)
+		policies = append(policies, toDecodedJSON(page.Policies)...)
+	}
+
+	body := iamPayload{
+		AccountID:       accountID,
+		SnapshotAt:      time.Now().UTC(),
+		CapturedBy:      "iam-agent/1.0",
+		UserDetailList:  ensureArray(users),
+		RoleDetailList:  ensureArray(roles),
+		GroupDetailList: ensureArray(groups),
+		Policies:        ensureArray(policies),
+	}
+	buf, _ := json.Marshal(body)
+	resp, err := http.Post(backendURL+"/api/v1/agents/aws-reader/iam-authorization", "application/json", bytes.NewReader(buf))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("backend status %d", resp.StatusCode)
+	}
+	log.Printf("[iam] sent: users=%d roles=%d groups=%d policies=%d",
+		len(users), len(roles), len(groups), len(policies))
+	return nil
+}
+
+// SDK 구조체를 generic JSON 으로 바꾼 뒤, 정책 문서 문자열을 객체로 펼친다.
+func toDecodedJSON(v any) []any {
+	b, _ := json.Marshal(v)
+	var arr []any
+	_ = json.Unmarshal(b, &arr)
+	for i := range arr {
+		arr[i] = decodeDocs(arr[i])
+	}
+	return arr
+}
+
+// PolicyDocument / Document / AssumeRolePolicyDocument 의 URL 인코딩 문자열을
+// JSON 객체로 디코딩(재귀). ← Go SDK 가 안 풀어주는 그 함정 처리.
+func decodeDocs(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, val := range x {
+			if s, ok := val.(string); ok &&
+				(k == "PolicyDocument" || k == "Document" || k == "AssumeRolePolicyDocument") {
+				if dec, e := url.QueryUnescape(s); e == nil {
+					var obj any
+					if json.Unmarshal([]byte(dec), &obj) == nil {
+						x[k] = obj
+						continue
+					}
+				}
+			}
+			x[k] = decodeDocs(val)
+		}
+		return x
+	case []any:
+		for i := range x {
+			x[i] = decodeDocs(x[i])
+		}
+		return x
+	}
+	return v
+}
+
+// nil 슬라이스를 JSON "[]" 로 강제 (테이블 CHECK chk_*_is_array 통과용).
+// var arr []any 를 그냥 Marshal 하면 "null" → CHECK 위반으로 INSERT 터짐.
+func ensureArray(v []any) json.RawMessage {
+	if v == nil {
+		return json.RawMessage("[]")
+	}
+	b, _ := json.Marshal(v)
+	return b
 }
