@@ -67,6 +67,7 @@ services:
       EMBEDDING_SERVER_URL: http://embedding:9000/embed
       CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-haiku-4-5-20251001}
       GRC_CHECK_TIMEOUT_MIN: ${GRC_CHECK_TIMEOUT_MIN:-60}
+      RBAC_CHAIN_INCLUDE_EKS: ${RBAC_CHAIN_INCLUDE_EKS:-true}  # EKS aws-auth 룰(R-INDIRECT-16) 활성
     ports:
       - "8080:8080"
     volumes:
