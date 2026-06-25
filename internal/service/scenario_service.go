@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/vara/backend/internal/domain/scoring"
 	"github.com/vara/backend/internal/repository/postgres"
 )
@@ -22,6 +24,7 @@ type ScenarioService struct {
 	rbacChain  *RBACChainService           // 정밀 verb·resource (create workload / write webhook / delete events)
 	grc        *GRCService                 // ISMS-P 미준수 가산(상3/중2/하1) breakdown — 보완 시 가산 차감용(없으면 ISMS 차감 생략)
 	enrich     *CVEEnrichmentService       // CVE narrative enrichment(설계서 §4). nil 허용(generic 폴백).
+	pool       *pgxpool.Pool               // blast_pair_risk(total_risk) 읽기 + blast_edges(reach 재계산) 로드용. nil 허용(blast 0).
 }
 
 // NewScenarioService — attack-path + final-score + global(CVE) + blast(전파 엣지)
@@ -36,10 +39,11 @@ func NewScenarioService(
 	rc *RBACChainService,
 	grc *GRCService,
 	enrich *CVEEnrichmentService,
+	pool *pgxpool.Pool,
 ) *ScenarioService {
 	return &ScenarioService{
 		attackPath: ap, finalScore: fs, globalRepo: gr, blastRepo: br,
-		exposure: ex, rbacChain: rc, grc: grc, enrich: enrich,
+		exposure: ex, rbacChain: rc, grc: grc, enrich: enrich, pool: pool,
 	}
 }
 
@@ -83,13 +87,13 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, companyID, cluster, p
 	}
 
 	// ── final_scores: RiskScore/RiskLevel + pod 대표 CVE(UsedTopCVE) ──
-	// 저장된 final_scores를 읽지 않고 ComputeForPod로 즉시 재계산한다.
-	// 이유: 저장된 final_scores.toxic_multiplier는 배치 경로(LoadMultipliersForCluster의
-	// cluster-wide MAX(snapshot_at) 필터) 때문에 1.0으로 덮여 있을 수 있다. ComputeForPod는
-	// per-pod GetMultiplier(pod별 최신 1건)로 toxic을 robust하게 적용하므로 risk scoring 탭과 일치한다.
-	// best-effort: 재계산 실패는 시나리오 생성을 막지 않는다.
+	// risk_score는 "Risk Score 탭"이 보여주는 값과 정확히 동일해야 하므로, 즉시 재계산(ComputeForPod)이
+	// 아니라 저장된 final_scores를 그대로 읽는다(GetByPodUID). 탭(GET /scoring/final/...)도 같은 저장값을
+	// 읽으므로 두 화면의 점수가 어긋나지 않는다. GetByPodUID는 used_top_cve·global_image_score·
+	// toxic_multiplier까지 반환하므로 CVE enrichment·reduction 입력도 그대로 충족된다.
+	// best-effort: 미계산(행 없음)이면 점수 없이 진행(탭도 동일하게 비어 있음 — POST /scoring/final/compute 선행 필요).
 	if s.finalScore != nil {
-		if fin, ferr := s.finalScore.ComputeForPod(ctx, cluster, podUID); ferr == nil && fin != nil {
+		if fin, ferr := s.finalScore.GetByPodUID(ctx, cluster, podUID); ferr == nil && fin != nil {
 			in.RiskScore = fin.FinalScore
 			in.RiskLevel = fin.RiskLevel
 			s.enrichCVE(ctx, &in, fin.UsedTopCVE)
@@ -157,6 +161,11 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, companyID, cluster, p
 
 	res := scoring.BuildPodScenario(in)
 
+	// ── blast_risk: blast_pair_risk.total_risk(src_uid별 MC 사전계산값) + reach 재계산용 blast_edges 1회 로드 ──
+	// best-effort: 미계산/조회 실패면 blast_risk=0 + 모든 blast 하락 0(시나리오 생성은 계속). pool nil도 안전.
+	br := loadBlastReducer(ctx, s.pool, cluster, podUID)
+	res.BlastRisk = br.shown
+
 	// ── 1홉 전파(hops): 이 pod이 바로 옆 pod으로 어떻게 옮겨가나 — 엣지마다 채널별 시나리오 ──
 	// origin/BFS 없음. 프론트가 pod마다 호출해 source_uid→target_uid로 전체 그래프를 합친다.
 	if len(outEdges) > 0 {
@@ -172,12 +181,17 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, companyID, cluster, p
 		res.Hops = scoring.BuildOutgoingScenarios(hopEdges)
 	}
 
-	// 보완별 risk score 하락량(before/after/delta) 부착 — 재계산 방식.
-	s.attachRiskReductions(ctx, cluster, podUID, &res)
+	// 보완별 하락량(before/after/delta) 부착 — 재계산 방식.
+	// CVE·외부노출 → risk_score(Final), RBAC/NetworkPolicy/Mount → blast_risk(total_risk).
+	s.attachRiskReductions(ctx, cluster, podUID, &res, br)
 
 	// granular 보완 항목/그룹(per-CVE·per-permission·per-setting + 항목별 reduction)
 	// + ISMS-P 가산 차감 부착(companyID 있을 때)
 	s.buildRemediation(ctx, companyID, cluster, podUID, &res)
+
+	// granular 항목/그룹의 RBAC/Mount/NetworkPolicy 하락을 blast 축(total_risk 재계산)으로 덮어쓴다.
+	// (buildRemediation 뒤에 — 항목이 채워진 다음에 적용. CVE·외부노출은 risk 축 그대로 둠.)
+	s.attachBlastReductionsToItems(&res, br)
 
 	return &res, nil
 }

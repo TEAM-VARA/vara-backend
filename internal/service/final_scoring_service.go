@@ -5,9 +5,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/vara/backend/internal/domain/grc"
 	"github.com/vara/backend/internal/domain/scoring"
 	"github.com/vara/backend/internal/repository/postgres"
 )
+
+// ismspAddender는 ISMS-P 미준수 가산을 FinalScore에 반영하기 위한 최소 인터페이스다.
+// *GRCService가 이를 만족한다. nil이면(미주입) 가산은 건너뛴다 — 기존 동작 불변.
+type ismspAddender interface {
+	ComputePodISMSPAddend(ctx context.Context, companyID, clusterName, namespace, podName string) *ISMSPRiskBreakdown
+	ComputePodISMSPAddendWithInherited(ctx context.Context, companyID, clusterName, namespace, podName string, inherited []grc.RuleResult) *ISMSPRiskBreakdown
+	ProjectInheritedFindings(ctx context.Context, companyID, clusterName string) ([]grc.RuleResult, error)
+}
 
 // FinalScoringService는 Final Score 통합 계산을 담당합니다.
 //
@@ -24,6 +33,7 @@ import (
 type FinalScoringService struct {
 	repo         *postgres.FinalScoringRepo
 	toxicService *ToxicService
+	ismsp        ismspAddender // ISMS-P 가산 제공자(선택) — 미주입 시 가산 스킵
 }
 
 func NewFinalScoringService(repo *postgres.FinalScoringRepo, toxicSvc *ToxicService) *FinalScoringService {
@@ -31,6 +41,27 @@ func NewFinalScoringService(repo *postgres.FinalScoringRepo, toxicSvc *ToxicServ
 		repo:         repo,
 		toxicService: toxicSvc,
 	}
+}
+
+// SetISMSPAddender는 ISMS-P 미준수 가산 제공자를 주입한다(server 부팅 시 grcSvc 주입).
+// 주입되면 ComputeForPod/ComputeForCluster가 FinalScore에 ISMS-P 가산을 더해 저장한다.
+func (s *FinalScoringService) SetISMSPAddender(a ismspAddender) {
+	s.ismsp = a
+}
+
+// applyISMSPToFinalScoreResult는 FinalScore에 ISMS-P 가산을 더하고 100 상한·등급 재분류한다.
+// scoring.Result용 ApplyISMSPToFinalScore의 FinalScoreResult 버전(타입이 달라 재사용 불가).
+func applyISMSPToFinalScoreResult(r *scoring.FinalScoreResult, addend float64) {
+	if r == nil || addend <= 0 {
+		return
+	}
+	score := r.FinalScore + addend
+	if score > 100 {
+		score = 100
+	}
+	r.FinalScore = roundTo2(score)
+	r.RiskLevel = scoring.ClassifyFinalLevel(r.FinalScore)
+	r.RiskLabel = scoring.FinalLevelLabel(r.RiskLevel)
 }
 
 func (s *FinalScoringService) ComputeForCluster(ctx context.Context, clusterName string) (*scoring.FinalComputeResponse, error) {
@@ -56,12 +87,21 @@ func (s *FinalScoringService) ComputeForCluster(ctx context.Context, clusterName
 	fmt.Printf("info: final computing for %d pods (cluster=%s, toxic_loaded=%d)\n",
 		len(inputs), clusterName, len(multipliers))
 
+	// ISMS-P 가산용 클러스터 공통(상속) 결함을 1회 투영해 pod마다 재조회하지 않는다.
+	var inheritedFindings []grc.RuleResult
+	if s.ismsp != nil {
+		if inh, ierr := s.ismsp.ProjectInheritedFindings(ctx, "", clusterName); ierr == nil {
+			inheritedFindings = inh
+		}
+	}
+
 	results := make([]scoring.FinalScoreResult, 0, len(inputs))
 	now := time.Now()
 
 	// 4단계 카운트
 	emergencyCount, warningCount, cautionCount, safeCount := 0, 0, 0, 0
 	missingGI, missingL, missingSBOM := 0, 0, 0
+	ismspApplied := 0
 
 	for _, input := range inputs {
 		toxic, ok := multipliers[input.PodUID]
@@ -70,6 +110,14 @@ func (s *FinalScoringService) ComputeForCluster(ctx context.Context, clusterName
 		}
 
 		result := s.computePod(input, clusterName, now, toxic)
+
+		// ISMS-P 미준수 가산을 저장 final_score에 반영(상속 결함은 위에서 1회 투영한 것 재사용).
+		if s.ismsp != nil {
+			if bd := s.ismsp.ComputePodISMSPAddendWithInherited(ctx, "", clusterName, input.PodNamespace, input.PodName, inheritedFindings); bd != nil && bd.Addend > 0 {
+				applyISMSPToFinalScoreResult(&result, bd.Addend)
+				ismspApplied++
+			}
+		}
 
 		// 4단계 카운트 (임계값: 80/50/20)
 		switch {
@@ -100,6 +148,9 @@ func (s *FinalScoringService) ComputeForCluster(ctx context.Context, clusterName
 		return nil, fmt.Errorf("save results: %w", err)
 	}
 
+	if s.ismsp != nil {
+		fmt.Printf("info: ISMS-P 가산 적용 %d/%d pods (cluster=%s)\n", ismspApplied, len(results), clusterName)
+	}
 	if missingGI > 0 {
 		fmt.Printf("warn: %d pods missing image_global_score\n", missingGI)
 	}
@@ -163,6 +214,14 @@ func (s *FinalScoringService) ComputeForPod(ctx context.Context, clusterName, po
 	// 3. 점수 계산 (기존 computePod 재활용)
 	now := time.Now()
 	result := s.computePod(*input, clusterName, now, toxic)
+
+	// 3-1. ISMS-P 미준수 가산 — 저장 final_score에 박아 Risk Scoring/공격 시나리오/그래프 노드가 모두 일치하게 한다.
+	// pod_name은 정규화 전 원본(grc 평가 저장 키와 동일)을 쓴다. company_id는 cluster_name만으로 통일.
+	if s.ismsp != nil {
+		if bd := s.ismsp.ComputePodISMSPAddend(ctx, "", clusterName, input.PodNamespace, input.PodName); bd != nil && bd.Addend > 0 {
+			applyISMSPToFinalScoreResult(&result, bd.Addend)
+		}
+	}
 
 	fmt.Printf("info: final compute pod cluster=%s pod_uid=%s name=%s final_score=%.2f toxic=%.2f\n",
 		clusterName, podUID, input.PodName, result.FinalScore, toxic)

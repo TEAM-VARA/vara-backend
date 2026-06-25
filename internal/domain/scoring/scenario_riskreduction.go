@@ -19,7 +19,8 @@ package scoring
 // 보완이 내리는 점수 축.
 const (
 	AxisRisk   = "risk"   // likelihood: CVE + 노출 (= Final/risk_score)
-	AxisImpact = "impact" // attack_path: RBAC + Network + Mount
+	AxisImpact = "impact" // (deprecated) attack_path: RBAC + Network + Mount — blast 축으로 대체됨
+	AxisBlast  = "blast"  // 전파: RBAC/Network/Mount 보완 → blast_risk(total_risk) 하락 (reach 재계산)
 )
 
 // RiskReduction — 이 보완 적용 시 점수 변화. delta = before - after (>= 0).
