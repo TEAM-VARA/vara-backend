@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VARA — IAM 권한상승 결과 조회 API</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui.min.css">
+  <style>body{margin:0;background:#fafafa}.topbar{display:none}</style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <!-- OpenAPI 스펙(iam-privesc.yaml)을 그대로 내장 → 파일 더블클릭만으로 열람 가능(서버 불필요) -->
+  <script type="application/yaml" id="openapi-spec">
+openapi: 3.0.3
+info:
+  title: VARA — IAM 권한상승(Privilege-Escalation) 결과 조회 API
+  version: "1.0"
+  description: >
+    스케줄러가 주기적으로 적재한 IAM 권한상승 탐지 결과를 프론트엔드가 읽기 위한 read-only API.
+    모든 조회는 "계정별 최신 실행(latest run)" 기준이다.
+    데이터 흐름: 에이전트가 iam_authorization_snapshots(소스)에 적재 →
+    스케줄러가 탐지 엔진(top9 룰셋)으로 평가 → scan_runs / principal_results / findings(결과)에 적재 → 이 API로 조회.
+servers:
+  - url: http://localhost:8080/api/v1
+    description: 로컬 (호스트/포트는 환경에 맞게 변경)
+  - url: /api/v1
+    description: 상대 경로(동일 오리진 배포 시)
+tags:
+  - name: iam-privesc
+    description: IAM 권한상승 탐지 결과 조회
+paths:
+  /iam-privesc/scan-runs:
+    get:
+      tags: [iam-privesc]
+      summary: 계정별 최신 스캔 실행 요약 목록
+      description: 계정마다 가장 최근 1건의 스캔 실행과 상태별 카운트(critical/warning/info/ok)를 반환한다.
+      parameters:
+        - name: account_id
+          in: query
+          required: false
+          schema: { type: string, example: "534781022197" }
+          description: 특정 AWS 계정만 조회(생략 시 전체 계정).
+      responses:
+        "200":
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer, example: 1 }
+                  scan_runs:
+                    type: array
+                    items: { $ref: "#/components/schemas/ScanRun" }
+              example:
+                count: 1
+                scan_runs:
+                  - run_id: 1
+                    account_id: "534781022197"
+                    account_alias: null
+                    source_scanned_at: "2026-06-26T08:43:23.977+09:00"
+                    ruleset_name: "AWS IAM 권한 상승 posture 룰셋 — 통합본 전용(Sonrai Top 25 중 IAM privesc 9종)"
+                    ruleset_version: "1.0"
+                    core_only: false
+                    total_principals: 23
+                    critical_count: 6
+                    warning_count: 0
+                    info_count: 0
+                    ok_count: 17
+                    detected_at: "2026-06-26T09:03:11.482+09:00"
+        "500": { $ref: "#/components/responses/ServerError" }
+  /iam-privesc/principals:
+    get:
+      tags: [iam-privesc]
+      summary: 최신 실행의 principal(User/Role/Group) 결과 목록
+      description: 계정별 최신 실행의 principal별 최종 상태를 반환한다. status로 위험도 필터 가능.
+      parameters:
+        - name: account_id
+          in: query
+          required: false
+          schema: { type: string, example: "534781022197" }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [critical, warning, info, ok] }
+          description: 위험도 필터(생략 시 전체).
+      responses:
+        "200":
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer, example: 6 }
+                  principals:
+                    type: array
+                    items: { $ref: "#/components/schemas/PrincipalResult" }
+              example:
+                count: 2
+                principals:
+                  - id: 1
+                    run_id: 1
+                    account_id: "534781022197"
+                    principal_kind: group
+                    principal_name: Backend
+                    principal_arn: "arn:aws:iam::534781022197:group/Backend"
+                    status: critical
+                    notes: []
+                  - id: 10
+                    run_id: 1
+                    account_id: "534781022197"
+                    principal_kind: role
+                    principal_name: AWSServiceRoleForAutoScaling
+                    principal_arn: "arn:aws:iam::534781022197:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+                    status: ok
+                    notes: ["AWS 서비스 연결 역할(/aws-service-role/) — 사용자 수정 불가, 권한상승 평가 제외"]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /iam-privesc/findings:
+    get:
+      tags: [iam-privesc]
+      summary: 최신 실행의 발견 항목(단일 룰/콤보) 목록
+      description: 계정별 최신 실행의 finding을 반환한다. severity / principal_name으로 필터 가능.
+      parameters:
+        - name: account_id
+          in: query
+          required: false
+          schema: { type: string, example: "534781022197" }
+        - name: severity
+          in: query
+          required: false
+          schema: { type: string, enum: [critical, warning, info] }
+          description: 보정 후 위험도 필터.
+        - name: principal_name
+          in: query
+          required: false
+          schema: { type: string, example: "Backend" }
+          description: 특정 principal의 finding만.
+      responses:
+        "200":
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer, example: 66 }
+                  findings:
+                    type: array
+                    items: { $ref: "#/components/schemas/Finding" }
+              example:
+                count: 1
+                findings:
+                  - id: 1
+                    run_id: 1
+                    account_id: "534781022197"
+                    principal_kind: group
+                    principal_name: Backend
+                    principal_arn: "arn:aws:iam::534781022197:group/Backend"
+                    finding_type: rule
+                    rule_id: IAM-PRIV-01
+                    action: "iam:PutRolePolicy"
+                    severity: critical
+                    base_severity: critical
+                    is_core: true
+                    title_ko: "역할에 인라인 정책 추가 → 임의 권한 부여"
+                    category: "인라인 정책 주입"
+                    notes: ["Resource:* (전체 리소스 대상)"]
+                    sources: ["관리형:IAMFullAccess"]
+                    aws_doc: "https://docs.aws.amazon.com/IAM/latest/APIReference/API_PutRolePolicy.html"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/ServerError" }
+components:
+  responses:
+    BadRequest:
+      description: "잘못된 요청(예: status/severity 허용값 아님)"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "status must be one of: critical, warning, info, ok" }
+    ServerError:
+      description: 서버 오류
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "query latest_scan_runs: ..." }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    ScanRun:
+      type: object
+      description: 탐지 실행 1건(한 계정 스냅샷에 대한 한 번의 룰셋 평가) 요약.
+      properties:
+        run_id: { type: integer, format: int64, description: 실행 고유번호 }
+        account_id: { type: string, description: 12자리 AWS 계정 ID }
+        account_alias: { type: string, nullable: true, description: 계정 별칭(없으면 null) }
+        source_scanned_at: { type: string, format: date-time, nullable: true, description: 평가한 스냅샷 캡처 시각 }
+        ruleset_name: { type: string, nullable: true }
+        ruleset_version: { type: string, nullable: true, example: "1.0" }
+        core_only: { type: boolean }
+        total_principals: { type: integer }
+        critical_count: { type: integer }
+        warning_count: { type: integer }
+        info_count: { type: integer }
+        ok_count: { type: integer }
+        detected_at: { type: string, format: date-time, description: 이 실행이 적재된 시각 }
+    PrincipalResult:
+      type: object
+      description: principal(User/Role/Group) 1개의 최종 상태.
+      properties:
+        id: { type: integer, format: int64 }
+        run_id: { type: integer, format: int64 }
+        account_id: { type: string }
+        principal_kind: { type: string, enum: [user, role, group] }
+        principal_name: { type: string }
+        principal_arn: { type: string }
+        status:
+          type: string
+          enum: [critical, warning, info, ok]
+          description: 보유 finding 중 최고 위험도. 위험권한 없으면 ok.
+        notes:
+          type: array
+          items: { type: string }
+          description: 보조 노트(권한경계/신뢰정책*/서비스 연결 역할 제외 등). 없으면 빈 배열.
+    Finding:
+      type: object
+      description: 발견 항목 1건(단일 룰 또는 콤보).
+      properties:
+        id: { type: integer, format: int64 }
+        run_id: { type: integer, format: int64 }
+        account_id: { type: string }
+        principal_kind: { type: string, enum: [user, role, group] }
+        principal_name: { type: string }
+        principal_arn: { type: string }
+        finding_type: { type: string, enum: [rule, combo], description: "단일 룰 / 조합" }
+        rule_id: { type: string, example: "IAM-PRIV-01", description: "룰 또는 콤보 ID" }
+        action: { type: string, description: "매칭된 IAM 액션(콤보는 'a + b' 형식)" }
+        severity: { type: string, enum: [critical, warning, info], description: "보정 후 위험도" }
+        base_severity: { type: string, enum: [critical, warning, info], description: "룰 정의상 기본 위험도" }
+        is_core: { type: boolean }
+        title_ko: { type: string }
+        category: { type: string }
+        notes:
+          type: array
+          items: { type: string }
+          description: "위험도 보정 사유 등. 없으면 빈 배열."
+        sources:
+          type: array
+          items: { type: string }
+          description: "이 권한을 부여한 정책 출처 목록. 콤보는 빈 배열."
+        aws_doc: { type: string, description: "근거 AWS 문서 URL" }
+
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+  <script>
+    (function () {
+      var txt = document.getElementById('openapi-spec').textContent;
+      var spec = jsyaml.load(txt);
+      window.ui = SwaggerUIBundle({
+        spec: spec,
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        defaultModelsExpandDepth: 1,
+        presets: [SwaggerUIBundle.presets.apis]
+      });
+    })();
+  </script>
+</body>
+</html>
