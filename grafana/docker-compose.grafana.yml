@@ -13,7 +13,9 @@ services:
       GF_SECURITY_ALLOW_EMBEDDING: "true"
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
-      GF_SECURITY_COOKIE_SAMESITE: "none"     # 교차 도메인 iframe 대비
+      # 평문 http로 직접 접속해 admin 로그인하려면 lax. (none은 HTTPS에서만 쿠키 허용 → http면 세션 쿠키가 버려져 로그인 안 됨)
+      # 익명 Viewer 임베드는 쿠키 불필요라 영향 없음. HTTPS 리버스프록시 뒤 인증 임베드가 필요하면 그때 none.
+      GF_SECURITY_COOKIE_SAMESITE: "lax"
       # ── 외부 노출 URL (리버스 프록시 도메인 있으면 채우기) ──
       GF_SERVER_ROOT_URL: "${GRAFANA_ROOT_URL:-http://localhost:3000}"
       # ── 관리자 (운영자 로그인용; 익명은 Viewer) ──
