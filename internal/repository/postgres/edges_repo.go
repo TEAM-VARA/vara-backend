@@ -1457,6 +1457,7 @@ func (r *EdgesRepo) fetchPodNodes(ctx context.Context, cluster string) ([]edge.T
 		  AND cp.snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name = $1)
 		  AND cp.name NOT LIKE 'tetragon%'
 		  AND cp.name NOT LIKE 'ebs-csi-node%'
+		  AND cp.namespace <> 'default'
 		ORDER BY cp.namespace, cp.name
 	`
 	// 기존 Scan 그대로
@@ -1566,6 +1567,7 @@ func (r *EdgesRepo) fetchOtherNodes(ctx context.Context, cluster string) ([]edge
 			WHERE cluster_name = $1
 			  AND source_kind IN ('service_account', 'service', 'ingress')
 			  AND source_pod_uid IS NOT NULL
+			  AND COALESCE(source_namespace,'') <> 'default'
 			
 			UNION
 			
@@ -1586,6 +1588,7 @@ func (r *EdgesRepo) fetchOtherNodes(ctx context.Context, cluster string) ([]edge
 			  AND target_service_name IS NOT NULL
 			  AND target_service_name != ''
 			  AND target_pod_uid IS NULL
+			  AND COALESCE(target_namespace,'') <> 'default'
 		)
 		SELECT id, kind, label, COALESCE(ns, '') AS ns
 		FROM non_pod_nodes
@@ -1631,6 +1634,8 @@ func (r *EdgesRepo) fetchTopologyEdges(ctx context.Context, cluster string) ([]e
 		 AND e.edge_type = lpc.edge_type 
 		 AND e.snapshot_at = lpc.snap
 		WHERE e.cluster_name = $1
+		  AND COALESCE(e.source_namespace,'') <> 'default'
+		  AND COALESCE(e.target_namespace,'') <> 'default'
 		ORDER BY e.layer, e.edge_type
 	`
 	rows, err := r.pool.Query(ctx, q, cluster)
@@ -1740,6 +1745,7 @@ func (r *EdgesRepo) fetchNamespaceNodes(ctx context.Context, cluster string) ([]
 		FROM cluster_namespaces
 		WHERE cluster_name = $1
 		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_namespaces WHERE cluster_name = $1)
+		  AND namespace <> 'default'
 	`
 	return r.scanSimpleNodes(ctx, q, cluster, "namespace")
 }
