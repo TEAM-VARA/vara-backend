@@ -95,16 +95,10 @@ func (s *WeightsService) Update(ctx context.Context, w scoring.Weights) (*Weight
 		if _, err := s.globalRepo.ReweightAll(ctx, w); err != nil {
 			fmt.Printf("warn: weights update — cve global reweight failed: %v\n", err)
 		}
-		if s.sbomRepo != nil && s.imgCacheSvc != nil {
-			digests, err := s.sbomRepo.ListDistinctDigests(ctx)
-			if err != nil {
-				fmt.Printf("warn: weights update — list digests failed: %v\n", err)
-			}
-			for _, d := range digests {
-				if _, err := s.imgCacheSvc.RecomputeAndStore(ctx, d); err != nil {
-					fmt.Printf("warn: weights update — image global recompute failed (%s): %v\n", d, err)
-				}
-			}
+		// image_global_scores는 Go 루프(이미지별 RecomputeAndStore→ComputeImage) 대신
+		// 단일 bulk SQL로 제자리 집계 재계산한다(수만 번 DB 읽기 → 타임아웃 제거).
+		if _, err := s.globalRepo.ReweightAllImages(ctx); err != nil {
+			fmt.Printf("warn: weights update — image global bulk reweight failed: %v\n", err)
 		}
 	}
 

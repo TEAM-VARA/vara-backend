@@ -153,6 +153,58 @@ func (r *GlobalScoringRepo) ReweightAll(ctx context.Context, w scoring.Weights) 
 	return tag.RowsAffected(), nil
 }
 
+// ReweightAllImages는 (ReweightAll 직후 호출) cve_global_scores를 이미지별로 집계해
+// image_global_scores 전 행을 단일 UPDATE로 제자리 재계산한다. Go 루프/외부호출 없음.
+// 이미지→CVE 매핑은 ListCVEsByImageDigest와 동일(Trivy sboms.raw_data ∪ OSV package_vulnerabilities).
+func (r *GlobalScoringRepo) ReweightAllImages(ctx context.Context) (int64, error) {
+	now := time.Now()
+	exp := now.Add(scoring.ImageGlobalCacheTTL)
+	const q = `
+		WITH img_cve AS (
+			SELECT DISTINCT image_digest, cve_id FROM (
+				SELECT image_digest, vuln->>'VulnerabilityID' AS cve_id
+				FROM sboms,
+				     jsonb_array_elements(raw_data->'Results') AS result,
+				     jsonb_array_elements(COALESCE(result->'Vulnerabilities','[]'::jsonb)) AS vuln
+				WHERE raw_data IS NOT NULL AND raw_data::text <> 'null'
+				  AND vuln->>'VulnerabilityID' IS NOT NULL AND vuln->>'VulnerabilityID' <> ''
+				UNION ALL
+				SELECT sp.image_digest,
+					CASE WHEN pv.vuln_id LIKE 'CVE-%' THEN pv.vuln_id
+					     ELSE (SELECT a FROM unnest(pv.aliases) AS a WHERE a LIKE 'CVE-%' LIMIT 1) END AS cve_id
+				FROM package_vulnerabilities pv
+				JOIN sbom_packages sp ON sp.purl = pv.purl
+			) u
+			WHERE cve_id IS NOT NULL AND cve_id LIKE 'CVE-%'
+		),
+		agg AS (
+			SELECT ic.image_digest,
+				COUNT(DISTINCT ic.cve_id)                                            AS cve_count,
+				MAX(g.global_score)                                                  AS max_score,
+				(array_agg(ic.cve_id ORDER BY g.global_score DESC NULLS LAST))[1]    AS top_cve,
+				COUNT(*) FILTER (WHERE g.cvss_score >= 9.0)                           AS critical_count,
+				COUNT(*) FILTER (WHERE g.cvss_score >= 7.0 AND g.cvss_score < 9.0)    AS high_count,
+				COUNT(*) FILTER (WHERE g.ssvc_exploitation = 'active')               AS active_count,
+				COUNT(*) FILTER (WHERE g.ssvc_exploitation = 'poc')                  AS poc_count
+			FROM img_cve ic
+			JOIN cve_global_scores g ON g.cve_id = ic.cve_id
+			GROUP BY ic.image_digest
+		)
+		UPDATE image_global_scores i SET
+			cve_count = agg.cve_count, max_score = agg.max_score, top_cve = agg.top_cve,
+			critical_count = agg.critical_count, high_count = agg.high_count,
+			active_count = agg.active_count, poc_count = agg.poc_count,
+			computed_at = $1, expires_at = $2
+		FROM agg
+		WHERE i.image_digest = agg.image_digest
+	`
+	tag, err := r.pool.Exec(ctx, q, now, exp)
+	if err != nil {
+		return 0, fmt.Errorf("reweight all image_global_scores: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // GetByCVEID는 단일 CVE의 점수를 조회합니다. 없으면 nil 반환.
 func (r *GlobalScoringRepo) GetByCVEID(ctx context.Context, cveID string) (*scoring.GlobalScore, error) {
 	return r.getByCVEIDInternal(ctx, cveID, false)
