@@ -1,103 +1,272 @@
 {
-  "uid": "vara-home",
-  "title": "VARA Home",
-  "tags": ["vara"],
-  "timezone": "browser",
-  "schemaVersion": 39,
-  "version": 1,
-  "refresh": "30s",
-  "time": { "from": "now-24h", "to": "now" },
-  "templating": {
+  "annotations": {
     "list": [
       {
-        "type": "textbox",
-        "name": "cluster",
-        "label": "Cluster",
-        "query": "vara-eks-test",
-        "current": { "text": "vara-eks-test", "value": "vara-eks-test" }
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
       }
     ]
   },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
   "panels": [
     {
-      "id": 1,
-      "title": "Risk 등급 분포",
-      "type": "piechart",
       "datasource": { "type": "postgres", "uid": "vara-rds" },
+      "transparent": true,
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed" },
+          "custom": { "hideFrom": { "legend": false, "tooltip": false, "viz": false } },
+          "mappings": []
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "emergency" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#ef4444" } }, { "id": "displayName", "value": "긴급" } ] },
+          { "matcher": { "id": "byName", "options": "warning" },   "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#f97316" } }, { "id": "displayName", "value": "경고" } ] },
+          { "matcher": { "id": "byName", "options": "caution" },   "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#eab308" } }, { "id": "displayName", "value": "주의" } ] },
+          { "matcher": { "id": "byName", "options": "safe" },      "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#22c55e" } }, { "id": "displayName", "value": "안전" } ] }
+        ]
+      },
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
-      "options": { "legend": { "showLegend": true, "placement": "right" }, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true } },
+      "id": 1,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "right", "showLegend": true, "values": ["value"] },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
       "targets": [
         {
-          "refId": "A",
           "datasource": { "type": "postgres", "uid": "vara-rds" },
           "format": "table",
-          "rawSql": "SELECT risk_level AS metric, COUNT(*) AS value FROM final_scores WHERE cluster_name='${cluster}' AND snapshot_at=(SELECT MAX(snapshot_at) FROM final_scores WHERE cluster_name='${cluster}') GROUP BY risk_level ORDER BY value DESC"
+          "rawSql": "SELECT COUNT(*) FILTER (WHERE risk_level='emergency') AS \"emergency\", COUNT(*) FILTER (WHERE risk_level='warning') AS \"warning\", COUNT(*) FILTER (WHERE risk_level IN ('caution','info')) AS \"caution\", COUNT(*) FILTER (WHERE risk_level='safe') AS \"safe\" FROM final_scores WHERE cluster_name='${cluster}' AND snapshot_at=(SELECT MAX(snapshot_at) FROM final_scores WHERE cluster_name='${cluster}')",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Risk 등급 분포",
+      "type": "piechart"
     },
     {
-      "id": 2,
-      "title": "ISMS-P 준수 현황 (최신)",
-      "type": "bargauge",
       "datasource": { "type": "postgres", "uid": "vara-rds" },
+      "transparent": true,
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green" } ] }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "준수" },   "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#22c55e" } } ] },
+          { "matcher": { "id": "byName", "options": "미준수" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#ef4444" } } ] },
+          { "matcher": { "id": "byName", "options": "검토" },   "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#eab308" } } ] }
+        ]
+      },
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
-      "options": { "orientation": "horizontal", "displayMode": "gradient", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "id": 2,
+      "options": {
+        "displayMode": "gradient",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "11.1.0",
       "targets": [
         {
-          "refId": "A",
           "datasource": { "type": "postgres", "uid": "vara-rds" },
           "format": "table",
-          "rawSql": "SELECT compliant_items AS \"준수\", non_compliant_items AS \"미준수\", needs_review_items AS \"검토\" FROM grc_cluster_compliance_results WHERE cluster_name='${cluster}' ORDER BY created_at DESC LIMIT 1"
+          "rawSql": "SELECT compliant_items AS \"준수\", non_compliant_items AS \"미준수\", needs_review_items AS \"검토\" FROM grc_cluster_compliance_results WHERE cluster_name='${cluster}' ORDER BY created_at DESC LIMIT 1",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "ISMS-P 준수 현황 (최신)",
+      "type": "bargauge"
     },
     {
-      "id": 3,
-      "title": "권한(RBAC) 위험",
-      "type": "stat",
       "datasource": { "type": "postgres", "uid": "vara-rds" },
+      "transparent": true,
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green" } ] }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "admin 도달 SA" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#ef4444" } } ] },
+          { "matcher": { "id": "byName", "options": "전체 SA" },      "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#94a3b8" } } ] },
+          { "matcher": { "id": "byName", "options": "권한상승 경로" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#ef4444" } } ] }
+        ]
+      },
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
-      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value_and_name", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.1.0",
       "targets": [
         {
-          "refId": "A",
           "datasource": { "type": "postgres", "uid": "vara-rds" },
           "format": "table",
-          "rawSql": "SELECT (SELECT COUNT(*) FROM rbac_sa_reports WHERE cluster_name='${cluster}' AND reaches_cluster_admin) AS \"admin 도달 SA\", (SELECT COUNT(*) FROM rbac_sa_reports WHERE cluster_name='${cluster}') AS \"전체 SA\", (SELECT COUNT(*) FROM rbac_escalation_paths WHERE cluster_name='${cluster}') AS \"권한상승 경로\""
+          "rawSql": "SELECT (SELECT COUNT(*) FROM rbac_sa_reports WHERE cluster_name='${cluster}' AND reaches_cluster_admin) AS \"admin 도달 SA\", (SELECT COUNT(*) FROM rbac_sa_reports WHERE cluster_name='${cluster}') AS \"전체 SA\", (SELECT COUNT(*) FROM rbac_escalation_paths WHERE cluster_name='${cluster}') AS \"권한상승 경로\"",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "권한(RBAC) 위험",
+      "type": "stat"
     },
     {
-      "id": 4,
-      "title": "CVE 심각도별 (distinct CVE 수)",
-      "type": "barchart",
       "datasource": { "type": "postgres", "uid": "vara-rds" },
+      "transparent": true,
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineWidth": 1,
+            "scaleDistribution": { "type": "linear" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "CRITICAL": { "color": "#ef4444", "index": 0 },
+                "HIGH":     { "color": "#f97316", "index": 1 },
+                "MEDIUM":   { "color": "#eab308", "index": 2 },
+                "LOW":      { "color": "#22c55e", "index": 3 },
+                "UNKNOWN":  { "color": "#6b7280", "index": 4 }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "options": { "orientation": "auto", "xField": "metric", "legend": { "showLegend": false } },
+      "id": 4,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "colorByField": "metric",
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "xField": "metric",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
       "targets": [
         {
-          "refId": "A",
           "datasource": { "type": "postgres", "uid": "vara-rds" },
           "format": "table",
-          "rawSql": "SELECT COALESCE(NULLIF(severity,''),'UNKNOWN') AS metric, COUNT(DISTINCT cve_id) AS value FROM cves GROUP BY 1 ORDER BY 2 DESC"
+          "rawSql": "SELECT COALESCE(NULLIF(severity,''),'UNKNOWN') AS metric, COUNT(DISTINCT cve_id) AS value FROM cves GROUP BY 1 ORDER BY 2 DESC",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "CVE 심각도별 (distinct CVE 수)",
+      "type": "barchart"
     },
     {
-      "id": 5,
-      "title": "eBPF 통신 추이 (런타임)",
-      "type": "timeseries",
       "datasource": { "type": "postgres", "uid": "vara-rds" },
+      "transparent": true,
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": []
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "통신 수" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#22D3EE" } } ] }
+        ]
+      },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 30 } }, "overrides": [] },
+      "id": 5,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
       "targets": [
         {
-          "refId": "A",
           "datasource": { "type": "postgres", "uid": "vara-rds" },
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(timestamp,$__interval), COUNT(*) AS \"통신 수\" FROM ebpf_network_flows WHERE cluster_name='${cluster}' AND $__timeFilter(timestamp) GROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT $__timeGroupAlias(timestamp,$__interval), COUNT(*) AS \"통신 수\" FROM ebpf_network_flows WHERE cluster_name='${cluster}' AND $__timeFilter(timestamp) GROUP BY 1 ORDER BY 1",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "eBPF 통신 추이 (런타임)",
+      "type": "timeseries"
     }
-  ]
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [ "vara" ],
+  "templating": {
+    "list": [
+      {
+        "current": { "text": "vara-eks-test", "value": "vara-eks-test" },
+        "hide": 0,
+        "label": "Cluster",
+        "name": "cluster",
+        "options": [],
+        "query": "vara-eks-test",
+        "skipUrlSync": false,
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "VARA Home",
+  "uid": "vara-home",
+  "weekStart": ""
 }
