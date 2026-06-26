@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -189,4 +190,25 @@ func (h *PackageVulnHandler) PatchStatusByPod(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// TopCVEs : GET /api/v1/scoring/cves?cluster=<name>&limit=50
+// 클러스터에 존재하는 CVE 를 심각도(KEV→CVSS→EPSS)순으로 랭킹 (Risk Scoring "전체 CVE 랭킹" 탭).
+func (h *PackageVulnHandler) TopCVEs(c *gin.Context) {
+	cluster := c.Query("cluster")
+	if cluster == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster query parameter is required"})
+		return
+	}
+	limit := 50
+	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 && l <= 2000 {
+		limit = l
+	}
+	cves, err := h.service.ListClusterCVEsRanked(c.Request.Context(), cluster, limit)
+	if err != nil {
+		fmt.Printf("warn: top cves failed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"cluster": cluster, "total": len(cves), "cves": cves})
 }

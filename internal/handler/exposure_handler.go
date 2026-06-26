@@ -61,6 +61,7 @@ func (h *ExposureHandler) GetByPod(c *gin.Context) {
 	if result == nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "exposure result not found for the given pod",
+			"code":    "NOT_COMPUTED",
 			"hint":    "POST /api/v1/scoring/exposure/compute first",
 			"pod_uid": podUID,
 			"cluster": clusterName,

@@ -57,3 +57,17 @@ func (h *AwsReaderHandler) CloudTrailTrails(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"saved": saved})
 }
+
+func (h *AwsReaderHandler) IamAuthorization(c *gin.Context) {
+	var req agent.AwsIamAuthorizationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	saved, err := h.repo.UpsertIamAuthorization(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"saved": saved})
+}

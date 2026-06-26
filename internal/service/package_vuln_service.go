@@ -222,3 +222,8 @@ func parseOSVTime(s string) *time.Time {
 	}
 	return &t
 }
+
+// ListClusterCVEsRanked: 클러스터 CVE 를 심각도순으로 랭킹 (Risk Scoring "전체 CVE 랭킹" 탭).
+func (s *PackageVulnService) ListClusterCVEsRanked(ctx context.Context, clusterName string, limit int) ([]sbom.ClusterCVE, error) {
+	return s.repo.ListClusterCVEsRanked(ctx, clusterName, limit)
+}

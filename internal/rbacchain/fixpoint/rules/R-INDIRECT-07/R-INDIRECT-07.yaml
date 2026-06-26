@@ -28,11 +28,20 @@
 
 schema_version: "1.0"
 id: R-INDIRECT-07
-description: "csr/approval (update|patch) AND signers/kube-apiserver-client approve -> cluster-admin 인증서 발급"
+description: "csr create+get AND csr/approval (update|patch) AND signers/kube-apiserver-client approve -> cluster-admin 인증서 발급"
 category: indirect
 severity: critical
 
 match_all_of:
+  # (1) CSR 제출 — O=system:masters CSR 생성 (top-level create라 resourceName 제한 불가)
+  - api_group: "certificates.k8s.io"
+    resource:  "certificatesigningrequests"
+    verb:      "create"
+  # (2) 발급 인증서 회수 — .status.certificate 읽기 (없으면 인증서 사용 불가; R-INDIRECT-17 create+get 패턴과 동일)
+  - api_group: "certificates.k8s.io"
+    resource:  "certificatesigningrequests"
+    verb:      "get"
+  # (3) 승인 — approval 서브리소스 update 또는 patch
   - match_any_of:
       - api_group: "certificates.k8s.io"
         resource:  "certificatesigningrequests/approval"
@@ -40,6 +49,7 @@ match_all_of:
       - api_group: "certificates.k8s.io"
         resource:  "certificatesigningrequests/approval"
         verb:      "patch"
+  # (4) 서명자 승인 — kube-apiserver-client (CN=anything, O=system:masters → cluster-admin)
   - api_group: "certificates.k8s.io"
     resource:  "signers"
     verb:      "approve"

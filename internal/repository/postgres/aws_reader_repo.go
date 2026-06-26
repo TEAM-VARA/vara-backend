@@ -144,3 +144,49 @@ func (r *AwsReaderRepo) UpsertCloudTrailTrails(ctx context.Context, req agent.Aw
 	}
 	return saved, nil
 }
+
+// UpsertIamAuthorization: 계정당 1행. 기존 SG/KMS/CloudTrail 과 달리 루프 없음.
+// (account_id UNIQUE → ON CONFLICT account_id 단일 키)
+func (r *AwsReaderRepo) UpsertIamAuthorization(ctx context.Context, req agent.AwsIamAuthorizationRequest) (int, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("tx begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	partition := req.Partition
+	if partition == "" {
+		partition = "aws"
+	}
+
+	const q = `
+		INSERT INTO iam_authorization_snapshots (
+			account_id, account_alias, partition, snapshot_at, captured_by,
+			user_detail_list, role_detail_list, group_detail_list, policies
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
+		)
+		ON CONFLICT (account_id) DO UPDATE SET
+			account_alias     = EXCLUDED.account_alias,
+			partition         = EXCLUDED.partition,
+			snapshot_at       = EXCLUDED.snapshot_at,
+			captured_by       = EXCLUDED.captured_by,
+			user_detail_list  = EXCLUDED.user_detail_list,
+			role_detail_list  = EXCLUDED.role_detail_list,
+			group_detail_list = EXCLUDED.group_detail_list,
+			policies          = EXCLUDED.policies,
+			received_at       = NOW()
+	`
+	if _, err := tx.Exec(ctx, q,
+		req.AccountID, req.AccountAlias, partition, req.SnapshotAt, req.CapturedBy,
+		[]byte(req.UserDetailList), []byte(req.RoleDetailList),
+		[]byte(req.GroupDetailList), []byte(req.Policies),
+	); err != nil {
+		return 0, fmt.Errorf("upsert iam snapshot %s: %w", req.AccountID, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit: %w", err)
+	}
+	return 1, nil // 계정당 1행이라 항상 1
+}

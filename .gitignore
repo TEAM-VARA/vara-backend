@@ -24,3 +24,4 @@ tmp/
 # 바이너리 증적 (별도 스토리지 관리)
 evidence_samples/*.pdf
 evidence_samples/*.zip
+aws-reader/aws-reader

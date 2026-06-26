@@ -133,6 +133,11 @@ func (s *AnalysisScheduler) run(ctx context.Context) {
 	} else {
 		edgesOK = true
 	}
+	if n, err := s.edgesRepo.ComputeDriftEdges(ctx, s.clusterName); err != nil {
+		log.Printf("analysis-scheduler: drift edges failed: %v", err)
+	} else {
+		log.Printf("analysis-scheduler: drift edges computed (%d violations)", n)
+	}
 	log.Printf("analysis-scheduler: edges recomputed (%v)", time.Since(start))
 
 	// 이번 사이클 이전(snapshot_at < start) 엣지 전부 삭제 → 이번 사이클에 재계산 안 된

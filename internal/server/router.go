@@ -73,6 +73,7 @@ func newRouter(
 		api.POST("/agents/aws-reader/security-groups", awsReader.SecurityGroups)
 		api.POST("/agents/aws-reader/kms-keys", awsReader.KmsKeys)
 		api.POST("/agents/aws-reader/cloudtrail-trails", awsReader.CloudTrailTrails)
+		api.POST("/agents/aws-reader/iam-authorization", awsReader.IamAuthorization)
 
 		api.POST("/agents/cluster-reader/pod-events", agent.PodEvents)
 		api.POST("/agents/ebpf/traffic", agent.Traffic)
@@ -84,6 +85,7 @@ func newRouter(
 		api.POST("/agents/ebpf/process-events", ebpf.ProcessEvents)
 		api.GET("/feed/process", ebpf.GetProcessFeed)
 		api.GET("/feed/flow", ebpf.GetFlowFeed)
+		api.GET("/feed/drift", ebpf.GetDriftFeed)
 		api.GET("/events", ebpf.GetEvents)
 
 		// ── Edges (Blast Radius 그래프) ──
@@ -165,6 +167,7 @@ func newRouter(
 
 		// ── SBOM Packages (작업 B-5) ──
 		// 정적 경로를 동적 경로보다 먼저 등록
+		api.GET("/scoring/cves", packageVuln.TopCVEs) // 클러스터 CVE 랭킹(심각도순) — Risk Scoring CVE 목록 탭
 		api.GET("/sboms/packages/vulnerabilities/search", packageVuln.SearchByVulnID)
 		api.GET("/sboms/packages/vulnerabilities/by-purl", packageVuln.ListByPURL)
 		api.GET("/sboms/packages/vulnerabilities/timeline/pods/:pod_uid", packageVuln.CVETimelineByPod)

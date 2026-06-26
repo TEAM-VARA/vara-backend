@@ -163,7 +163,7 @@ func (s *ScenarioService) buildCategories(ctx context.Context, cluster, podUID, 
 			for _, e := range oe {
 				// 출발 = 이 pod → 출발 SA = 이 pod의 SA(in.SAName), ns = 이 pod namespace.
 				catIn.OutEdges = append(catIn.OutEdges, scoring.CatEdge{
-					Peer: e.TargetName, Namespace: e.TargetNamespace, WinChannel: e.WinChannel,
+					Peer: e.TargetName, PeerUID: e.TargetPodUID, Namespace: e.TargetNamespace, WinChannel: e.WinChannel,
 					Reason: e.Reason, PHost: e.PHost, PRBAC: e.PRBAC, PNet: e.PNet,
 					SrcSA: in.SAName, LateralPerms: lateralFor(podNamespace, in.SAName),
 				})
@@ -177,7 +177,7 @@ func (s *ScenarioService) buildCategories(ctx context.Context, cluster, podUID, 
 					saNS = e.SourceNamespace
 				}
 				catIn.InEdges = append(catIn.InEdges, scoring.CatEdge{
-					Peer: e.SourceName, Namespace: e.SourceNamespace, WinChannel: e.WinChannel,
+					Peer: e.SourceName, PeerUID: e.SourcePodUID, Namespace: e.SourceNamespace, WinChannel: e.WinChannel,
 					Reason: e.Reason, PHost: e.PHost, PRBAC: e.PRBAC, PNet: e.PNet,
 					SrcSA: saName, LateralPerms: lateralFor(saNS, saName),
 				})

@@ -59,6 +59,7 @@ type RBACEscalation struct {
 
 type CatNetPeer struct {
 	Peer      string `json:"peer"`
+	PodUID    string `json:"pod_uid,omitempty"` // blast-cut blocked_edges 구성용 (이 peer pod의 uid)
 	Namespace string `json:"namespace,omitempty"`
 }
 
@@ -79,6 +80,7 @@ type ScenarioCategories struct {
 // CatEdge — 양방향 엣지 입력(서비스가 blast_edges에서 채움). Peer = 엣지 상대 Pod.
 type CatEdge struct {
 	Peer, Namespace    string
+	PeerUID            string // 엣지 상대 Pod의 pod_uid (blast-cut blocked_edges 구성용)
 	WinChannel         string // host|rbac|network (max 채널)
 	Reason             string
 	PHost, PRBAC, PNet float64
@@ -279,16 +281,24 @@ func firstNonEmpty(a, b string) string {
 }
 
 // networkPeers — 엣지 중 network 채널(win=network 또는 p_net>0)의 상대 peer를 중복 제거해 반환.
+// dedup 키는 uid 우선(없으면 이름) — 동명 pod(그룹 멤버 등)를 한 항목으로 합치지 않도록.
 func networkPeers(edges []CatEdge) []CatNetPeer {
 	seen := map[string]bool{}
 	var out []CatNetPeer
 	for _, e := range edges {
-		if e.Peer == "" || seen[e.Peer] {
+		if e.Peer == "" {
+			continue
+		}
+		key := e.PeerUID
+		if key == "" {
+			key = e.Peer
+		}
+		if seen[key] {
 			continue
 		}
 		if e.WinChannel == "network" || e.PNet > 0 {
-			seen[e.Peer] = true
-			out = append(out, CatNetPeer{Peer: e.Peer, Namespace: e.Namespace})
+			seen[key] = true
+			out = append(out, CatNetPeer{Peer: e.Peer, PodUID: e.PeerUID, Namespace: e.Namespace})
 		}
 	}
 	return out

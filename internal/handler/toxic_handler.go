@@ -98,6 +98,7 @@ func (h *ToxicHandler) GetByPod(c *gin.Context) {
 	if result == nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":   "toxic result not found",
+			"code":    "NOT_COMPUTED",
 			"hint":    "POST /api/v1/scoring/toxic/compute first",
 			"pod_uid": podUID,
 			"cluster": clusterName,
