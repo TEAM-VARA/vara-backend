@@ -1682,6 +1682,7 @@ func (r *EdgesRepo) fetchWorkloadNodes(ctx context.Context, cluster string) ([]e
 		FROM cluster_workloads
 		WHERE cluster_name = $1
 		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_workloads WHERE cluster_name = $1)
+		  AND namespace <> 'default'
 		  AND kind IN ('Deployment', 'StatefulSet', 'DaemonSet')
 	`
 	return r.scanSimpleNodes(ctx, q, cluster, "workload")
@@ -1693,6 +1694,7 @@ func (r *EdgesRepo) fetchSecretNodes(ctx context.Context, cluster string) ([]edg
 		FROM cluster_secrets
 		WHERE cluster_name = $1
 		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_secrets WHERE cluster_name = $1)
+		  AND namespace <> 'default'
 	`
 	return r.scanSimpleNodes(ctx, q, cluster, "secret")
 }
@@ -1703,6 +1705,7 @@ func (r *EdgesRepo) fetchConfigMapNodes(ctx context.Context, cluster string) ([]
 		FROM cluster_configmaps
 		WHERE cluster_name = $1
 		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_configmaps WHERE cluster_name = $1)
+		  AND namespace <> 'default'
 	`
 	return r.scanSimpleNodes(ctx, q, cluster, "configmap")
 }
@@ -1713,6 +1716,7 @@ func (r *EdgesRepo) fetchIngressNodes(ctx context.Context, cluster string) ([]ed
 		FROM cluster_ingresses
 		WHERE cluster_name = $1
 		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_ingresses WHERE cluster_name = $1)
+		  AND namespace <> 'default'
 	`
 	return r.scanSimpleNodes(ctx, q, cluster, "ingress")
 }
@@ -1723,6 +1727,7 @@ func (r *EdgesRepo) fetchNetworkPolicyNodes(ctx context.Context, cluster string)
 		FROM cluster_network_policies
 		WHERE cluster_name = $1
 		  AND snapshot_at = (SELECT MAX(snapshot_at) FROM cluster_network_policies WHERE cluster_name = $1)
+		  AND namespace <> 'default'
 	`
 	return r.scanSimpleNodes(ctx, q, cluster, "networkpolicy")
 }
