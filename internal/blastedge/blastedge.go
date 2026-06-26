@@ -198,7 +198,14 @@ func BuildEdges(pods map[string]PodFact, permsBySA map[string][]Perm, flows []Fl
 					if dst == a.UID || !b.Running {
 						continue
 					}
-					bump(getPair(a.UID, dst), wExec, "rbac: exec/attach/ephemeral ns="+scopeStr(p.Namespace))
+					if !resourceNameAllows(p, b) { // resourceNames 좁힘: 지정 시 그 파드만
+						continue
+					}
+					reason := "rbac: exec/attach/ephemeral ns=" + scopeStr(p.Namespace)
+					if p.ResourceName != nil {
+						reason = "rbac: exec → " + *p.ResourceName // 좁혀진 경로 표시(툴팁)
+					}
+					bump(getPair(a.UID, dst), wExec, reason)
 				}
 			case kNodesProxy:
 				for _, dst := range allUIDs { // v1: 전체(노드 resourceNames 무시)
@@ -215,7 +222,14 @@ func BuildEdges(pods map[string]PodFact, permsBySA map[string][]Perm, flows []Fl
 					if dst == a.UID || !b.Running {
 						continue
 					}
-					bump(getPair(a.UID, dst), b.Risk, "rbac: portforward (포트 접근 → B.Risk) ns="+scopeStr(p.Namespace))
+					if !resourceNameAllows(p, b) { // resourceNames 좁힘: 지정 시 그 파드만
+						continue
+					}
+					reason := "rbac: portforward (포트 접근 → B.Risk) ns=" + scopeStr(p.Namespace)
+					if p.ResourceName != nil {
+						reason = "rbac: portforward → " + *p.ResourceName // 좁혀진 경로 표시(툴팁)
+					}
+					bump(getPair(a.UID, dst), b.Risk, reason)
 				}
 			}
 		}
@@ -289,6 +303,23 @@ func finalize(src, dst string, ca *channelAcc) *Edge {
 		WinChannel: win, Reason: reason,
 		DstValue: 1.0, // v1 = 개수
 	}
+}
+
+// resourceNameAllows reports whether perm p may target pod b under its
+// resourceNames scope.
+//
+//	p.ResourceName == nil → 범위 제한 없음(cluster/ns 전체) → 항상 허용(기존 동작).
+//	지정 시            → 파드 이름 정확 매칭만 허용(와일드카드 없음).
+//
+// exec/attach/ephemeralcontainers·portforward 는 서브리소스라 K8s authorizer 가
+// resourceNames 를 강제한다 → blast 그래프도 같은 기준으로 타겟을 좁힌다.
+// (nodes/proxy 는 노드 이름 기준이라 여기 해당 없음 — kNodesProxy 분기 참고.)
+//
+// TODO: 이 resourceNames 해석은 rbacchain(fixpoint/semantics.go)이 이미 하는 것을
+// blastedge 에 중복 구현한 것이다. 장기적으로 rbacchain 결과를 단일 출처로 소비하도록
+// 통합 — 한쪽만 고치고 까먹는 drift 위험 (핸드오프 §함정 4 / 백로그).
+func resourceNameAllows(p Perm, b PodFact) bool {
+	return p.ResourceName == nil || b.Name == *p.ResourceName
 }
 
 func targetsForNS(ns *string, podsByNS map[string][]string, all []string) []string {
