@@ -201,7 +201,7 @@ func (h *PackageVulnHandler) TopCVEs(c *gin.Context) {
 		return
 	}
 	limit := 50
-	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 && l <= 200 {
+	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 && l <= 2000 {
 		limit = l
 	}
 	cves, err := h.service.ListClusterCVEsRanked(c.Request.Context(), cluster, limit)
