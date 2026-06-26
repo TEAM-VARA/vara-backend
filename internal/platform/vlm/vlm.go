@@ -1,5 +1,4 @@
-// GRC 보조: Ollama(Qwen 2.5) 서버와 통신하여 ISMS-P 지침 함의 판정을 수행.
-// Colab FastAPI 프롬프트 로직을 Go에 내장하여 외부 터널(ngrok/cloudflare) 없이 동작.
+// GRC 보조: Claude Messages API로 ISMS-P 지침 함의 판정을 수행.
 package vlm
 
 import (
@@ -19,8 +18,7 @@ import (
 )
 
 const (
-	defaultTimeout    = 300 * time.Second // CPU 추론: 최대 5분
-	healthTimeout     = 2 * time.Second   // 도달성 핑: 짧게 (안 뜨면 즉시 비가동 판정)
+	defaultTimeout    = 300 * time.Second // LLM 추론: 최대 5분
 	maxRetries        = 2
 	initialRetryDelay = 3 * time.Second
 
@@ -57,47 +55,36 @@ const (
 
 var jsonRe = regexp.MustCompile(`\{[^{}]*\}`)
 
-// Client calls an LLM for inference — Claude Messages API (ANTHROPIC_API_KEY set)
-// 또는 Ollama 서버(폴백). 메서드(Judge/EstimateCVSS/Available) 시그니처는 동일.
+// Client calls Claude Messages API for inference.
 type Client struct {
-	url        string // Ollama base URL, e.g. http://ollama:11434 (폴백용)
-	apiKey     string // Anthropic API key — 있으면 Claude provider 사용
-	model      string // Claude 모델명 또는 Ollama 태그
+	apiKey     string // Anthropic API key (ANTHROPIC_API_KEY)
+	model      string // Claude 모델명
 	httpClient *http.Client
 }
 
-// NewClient creates a new LLM client.
-//   - ANTHROPIC_API_KEY 환경변수가 있으면 → Claude Messages API 사용
-//     (모델: CLAUDE_MODEL 환경변수, 기본 claude-haiku-4-5-20251001)
-//   - 없으면 → Ollama(url, model) 사용 (기존 동작)
-//   - 둘 다 미설정이면 Available()=false → 모든 메서드 nil 반환(graceful)
-func NewClient(url, model string) *Client {
+// NewClient creates a new Claude-backed LLM client.
+//   - ANTHROPIC_API_KEY 환경변수로 인증 (모델: CLAUDE_MODEL 환경변수, 기본 claude-haiku-4-5-20251001)
+//   - 키 미설정이면 Available()=false → 모든 메서드 nil/에러 반환(graceful)
+func NewClient(model string) *Client {
 	c := &Client{
-		url:        url,
 		model:      model,
+		apiKey:     os.Getenv("ANTHROPIC_API_KEY"),
 		httpClient: &http.Client{Timeout: defaultTimeout},
 	}
-	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		c.apiKey = key
-		if m := os.Getenv("CLAUDE_MODEL"); m != "" {
-			c.model = m
-		} else if c.model == "" || strings.HasPrefix(c.model, "qwen") {
-			c.model = "claude-haiku-4-5-20251001"
-		}
-	} else if c.model == "" {
-		c.model = "qwen2.5:7b"
+	if m := os.Getenv("CLAUDE_MODEL"); m != "" {
+		c.model = m
+	} else if c.model == "" || strings.HasPrefix(c.model, "qwen") {
+		c.model = "claude-haiku-4-5-20251001"
 	}
 	return c
 }
 
-// UsingClaude는 Claude API provider로 동작 중인지(=ANTHROPIC_API_KEY 설정됨) 반환합니다.
-// 결측 보완(CVSS imputation)처럼 Ollama 폴백을 쓰지 않고 Claude만 허용하려는 호출부에서 게이팅용.
+// UsingClaude는 Claude API 키가 설정됐는지 반환합니다(호출부 게이팅용).
 func (c *Client) UsingClaude() bool { return c != nil && c.apiKey != "" }
 
-// Available returns true if either Claude(apiKey) or Ollama(url) is configured.
-// ⚠ 설정 여부만 본다 — 서버가 실제로 떠 있는지는 보지 않는다. 실제 도달성은 Healthy를 써라.
+// Available returns true if the Claude API key is configured.
 func (c *Client) Available() bool {
-	return c != nil && (c.apiKey != "" || c.url != "")
+	return c != nil && c.apiKey != ""
 }
 
 // defaultMaxTokens — 응답 토큰 상한 기본값(기존 동작 보존). enrichment 등 긴 출력은 CompleteMax로 올린다.
@@ -122,7 +109,7 @@ func (c *Client) CompleteMax(ctx context.Context, system, user string, temperatu
 	return c.doChat(ctx, system, user, temperature, maxTokens)
 }
 
-// doChat은 provider(Claude/Ollama)로 system+user 프롬프트를 전송하고 raw 응답 텍스트를 반환합니다.
+// doChat은 Claude Messages API로 system+user 프롬프트를 전송하고 raw 응답 텍스트를 반환합니다.
 // 일시적 실패는 백오프 재시도. 모두 실패하면 ("", err).
 func (c *Client) doChat(ctx context.Context, system, user string, temperature float64, maxTokens int) (string, error) {
 	var lastErr error
@@ -135,15 +122,7 @@ func (c *Client) doChat(ctx context.Context, system, user string, temperature fl
 			case <-time.After(delay):
 			}
 		}
-		var (
-			raw string
-			err error
-		)
-		if c.UsingClaude() {
-			raw, err = c.chatClaude(ctx, system, user, temperature, maxTokens)
-		} else {
-			raw, err = c.chatOllama(ctx, system, user, temperature, maxTokens)
-		}
+		raw, err := c.chatClaude(ctx, system, user, temperature, maxTokens)
 		if err == nil {
 			return raw, nil
 		}
@@ -200,71 +179,10 @@ func (c *Client) chatClaude(ctx context.Context, system, user string, temperatur
 	return "", fmt.Errorf("claude: empty text content")
 }
 
-// chatOllama — Ollama /api/chat (폴백).
-func (c *Client) chatOllama(ctx context.Context, system, user string, temperature float64, maxTokens int) (string, error) {
-	chatReq := ollamaChatRequest{
-		Model: c.model,
-		Messages: []ollamaMessage{
-			{Role: "system", Content: system},
-			{Role: "user", Content: user},
-		},
-		Stream:  false,
-		Options: ollamaOptions{Temperature: temperature, NumPredict: maxTokens},
-	}
-	body, err := json.Marshal(chatReq)
-	if err != nil {
-		return "", err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+"/api/chat", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("ollama status %d: %s", resp.StatusCode, string(b))
-	}
-	var chatResp ollamaChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
-		return "", err
-	}
-	return chatResp.Message.Content, nil
-}
-
-// Healthy reports whether the Ollama server is actually reachable right now
-// (짧은 타임아웃 GET /api/tags). Available()이 설정 여부만 보는 것과 달리, 서버가 죽어 있으면
-// false를 돌려준다. GL 평가 스킵 가드(스케줄러/Trigger)에서 "URL은 있는데 ollama가 죽은" 경우를
-// 잡아 기존 결과를 보존하는 데 쓴다.
+// Healthy reports whether the Claude API key is configured. 설정돼 있으면 도달 가능으로
+// 간주한다(실제 호출 실패는 graceful degradation). GL 평가 스킵 가드(스케줄러/Trigger)에서 쓴다.
 func (c *Client) Healthy(ctx context.Context) bool {
-	if c == nil {
-		return false
-	}
-	// Claude provider는 외부 ollama 서버가 없어도 사용 가능하다(도달 실패는 호출 시 graceful).
-	// ollama 미배포(Claude 전용) 구성에서 GL 평가가 스킵되지 않도록 true로 간주한다.
-	if c.UsingClaude() {
-		return true
-	}
-	if c.url == "" {
-		return false
-	}
-	hctx, cancel := context.WithTimeout(ctx, healthTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(hctx, http.MethodGet, strings.TrimRight(c.url, "/")+"/api/tags", nil)
-	if err != nil {
-		return false
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode < 500
+	return c != nil && c.apiKey != ""
 }
 
 // ── Request / Response (external — unchanged) ──
@@ -323,29 +241,6 @@ func (r *JudgeResponse) parseBasisIdx() {
 	}
 }
 
-// ── Ollama API types ──
-
-type ollamaChatRequest struct {
-	Model    string          `json:"model"`
-	Messages []ollamaMessage `json:"messages"`
-	Stream   bool            `json:"stream"`
-	Options  ollamaOptions   `json:"options"`
-}
-
-type ollamaMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type ollamaOptions struct {
-	Temperature float64 `json:"temperature"`
-	NumPredict  int     `json:"num_predict,omitempty"` // 응답 토큰 상한 (0이면 ollama 기본)
-}
-
-type ollamaChatResponse struct {
-	Message ollamaMessage `json:"message"`
-}
-
 // buildUserPrompt replicates the Colab colab_server.py prompt template.
 func buildUserPrompt(req JudgeRequest) string {
 	var b strings.Builder
@@ -377,7 +272,7 @@ func buildUserPrompt(req JudgeRequest) string {
 	return b.String()
 }
 
-// Judge sends a judgment request to the Ollama server and returns the verdict.
+// Judge sends a judgment request to Claude and returns the verdict.
 // Returns nil, nil if the client is unavailable or all retries fail (graceful degradation).
 func (c *Client) Judge(ctx context.Context, req JudgeRequest) (*JudgeResponse, error) {
 	if !c.Available() {

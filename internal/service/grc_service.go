@@ -322,17 +322,16 @@ func (s *GRCService) ListGLCheckTargets(ctx context.Context) ([]grc.GLCheckTarge
 // given company and ISMS-P item. The check runs asynchronously using DB guidelines for
 // GL-rule evaluation (llm_rag_entailment, embedding_similarity, etc.).
 func (s *GRCService) TriggerGLCheck(ctx context.Context, companyID, ismspItemID string) (*grc.Check, error) {
-	// GL 평가는 전적으로 VLM(LLM)에 의존한다. VLM 비가동 시 평가를 돌리면 모든 GL 룰이
-	// INDETERMINATE로 저장되어 기존의 좋은 판정을 덮어쓴다. 따라서 비가동이면 아예 스킵해
+	// GL 평가는 전적으로 LLM(Claude)에 의존한다. 키 미설정 시 평가를 돌리면 모든 GL 룰이
+	// INDETERMINATE로 저장되어 기존의 좋은 판정을 덮어쓴다. 따라서 미설정이면 아예 스킵해
 	// 직전 저장 결과를 그대로 보존한다.
 	if !s.VLMAvailable(ctx) {
-		return nil, &GRCError{Code: "VLM_UNAVAILABLE", Message: "VLM 서버 비가동 — GL 평가 스킵(기존 결과 보존)", HTTPStatus: 503}
+		return nil, &GRCError{Code: "VLM_UNAVAILABLE", Message: "Claude API 미설정 — GL 평가 스킵(기존 결과 보존)", HTTPStatus: 503}
 	}
 	return s.CreateCheck(ctx, companyID, ismspItemID, false, nil, nil)
 }
 
-// VLMAvailable reports whether the VLM(LLM) judge backend is configured AND actually reachable.
-// URL만 설정돼 있고 ollama가 죽은 경우도 false → GL 평가를 스킵해 기존 결과를 보존한다.
+// VLMAvailable reports whether the Claude LLM judge backend is configured (ANTHROPIC_API_KEY).
 func (s *GRCService) VLMAvailable(ctx context.Context) bool {
 	return s.vlmClient != nil && s.vlmClient.Available() && s.vlmClient.Healthy(ctx)
 }

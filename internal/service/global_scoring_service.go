@@ -345,7 +345,7 @@ func (s *GlobalScoringService) imputeCVSS(ctx context.Context, score *scoring.Gl
 	}
 
 	// 2) AI 추정 (OSV summary를 설명으로). confidence 페널티는 점수에만 적용.
-	// 결측 보완 AI는 Claude 전용(UsingClaude) — Ollama 폴백은 너무 느리고 디스크 부담이라 제외.
+	// 결측 보완 AI는 Claude(UsingClaude) 키가 설정된 경우에만 수행.
 	if s.vlm != nil && s.vlm.UsingClaude() && summary != "" {
 		// Claude는 수초 내 응답 → 60초 상한이면 충분.
 		aiCtx, cancel := context.WithTimeout(ctx, 60*time.Second)

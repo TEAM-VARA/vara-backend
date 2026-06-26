@@ -32,7 +32,7 @@ type scoredSentence struct {
 // evaluateLLMRAGEntailment performs RAG + LLM entailment judgment:
 //  1. Collect sentences from DB guidelines (GL-rule) or evidence text (R-rule)
 //  2. Retrieve top-k sentences via BGE-M3 cosine similarity
-//  3. Call VLM (Qwen on Colab) for entailment judgment
+//  3. Call VLM (Claude) for entailment judgment
 //  4. Map verdict to grc.RuleResult
 // cachedGLSentences: pre-computed top-K sentences from precomputeGLRuleTopSentences.
 // When non-nil, Steps 1–4 (sentence collection + embedding + cosine similarity) are skipped.

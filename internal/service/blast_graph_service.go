@@ -247,6 +247,401 @@ func (h *BlastGraphHandler) Handle(c *gin.Context) {
 	c.JSON(200, result)
 }
 
+// ─────────────────────────────────────────────────────────────
+//  공격 시나리오 그래프 — 출발(src)·선택(dst) "사이의 모든 노드" 서브그래프
+//
+//  프론트가 출발 노드 + 노드 하나를 더 선택하면, 그 둘 사이의 전파 경로 위에 있는
+//  모든 노드를 보여준다. "사이에 있다" = src에서 닿고(reach(src→X)>0) X에서 dst에도
+//  닿는다(reach(X→dst)>0). 둘 다여야 src→…→X→…→dst 경로 위의 노드다.
+//  중간 노드 1개를 "고르는" 게 아니라(=choke), 사이 경로 전체를 그릴 수 있게 노드+엣지를 다 준다.
+//  reach 값은 blast_pair_risk(MC 사전계산), 엣지는 blast_edges(직통)에서 노드셋 내부만 추린다.
+// ─────────────────────────────────────────────────────────────
+
+// BetweenNode — src·dst 사이 서브그래프의 노드 1개.
+type BetweenNode struct {
+	UID          string  `json:"uid"`
+	Name         string  `json:"name"`
+	Role         string  `json:"role"` // "src" | "between" | "dst"
+	ReachFromSrc float64 `json:"reach_from_src"` // reach_prob(src→이 노드)  (src 자신=1.0)
+	ReachToDst   float64 `json:"reach_to_dst"`   // reach_prob(이 노드→dst)  (dst 자신=1.0)
+	RiskScore    float64 `json:"risk_score"`     // 이 노드 자체 위험(final_score), FE 색용
+}
+
+// BetweenEdge — 서브그래프 엣지(양 끝이 모두 노드셋 안인 blast_edges).
+type BetweenEdge struct {
+	Source     string  `json:"source"`
+	Target     string  `json:"target"`
+	WinChannel string  `json:"win_channel"`
+	P          float64 `json:"p"`
+	Reason     string  `json:"reason,omitempty"`
+}
+
+// BlastBetweenResult — 출발·선택 노드 사이의 경로 서브그래프.
+type BlastBetweenResult struct {
+	Cluster       string        `json:"cluster"`
+	SrcUID        string        `json:"src_uid"`
+	SrcName       string        `json:"src_name"`
+	DstUID        string        `json:"dst_uid"`
+	DstName       string        `json:"dst_name"`
+	ReachSrcToDst float64       `json:"reach_src_to_dst"` // src→dst 도달확률(0이면 경로 없음)
+	Nodes         []BetweenNode `json:"nodes"`
+	Edges         []BetweenEdge `json:"edges"`
+}
+
+// loadBetweenNodes — src에서 닿고(reach(src→X)>0) dst에도 닿는(reach(X→dst)>0) "사이 노드"들.
+// reach(X→dst)=0인 X는 JOIN에서 자동 제외 → 경로 위 노드만 남는다. src·dst 자신은 제외(엔드포인트는 호출부에서 추가).
+func loadBetweenNodes(ctx context.Context, pool *pgxpool.Pool, cluster, src, dst string) ([]BetweenNode, error) {
+	const q = `
+		SELECT a2x.dst_pod_uid, a2x.dst_pod_name,
+		       a2x.reach_prob::float8                 AS reach_from_src,
+		       x2t.reach_prob::float8                 AS reach_to_dst,
+		       COALESCE(f.final_score, 0)::float8     AS risk_score
+		FROM blast_pair_risk a2x
+		JOIN blast_pair_risk x2t
+		  ON x2t.cluster_name = a2x.cluster_name
+		 AND x2t.src_pod_uid  = a2x.dst_pod_uid
+		 AND x2t.dst_pod_uid  = $3
+		LEFT JOIN LATERAL (
+			SELECT final_score FROM final_scores
+			WHERE cluster_name = a2x.cluster_name AND pod_uid = a2x.dst_pod_uid
+			ORDER BY snapshot_at DESC LIMIT 1
+		) f ON TRUE
+		WHERE a2x.cluster_name = $1
+		  AND a2x.src_pod_uid  = $2
+		  AND a2x.dst_pod_uid <> $2
+		  AND a2x.dst_pod_uid <> $3
+		ORDER BY reach_from_src DESC, a2x.dst_pod_name ASC`
+	rows, err := pool.Query(ctx, q, cluster, src, dst)
+	if err != nil {
+		return nil, fmt.Errorf("between-nodes query: %w", err)
+	}
+	defer rows.Close()
+
+	var out []BetweenNode
+	for rows.Next() {
+		n := BetweenNode{Role: "between"}
+		if err := rows.Scan(&n.UID, &n.Name, &n.ReachFromSrc, &n.ReachToDst, &n.RiskScore); err != nil {
+			return nil, fmt.Errorf("scan between node: %w", err)
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// loadBetweenEdges — 노드셋(src·dst·사이 노드 전부) 내부에서 양 끝이 모두 노드셋에 속하는 blast_edges.
+// 노드셋을 SQL CTE로 다시 계산(사이 노드 = nodeset)해서 그 안의 직통 엣지만 추린다.
+func loadBetweenEdges(ctx context.Context, pool *pgxpool.Pool, cluster, src, dst string) ([]BetweenEdge, error) {
+	const q = `
+		WITH nodeset AS (
+			SELECT a2x.dst_pod_uid AS uid
+			FROM blast_pair_risk a2x
+			JOIN blast_pair_risk x2t
+			  ON x2t.cluster_name = a2x.cluster_name
+			 AND x2t.src_pod_uid  = a2x.dst_pod_uid
+			 AND x2t.dst_pod_uid  = $3
+			WHERE a2x.cluster_name = $1 AND a2x.src_pod_uid = $2
+			UNION SELECT $2
+			UNION SELECT $3
+		)
+		SELECT e.source_pod_uid, e.target_pod_uid, e.win_channel,
+		       e.p_edge::float8, COALESCE(e.reason, '')
+		FROM blast_edges e
+		WHERE e.cluster_name = $1
+		  AND e.snapshot_at = (SELECT MAX(snapshot_at) FROM blast_edges WHERE cluster_name = $1)
+		  AND e.source_pod_uid IN (SELECT uid FROM nodeset)
+		  AND e.target_pod_uid IN (SELECT uid FROM nodeset)`
+	rows, err := pool.Query(ctx, q, cluster, src, dst)
+	if err != nil {
+		return nil, fmt.Errorf("between-edges query: %w", err)
+	}
+	defer rows.Close()
+
+	var out []BetweenEdge
+	for rows.Next() {
+		var e BetweenEdge
+		if err := rows.Scan(&e.Source, &e.Target, &e.WinChannel, &e.P, &e.Reason); err != nil {
+			return nil, fmt.Errorf("scan between edge: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// BlastBetween : GET /api/v1/scoring/blast-between?cluster=<name>&src=<src_pod_uid>&dst=<dst_pod_uid>
+//
+// 출발(src)·선택(dst) 노드 "사이의 모든 노드"를 경로 서브그래프로 반환한다(노드+엣지).
+// 공격 시나리오 그래프(노드 하나 더 선택 시)가 src→…→dst 경로 전체를 그리는 데 쓴다.
+func (h *BlastGraphHandler) BlastBetween(c *gin.Context) {
+	cluster := c.Query("cluster")
+	src := c.Query("src")
+	dst := c.Query("dst")
+	if cluster == "" || src == "" || dst == "" {
+		c.JSON(400, gin.H{"error": "cluster, src, dst 쿼리 파라미터가 모두 필요합니다"})
+		return
+	}
+	if src == dst {
+		c.JSON(400, gin.H{"error": "src와 dst가 같습니다"})
+		return
+	}
+
+	res := BlastBetweenResult{Cluster: cluster, SrcUID: src, DstUID: dst, Nodes: []BetweenNode{}, Edges: []BetweenEdge{}}
+
+	// src→dst 직접 도달확률 + 양끝 이름 (이 한 행이 없으면 src→dst 경로 자체가 없음).
+	var srcRisk, dstRisk float64
+	if err := h.Pool.QueryRow(c.Request.Context(),
+		`SELECT src_pod_name, dst_pod_name, reach_prob::float8
+		 FROM blast_pair_risk
+		 WHERE cluster_name=$1 AND src_pod_uid=$2 AND dst_pod_uid=$3 LIMIT 1`,
+		cluster, src, dst).Scan(&res.SrcName, &res.DstName, &res.ReachSrcToDst); err != nil {
+		c.JSON(404, gin.H{
+			"error":   "src→dst 경로가 없습니다(도달 불가) 또는 blast_pair_risk 미적재",
+			"hint":    "POST /api/v1/analysis/refresh 로 MC 사전계산 필요할 수 있음",
+			"cluster": cluster, "src": src, "dst": dst,
+		})
+		return
+	}
+	// 양끝 자기 위험(final_score) — best-effort.
+	_ = h.Pool.QueryRow(c.Request.Context(),
+		`SELECT final_score::float8 FROM final_scores WHERE cluster_name=$1 AND pod_uid=$2 ORDER BY snapshot_at DESC LIMIT 1`,
+		cluster, src).Scan(&srcRisk)
+	_ = h.Pool.QueryRow(c.Request.Context(),
+		`SELECT final_score::float8 FROM final_scores WHERE cluster_name=$1 AND pod_uid=$2 ORDER BY snapshot_at DESC LIMIT 1`,
+		cluster, dst).Scan(&dstRisk)
+
+	between, err := loadBetweenNodes(c.Request.Context(), h.Pool, cluster, src, dst)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	edges, err := loadBetweenEdges(c.Request.Context(), h.Pool, cluster, src, dst)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 노드 = src + 사이 노드 전부 + dst (엔드포인트 reach는 자기 1.0 / src→dst 값으로 채움).
+	res.Nodes = append(res.Nodes, BetweenNode{
+		UID: src, Name: res.SrcName, Role: "src",
+		ReachFromSrc: 1.0, ReachToDst: res.ReachSrcToDst, RiskScore: srcRisk,
+	})
+	res.Nodes = append(res.Nodes, between...)
+	res.Nodes = append(res.Nodes, BetweenNode{
+		UID: dst, Name: res.DstName, Role: "dst",
+		ReachFromSrc: res.ReachSrcToDst, ReachToDst: 1.0, RiskScore: dstRisk,
+	})
+	res.Edges = edges
+
+	c.JSON(200, res)
+}
+
+// ─────────────────────────────────────────────────────────────
+//  NetworkPolicy 봉쇄 cascade — 선택 pod의 network 차단 시 끊기는 노드를 hop 파동별로
+//
+//  선택 pod(block)에 default-deny NetworkPolicy를 걸면 그 pod의 network 엣지(ingress+egress)가
+//  0이 된다(rbac/host는 NetworkPolicy로 안 막히므로 유지). 그 뒤 focus(src) 기준 도달을 재계산해서
+//  "이제 못 닿는 노드"를 파동으로 나눈다:
+//    1hop = 끊긴 직후 생존 영역에서 바로 떨어져나간 노드
+//    2hop = 1hop 노드를 거쳐야만 닿던 노드 … (계속)
+//  한 번에 다 사라지는 대신 번지는 순서를 FE가 단계별로 그릴 수 있게 한다.
+// ─────────────────────────────────────────────────────────────
+
+type CutNode struct {
+	UID       string  `json:"uid"`
+	Name      string  `json:"name"`
+	RiskScore float64 `json:"risk_score"`
+}
+
+type CutEdge struct {
+	Source     string  `json:"source"`
+	Target     string  `json:"target"`
+	WinChannel string  `json:"win_channel"`
+	P          float64 `json:"p"`
+}
+
+// CutWave — 같은 hop에 끊기는 노드 + 그 노드로 들어오던(끊긴 원인) 엣지.
+type CutWave struct {
+	Hop   int       `json:"hop"`
+	Nodes []CutNode `json:"nodes"`
+	Edges []CutEdge `json:"edges"`
+}
+
+type BlastCutResult struct {
+	Cluster           string    `json:"cluster"`
+	SrcUID            string    `json:"src_uid"`
+	SrcName           string    `json:"src_name"`
+	Blocked           []CutEdge `json:"blocked"`       // 요청한 차단 연결(echo, p=요청 시점 미상이라 0)
+	CutEdges          []CutEdge `json:"cut_edges"`     // 그 차단으로 실제 사라진 엣지(network이 유일 채널이던 것)
+	Waves             []CutWave `json:"waves"`         // hop=1,2,3…
+	DisconnectedCount int       `json:"disconnected_count"`
+	SurvivorCount     int       `json:"survivor_count"`
+}
+
+// reachableFrom — src에서 survives(e)==true 인 엣지만 따라 BFS로 닿는 노드 집합(src 포함).
+func reachableFrom(edges []BlastEdge, src string, survives func(BlastEdge) bool) map[string]bool {
+	adj := map[string][]BlastEdge{}
+	for _, e := range edges {
+		if e.SourceUID == e.TargetUID || !survives(e) {
+			continue
+		}
+		adj[e.SourceUID] = append(adj[e.SourceUID], e)
+	}
+	seen := map[string]bool{src: true}
+	q := []string{src}
+	for len(q) > 0 {
+		u := q[0]
+		q = q[1:]
+		for _, e := range adj[u] {
+			if !seen[e.TargetUID] {
+				seen[e.TargetUID] = true
+				q = append(q, e.TargetUID)
+			}
+		}
+	}
+	return seen
+}
+
+// BlastCut : POST /api/v1/scoring/blast-cut
+//   body: { "cluster":..., "src":<focus_uid>, "blocked_edges":[ {"source":..,"target":..}, ... ] }
+//
+// focus(src) 영향범위에서, 차단한 peer 연결들(blocked_edges, directed)의 network 채널을 0으로 두고
+// 도달을 재계산해 끊기는 노드를 hop 파동별로 반환. (rbac/host는 NetworkPolicy로 안 막히므로 유지)
+func (h *BlastGraphHandler) BlastCut(c *gin.Context) {
+	var req struct {
+		Cluster      string `json:"cluster"`
+		Src          string `json:"src"`
+		BlockedEdges []struct {
+			Source string `json:"source"`
+			Target string `json:"target"`
+		} `json:"blocked_edges"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "JSON 본문 파싱 실패: " + err.Error()})
+		return
+	}
+	if req.Cluster == "" || req.Src == "" || len(req.BlockedEdges) == 0 {
+		c.JSON(400, gin.H{"error": "cluster, src, blocked_edges(1개 이상)가 필요합니다"})
+		return
+	}
+	cluster, src := req.Cluster, req.Src
+
+	// 차단 연결(directed): source→target의 network 채널을 0으로 둔다. ingress 차단=peer→node, egress 차단=node→peer.
+	blocked := map[[2]string]bool{}
+	for _, b := range req.BlockedEdges {
+		blocked[[2]string{b.Source, b.Target}] = true
+	}
+
+	edges, err := LoadBlastEdges(c.Request.Context(), h.Pool, cluster)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 이름/위험도 보조 맵.
+	nameOf := map[string]string{}
+	for _, e := range edges {
+		if e.SourceName != "" {
+			nameOf[e.SourceUID] = e.SourceName
+		}
+		if e.TargetName != "" {
+			nameOf[e.TargetUID] = e.TargetName
+		}
+	}
+	riskOf, _ := LoadFinalScores(c.Request.Context(), h.Pool, cluster) // 실패해도 nil map → 0
+
+	// 차단 연결의 network 채널을 0으로 둔 뒤 엣지 생존 판정(rbac/host는 NetworkPolicy로 안 막힘).
+	survivesAfter := func(e BlastEdge) bool {
+		pnet := e.PNet
+		if blocked[[2]string{e.SourceUID, e.TargetUID}] {
+			pnet = 0
+		}
+		return maxF3(e.PHost, e.PRbac, pnet) > 0
+	}
+	survivesAll := func(e BlastEdge) bool { return e.PEdge > 0 } // 저장 엣지는 전부 >0
+
+	before := reachableFrom(edges, src, survivesAll)
+	after := reachableFrom(edges, src, survivesAfter)
+
+	// 끊긴 노드 D = before − after (src 제외).
+	disconnected := map[string]bool{}
+	for uid := range before {
+		if uid != src && !after[uid] {
+			disconnected[uid] = true
+		}
+	}
+
+	// 파동(hop) 분류: 생존영역(after)에서 D로 들어가는 경계를 1hop, 그 다음을 BFS로.
+	fullAdj := map[string][]BlastEdge{}
+	for _, e := range edges {
+		if e.SourceUID == e.TargetUID {
+			continue
+		}
+		fullAdj[e.SourceUID] = append(fullAdj[e.SourceUID], e)
+	}
+	wave := map[string]int{}
+	var queue []string
+	for _, e := range edges { // seed: survivor → D
+		if after[e.SourceUID] && disconnected[e.TargetUID] && wave[e.TargetUID] == 0 {
+			wave[e.TargetUID] = 1
+			queue = append(queue, e.TargetUID)
+		}
+	}
+	for len(queue) > 0 { // BFS: D 안에서 번짐
+		u := queue[0]
+		queue = queue[1:]
+		for _, e := range fullAdj[u] {
+			if disconnected[e.TargetUID] && wave[e.TargetUID] == 0 {
+				wave[e.TargetUID] = wave[u] + 1
+				queue = append(queue, e.TargetUID)
+			}
+		}
+	}
+
+	res := BlastCutResult{
+		Cluster: cluster, SrcUID: src, SrcName: nameOf[src],
+		Blocked:  []CutEdge{},
+		CutEdges: []CutEdge{}, Waves: []CutWave{},
+		DisconnectedCount: len(disconnected), SurvivorCount: len(after),
+	}
+	for _, b := range req.BlockedEdges { // 요청한 차단 연결 echo
+		res.Blocked = append(res.Blocked, CutEdge{Source: b.Source, Target: b.Target, WinChannel: "network"})
+	}
+
+	// 끊긴(=block network 차단으로 사라진) 엣지 모으기.
+	for _, e := range edges {
+		if survivesAll(e) && !survivesAfter(e) {
+			res.CutEdges = append(res.CutEdges, CutEdge{e.SourceUID, e.TargetUID, e.WinChannel, e.PEdge})
+		}
+	}
+
+	// hop별 노드/엣지 묶기.
+	maxHop := 0
+	for _, hp := range wave {
+		if hp > maxHop {
+			maxHop = hp
+		}
+	}
+	for hop := 1; hop <= maxHop; hop++ {
+		w := CutWave{Hop: hop, Nodes: []CutNode{}, Edges: []CutEdge{}}
+		for uid, hp := range wave {
+			if hp == hop {
+				w.Nodes = append(w.Nodes, CutNode{UID: uid, Name: nameOf[uid], RiskScore: riskOf[uid]})
+			}
+		}
+		// 이 wave 노드로 들어오던 엣지(원인): source가 생존영역 또는 더 앞 wave.
+		for _, e := range edges {
+			if wave[e.TargetUID] != hop {
+				continue
+			}
+			if after[e.SourceUID] || (wave[e.SourceUID] > 0 && wave[e.SourceUID] < hop) {
+				w.Edges = append(w.Edges, CutEdge{e.SourceUID, e.TargetUID, e.WinChannel, e.PEdge})
+			}
+		}
+		res.Waves = append(res.Waves, w)
+	}
+
+	c.JSON(200, res)
+}
+
 // loadRiskHubChoke: choke 점수를 blast_pair_risk(MC 사전계산)에서 계산.
 //
 //	choke(X) = reach_prob(A→X) × total_risk(X)

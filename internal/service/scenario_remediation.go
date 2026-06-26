@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/vara/backend/internal/blastedge"
@@ -81,6 +82,7 @@ func (s *ScenarioService) buildRemediation(ctx context.Context, companyID, clust
 				}
 				in.CVEs = append(in.CVEs, scoring.CVEItem{
 					ID: row.CVEID, Score: score, Severity: strings.ToLower(row.Severity), Fixed: row.FixedVersion,
+					Package: row.PkgName,
 				})
 			}
 		}
@@ -112,12 +114,18 @@ func (s *ScenarioService) buildCategories(ctx context.Context, cluster, podUID, 
 	catIn := scoring.CategoriesInput{
 		CVEs:                 in.CVEs,
 		SAName:               in.SAName,
-		AllPerms:             in.AllPerms,
 		PrivilegedContainers: in.PrivilegedContainers,
 		HostPathVolumes:      in.HostPathVolumes,
 		HostNetwork:          in.HostNetwork,
 		HostPID:              in.HostPID,
 		NetworkIsolation:     isolation,
+	}
+	// node-level RBAC: 최종권한(흡수 후, rbac_sa_permissions) 대신 "원래(흡수 전) 권한 +
+	// 권한상승 인과"를 채운다. 흡수로 생긴 권한은 회수 대상이 아니라 "상승 결과"이므로,
+	// 트리거가 된 원래 권한만 회수 지목하고, 그로 인한 상승 권한은 인과로 같이 보여준다.
+	if s.rbacChain != nil && in.SAName != "" {
+		catIn.InitialPerms = s.saInitialPerms(ctx, cluster, podNamespace, in.SAName)
+		catIn.Escalations = s.rbacEscalations(ctx, cluster, podNamespace, in.SAName)
 	}
 	if s.blastRepo != nil {
 		// SA(ns/name)당 측면이동 초기권한 캐시 — 같은 SA 중복 조회 방지.
@@ -206,6 +214,92 @@ func (s *ScenarioService) lateralInitialPerms(ctx context.Context, cluster, ns, 
 			seen[label] = true
 			out = append(out, label)
 		}
+	}
+	return out
+}
+
+// saInitialPerms — SA의 "원래(흡수 전)" 직접 보유 권한 전체를 PermItem으로 반환.
+// node-level 회수 후보의 출처 — 최종권한(rbac_sa_permissions)이 아니라 흡수 전 직접권한
+// (rbac_sa_initial_permissions). 흡수로 생긴 권한을 회수 대상에서 빼기 위함.
+func (s *ScenarioService) saInitialPerms(ctx context.Context, cluster, ns, saName string) []scoring.PermItem {
+	if s.rbacChain == nil {
+		return nil
+	}
+	perms, err := s.rbacChain.ListSAInitialPermissions(ctx, cluster, ns, saName)
+	if err != nil {
+		return nil
+	}
+	out := make([]scoring.PermItem, 0, len(perms))
+	for _, p := range perms {
+		pi := scoring.PermItem{Verb: p.Verb, Resource: p.Resource, Severity: permSeverity(p.Verb, p.Resource)}
+		if p.Namespace != nil {
+			pi.Namespace = *p.Namespace
+		}
+		out = append(out, pi)
+	}
+	return out
+}
+
+// rbacEscalations — 이 SA의 권한상승 인과(룰별 트리거→흡수)를 모은다.
+// transition_triggers(어떤 "원래" 권한이 룰을 트리거했나) + rbac_escalation_paths(그래서
+// 흡수한 권한)를 via_transition(룰 ID)으로 묶는다. 데이터 없으면 nil(폴백: 인과 카드 생략).
+func (s *ScenarioService) rbacEscalations(ctx context.Context, cluster, ns, saName string) []scoring.RBACEscalation {
+	if s.rbacChain == nil {
+		return nil
+	}
+	detail, err := s.rbacChain.GetSA(ctx, cluster, ns, saName)
+	if err != nil || detail == nil {
+		return nil
+	}
+	// transition_triggers JSONB: [{transition, triggered_by:[{...perm}]}]
+	var triggers []struct {
+		Transition  string           `json:"transition"`
+		TriggeredBy []map[string]any `json:"triggered_by"`
+	}
+	if len(detail.Report.TransitionTriggers) > 0 {
+		if uerr := json.Unmarshal(detail.Report.TransitionTriggers, &triggers); uerr != nil {
+			return nil
+		}
+	}
+	if len(triggers) == 0 {
+		return nil
+	}
+	// 룰 ID → 흡수(상승) 권한 "verb resource" 목록(중복 제거).
+	escByRule := map[string][]string{}
+	escSeen := map[string]map[string]bool{}
+	for _, e := range detail.Escalation {
+		label := strings.TrimSpace(e.Verb + " " + e.Resource)
+		if label == "" {
+			continue
+		}
+		if escSeen[e.ViaTransition] == nil {
+			escSeen[e.ViaTransition] = map[string]bool{}
+		}
+		if escSeen[e.ViaTransition][label] {
+			continue
+		}
+		escSeen[e.ViaTransition][label] = true
+		escByRule[e.ViaTransition] = append(escByRule[e.ViaTransition], label)
+	}
+	out := make([]scoring.RBACEscalation, 0, len(triggers))
+	for _, t := range triggers {
+		var trig []string
+		seen := map[string]bool{}
+		for _, p := range t.TriggeredBy {
+			verb, _ := p["verb"].(string)
+			res, _ := p["resource"].(string)
+			label := strings.TrimSpace(verb + " " + res)
+			if label == "" || seen[label] {
+				continue
+			}
+			seen[label] = true
+			trig = append(trig, label)
+		}
+		out = append(out, scoring.RBACEscalation{
+			Rule:           t.Transition,
+			TriggerPerms:   trig,
+			EscalatedPerms: escByRule[t.Transition],
+		})
 	}
 	return out
 }
