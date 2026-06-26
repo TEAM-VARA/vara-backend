@@ -42,6 +42,19 @@ type SBOMService struct {
 	// 재스캔→실패를 반복하는 루프 방지). digest별 마지막 실패 시각 기록.
 	failedAt map[string]time.Time
 	failedMu sync.Mutex
+
+	// SBOM 저장(sboms) 직후 자동 보강용 (선택 주입 — SetEnrichment).
+	// sboms.raw_data → sbom_packages 추출(pkgSvc) → osv 매칭(vulnSvc)까지
+	// 자동으로 흘려, 이미지 교체 시 수동 backfill 없이도 공통-CVE 그래프에 반영되게 한다.
+	// 둘 다 nil이면 보강을 건너뛴다(기존 동작 유지).
+	pkgSvc  *SBOMPackageService
+	vulnSvc *PackageVulnService
+
+	// 프로세스 내 보강 1회 가드 (digest별). 같은 digest를 매 스냅샷마다
+	// 재추출/재조회하지 않도록 함. 이미 패키지가 있는 기존 이미지는
+	// count>0으로 판단되어 즉시 마킹되므로 절대 재처리되지 않는다.
+	enriched   map[string]struct{}
+	enrichedMu sync.Mutex
 }
 
 // scanFailureBackoff는 영구성 실패 후 재스캔을 보류하는 기간입니다.
@@ -72,7 +85,16 @@ func NewSBOMService(
 		sem:      make(chan struct{}, cfg.MaxConcurrent),
 		inFlight: make(map[string]struct{}),
 		failedAt: map[string]time.Time{},
+		enriched: map[string]struct{}{},
 	}
+}
+
+// SetEnrichment는 SBOM 저장 직후 자동 보강(sbom_packages 추출 + osv 매칭)에 쓸
+// 서비스를 주입합니다. server.go에서 sbomPackageSvc/packageVulnSvc 생성 후 호출합니다.
+// 주입하지 않으면 보강은 비활성(기존 동작) 상태로 유지됩니다.
+func (s *SBOMService) SetEnrichment(pkgSvc *SBOMPackageService, vulnSvc *PackageVulnService) {
+	s.pkgSvc = pkgSvc
+	s.vulnSvc = vulnSvc
 }
 
 // ScanRequest는 스캔 요청 한 건입니다.
@@ -125,6 +147,9 @@ func (s *SBOMService) GetOrScan(ctx context.Context, image, digest string) (*pos
 		return nil, fmt.Errorf("lazy scan: %w", err)
 	}
 
+	// 2.5 보강은 비동기로 (scoring 호출 지연 방지)
+	go s.enrich(context.Background(), digest)
+
 	// 3. 스캔 직후 다시 조회
 	return s.repo.GetByDigest(ctx, digest)
 }
@@ -144,6 +169,9 @@ func (s *SBOMService) scanOne(ctx context.Context, req ScanRequest) {
 		return
 	}
 	if exists {
+		// 이미 sboms는 있음 → 재스캔은 생략하되, 다운스트림(sbom_packages)이
+		// 비어 있으면 보강한다. (이미지 교체 후 sbom만 있고 패키지가 안 뽑힌 경우 자가복구)
+		s.enrich(ctx, req.Digest)
 		return
 	}
 
@@ -163,7 +191,62 @@ func (s *SBOMService) scanOne(ctx context.Context, req ScanRequest) {
 		if !isCacheLockError(err) {
 			s.markFailed(req.Digest)
 		}
+		return
 	}
+
+	// 4단계: SBOM 저장 성공 → sbom_packages 추출 + osv 매칭 자동 보강
+	s.enrich(ctx, req.Digest)
+}
+
+// enrich는 sboms.raw_data가 저장된 digest에 대해 sbom_packages가 비어 있으면
+// 추출(ExtractAndStore) 후 osv 매칭(ScanImage)까지 수행합니다.
+//
+// 안전장치:
+//   - pkgSvc 미주입이면 즉시 반환(기존 동작 유지).
+//   - 프로세스 내 1회 가드(enriched) — 같은 digest 반복 처리 방지.
+//   - sbom_packages가 이미 있으면(count>0) 추출/조회를 건너뛰어 기존 데이터를 절대 건드리지 않음.
+func (s *SBOMService) enrich(ctx context.Context, digest string) {
+	if s.pkgSvc == nil || digest == "" {
+		return
+	}
+
+	s.enrichedMu.Lock()
+	if _, done := s.enriched[digest]; done {
+		s.enrichedMu.Unlock()
+		return
+	}
+	s.enrichedMu.Unlock()
+
+	cnt, err := s.pkgSvc.CountByImageDigest(ctx, digest)
+	if err != nil {
+		fmt.Printf("warn: sbom enrich count failed digest=%s err=%v\n", digest, err)
+		return // 마킹 안 함 → 다음 기회에 재시도
+	}
+	if cnt > 0 {
+		// 이미 패키지가 있는 이미지 → 기존 데이터 그대로 두고 1회 마킹만
+		s.markEnriched(digest)
+		return
+	}
+
+	n, err := s.pkgSvc.ExtractAndStore(ctx, digest)
+	if err != nil {
+		fmt.Printf("warn: sbom package extract failed digest=%s err=%v\n", digest, err)
+		return // 마킹 안 함 → 다음 기회에 재시도
+	}
+	fmt.Printf("info: sbom packages extracted digest=%s count=%d\n", digest, n)
+
+	if n > 0 && s.vulnSvc != nil {
+		if _, err := s.vulnSvc.ScanImage(ctx, digest, false); err != nil {
+			fmt.Printf("warn: osv scan failed digest=%s err=%v\n", digest, err)
+		}
+	}
+	s.markEnriched(digest)
+}
+
+func (s *SBOMService) markEnriched(digest string) {
+	s.enrichedMu.Lock()
+	s.enriched[digest] = struct{}{}
+	s.enrichedMu.Unlock()
 }
 
 // recentlyFailed는 digest가 scanFailureBackoff 이내에 영구성 실패했는지 반환합니다.

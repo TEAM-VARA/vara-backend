@@ -141,6 +141,12 @@ func (s *SBOMPackageService) ListByImageDigest(ctx context.Context, imageDigest 
 	return s.repo.ListByImageDigest(ctx, imageDigest)
 }
 
+// CountByImageDigest는 특정 이미지의 패키지 개수를 반환합니다.
+// (SBOM 스캔 후 자동 보강 시 "이미 추출되었는지" 판단용 — 0일 때만 추출.)
+func (s *SBOMPackageService) CountByImageDigest(ctx context.Context, imageDigest string) (int, error) {
+	return s.repo.CountByImageDigest(ctx, imageDigest)
+}
+
 // SearchByName은 이름으로 모든 이미지에서 매칭되는 패키지를 찾습니다.
 func (s *SBOMPackageService) SearchByName(ctx context.Context, name string) ([]sbom.SBOMPackage, error) {
 	return s.repo.SearchByName(ctx, name)
