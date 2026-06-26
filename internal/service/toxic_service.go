@@ -128,6 +128,12 @@ func (s *ToxicService) ComputeForPod(ctx context.Context, clusterName, podUID st
 	fmt.Printf("info: toxic compute pod cluster=%s pod_uid=%s name=%s multiplier=%.2f matched=%d\n",
 		clusterName, podUID, input.PodName, multiplier, len(matched))
 
+	// 단일 파드 재계산은 새 스냅샷을 만들지 않고 최신 배치에 그 파드 행만 upsert한다.
+	// (부분 스냅샷이 MAX가 되어 읽기/retention을 깨뜨리는 문제 방지)
+	if latest, ok, err := s.repo.LatestSnapshotAt(ctx, clusterName); err == nil && ok {
+		result.SnapshotAt = latest
+	}
+
 	if err := s.repo.UpsertBatch(ctx, clusterName, []scoring.ToxicResult{result}); err != nil {
 		return nil, fmt.Errorf("save toxic result: %w", err)
 	}

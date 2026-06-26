@@ -185,6 +185,12 @@ func (s *ExposureService) ComputeForPod(ctx context.Context, clusterName, podUID
 	// 5. runtime 분석 (eBPF 기반) — 슬라이스 받으므로 단일 Pod도 그대로 호출
 	s.enrichExposureWithRuntime(ctx, clusterName, []postgres.PodSnapshot{*pod}, results)
 
+	// 단일 파드 재계산은 새 스냅샷을 만들지 않고 최신 배치에 그 파드 행만 upsert한다.
+	// (부분 스냅샷이 MAX가 되어 읽기/retention을 깨뜨리는 문제 방지)
+	if latest, ok, err := s.repo.LatestSnapshotAt(ctx, clusterName); err == nil && ok {
+		results[0].SnapshotAt = latest
+	}
+
 	// 6. 저장
 	if err := s.repo.UpsertExposureBatch(ctx, results); err != nil {
 		return nil, fmt.Errorf("save result: %w", err)

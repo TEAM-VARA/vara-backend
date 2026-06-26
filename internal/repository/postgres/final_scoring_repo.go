@@ -29,6 +29,19 @@ func NewFinalScoringRepo(pool *pgxpool.Pool) *FinalScoringRepo {
 	return &FinalScoringRepo{pool: pool}
 }
 
+// LatestSnapshotAt: 이 클러스터의 최신 배치 snapshot_at. 행 없으면 ok=false(폴백).
+func (r *FinalScoringRepo) LatestSnapshotAt(ctx context.Context, cluster string) (time.Time, bool, error) {
+	var t *time.Time
+	if err := r.pool.QueryRow(ctx,
+		`SELECT MAX(snapshot_at) FROM final_scores WHERE cluster_name=$1`, cluster).Scan(&t); err != nil {
+		return time.Time{}, false, fmt.Errorf("latest snapshot: %w", err)
+	}
+	if t == nil {
+		return time.Time{}, false, nil
+	}
+	return *t, true, nil
+}
+
 // ─────────────────────────────────────────
 // 조회용 DTO
 // ─────────────────────────────────────────
