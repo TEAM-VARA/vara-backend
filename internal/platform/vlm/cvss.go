@@ -23,7 +23,6 @@ const cvssSystemPrompt = `너는 취약점 심각도 추정기다. 주어진 CVE
 {"cvss": 0.0~10.0, "confidence": 0.0~1.0, "reason": "한 줄 근거"}`
 
 // EstimateCVSS는 CVE 설명으로 CVSS를 추정합니다.
-// 결측 보완은 Claude 전용입니다(Ollama 폴백 미사용 — 너무 느리고 디스크 부담).
 // Claude 미설정·설명 없음·호출 실패·파싱 실패 시 (nil, nil)로 graceful degradation.
 func (c *Client) EstimateCVSS(ctx context.Context, cveID, description string) (*CVSSEstimate, error) {
 	if !c.UsingClaude() || strings.TrimSpace(description) == "" {

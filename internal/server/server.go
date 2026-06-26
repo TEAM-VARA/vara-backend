@@ -94,7 +94,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		MaxConcurrent: 1,
 	})
 	exposureSvc := service.NewExposureService(exposureRepo, ebpfRepo, clusterNodesRepo)
-	vlmClient := vlm.NewClient(os.Getenv("VLM_SERVER_URL"), os.Getenv("VLM_MODEL")) // CVSS 결측 보완(AI) + GRC 공용
+	vlmClient := vlm.NewClient(os.Getenv("VLM_MODEL")) // Claude — CVSS 결측 보완(AI) + GRC 공용
 	globalScoringSvc := service.NewGlobalScoringService(
 		nvdClient, epssClient, kevClient, exploitDBClient, globalScoringRepo,
 		packageVulnRepo, vlmClient,
@@ -229,6 +229,10 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, depsDevH, ebpfH, edgeH, podRefreshH,
 		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH, scenarioH, authH)
 	r.GET("/api/v1/scoring/blast-graph", blastGraph.Handle)
+	// ── 공격 시나리오 그래프: 출발(src)·선택(dst) 사이의 "모든 경로 위 노드" 서브그래프 ──
+	r.GET("/api/v1/scoring/blast-between", blastGraph.BlastBetween) // ?cluster=&src=&dst=
+	// ── NetworkPolicy 봉쇄 cascade: 차단한 peer 연결들의 network 차단 시 끊기는 노드를 hop 파동별로 ──
+	r.POST("/api/v1/scoring/blast-cut", blastGraph.BlastCut) // body: {cluster, src, blocked_edges:[{source,target}]}
 	// ── blast_pair_risk 읽기 (orbital 랭킹/가중치) ──
 	r.GET("/api/v1/scoring/blast-pairs", blastGraph.PairsBySource)          // ?cluster=&src=   : 소스별 도달 목록(reach_prob+total_risk)
 	r.GET("/api/v1/scoring/blast-pairs/top-sources", blastGraph.TopSources) // ?cluster=&limit= : total_risk 랭킹(폭발원 top N)

@@ -13,7 +13,7 @@ func TestBuildCategories(t *testing.T) {
 			{ID: "CVE-A", Score: 90, Severity: "critical", Fixed: "1.2.4"},
 		},
 		SAName: "ci-sa",
-		AllPerms: []PermItem{
+		InitialPerms: []PermItem{
 			{Verb: "*", Resource: "*"},
 			{Verb: "get", Resource: "secrets"},
 			{Verb: "create", Resource: "pods/exec"},
@@ -54,7 +54,7 @@ func TestBuildCategories(t *testing.T) {
 	}
 	for _, want := range []pk{
 		{"privileged", "node", ""}, {"hostPath", "node", ""}, {"hostNetwork", "node", ""},
-		{"rbac", "src", "batch"},   // 나가는 rbac 엣지
+		{"rbac", "src", "batch"},     // 나가는 rbac 엣지
 		{"host", "dst", "host-peer"}, // 들어오는 host 엣지
 	} {
 		if !got[want] {
@@ -150,5 +150,72 @@ func TestEdgePrivInitialPerms(t *testing.T) {
 		t.Fatal("dst/attacker rbac 권한 항목 누락")
 	} else if !strings.Contains(p.Text, "batch-sa") || !strings.Contains(p.Text, "create pods/exec") || !strings.Contains(p.Text, "해제하세요") {
 		t.Errorf("dst 출발 SA 지목 실패: text=%q", p.Text)
+	}
+}
+
+// node-level RBAC: 권한상승 인과 — "원래 위험 권한(트리거) →(룰)→ 상승 권한" 카드 +
+// 트리거가 아닌 직접 보유 위험 권한은 단순 회수 카드. 트리거는 단순 카드에서 중복 제외.
+func TestBuildCategoriesEscalation(t *testing.T) {
+	in := CategoriesInput{
+		SAName: "deployer-sa",
+		InitialPerms: []PermItem{
+			{Verb: "create", Resource: "clusterrolebindings"}, // 트리거(아래 Escalations에 등장) → 인과 카드로만
+			{Verb: "get", Resource: "secrets"},                // 트리거 아님 → 단순 회수 카드
+			{Verb: "get", Resource: "pods"},                   // read-only → 제외
+		},
+		Escalations: []RBACEscalation{
+			{
+				Rule:           "R-DIRECT-01",
+				TriggerPerms:   []string{"create clusterrolebindings"},
+				EscalatedPerms: []string{"* *", "bind clusterroles"},
+			},
+		},
+	}
+	c := BuildCategories(in)
+
+	var causal, plain *CatPrivilege
+	for i := range c.Privilege {
+		p := &c.Privilege[i]
+		if p.Kind != "rbac" || p.Dir != "node" {
+			continue
+		}
+		if p.Rule != "" {
+			causal = p
+		} else {
+			plain = p
+		}
+	}
+
+	// ── 인과 카드: 원래 트리거 권한 + 룰 + 상승 권한 모두 노출 ──
+	if causal == nil {
+		t.Fatal("권한상승 인과 카드 누락")
+	}
+	if causal.Rule != "R-DIRECT-01" {
+		t.Errorf("rule=%q (want R-DIRECT-01)", causal.Rule)
+	}
+	if len(causal.TriggerPerms) != 1 || causal.TriggerPerms[0] != "create clusterrolebindings" {
+		t.Errorf("trigger_perms=%v", causal.TriggerPerms)
+	}
+	if len(causal.EscalatedPerms) != 2 {
+		t.Errorf("escalated_perms=%v (want 2)", causal.EscalatedPerms)
+	}
+	for _, sub := range []string{"create clusterrolebindings", "R-DIRECT-01", "* *", "bind clusterroles", "상승"} {
+		if !strings.Contains(causal.Text, sub) {
+			t.Errorf("인과 text에 %q 누락: %q", sub, causal.Text)
+		}
+	}
+
+	// ── 단순 회수 카드: 트리거 아닌 직접 위험 권한(get secrets)만, 트리거(create clusterrolebindings) 중복 없어야 ──
+	if plain == nil {
+		t.Fatal("직접 보유 위험 권한 단순 카드 누락")
+	}
+	if !strings.Contains(plain.Remove, "get secrets") {
+		t.Errorf("단순 카드 remove=%q (want get secrets)", plain.Remove)
+	}
+	// 트리거는 단순 카드로 중복 출력되면 안 됨
+	for _, p := range c.Privilege {
+		if p.Rule == "" && strings.Contains(p.Remove, "clusterrolebindings") {
+			t.Errorf("트리거 권한이 단순 회수 카드로 중복됨: %q", p.Remove)
+		}
 	}
 }

@@ -44,6 +44,7 @@ type CVEItem struct {
 	Score    float64 // 이 CVE의 global score (0~100)
 	Severity string
 	Fixed    string // 패치 버전(있으면)
+	Package  string // 이 CVE를 포함한 패키지명 (Trivy PkgName, OSV는 빈 값일 수 있음)
 }
 
 type PermItem struct {
@@ -375,6 +376,9 @@ func rbacTarget(sa string, p PermItem) string {
 
 func cveText(c CVEItem) string {
 	t := c.ID
+	if c.Package != "" {
+		t += fmt.Sprintf("(%s)", c.Package)
+	}
 	if c.Score > 0 {
 		t += fmt.Sprintf("(점수 %.0f)", c.Score)
 	}
