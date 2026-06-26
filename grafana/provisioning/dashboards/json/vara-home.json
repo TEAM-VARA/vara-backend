@@ -1,0 +1,103 @@
+{
+  "uid": "vara-home",
+  "title": "VARA Home",
+  "tags": ["vara"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "type": "textbox",
+        "name": "cluster",
+        "label": "Cluster",
+        "query": "vara-eks-test",
+        "current": { "text": "vara-eks-test", "value": "vara-eks-test" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Risk 등급 분포",
+      "type": "piechart",
+      "datasource": { "type": "postgres", "uid": "vara-rds" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "options": { "legend": { "showLegend": true, "placement": "right" }, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "vara-rds" },
+          "format": "table",
+          "rawSql": "SELECT risk_level AS metric, COUNT(*) AS value FROM final_scores WHERE cluster_name='${cluster}' AND snapshot_at=(SELECT MAX(snapshot_at) FROM final_scores WHERE cluster_name='${cluster}') GROUP BY risk_level ORDER BY value DESC"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "ISMS-P 준수 현황 (최신)",
+      "type": "bargauge",
+      "datasource": { "type": "postgres", "uid": "vara-rds" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "options": { "orientation": "horizontal", "displayMode": "gradient", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "vara-rds" },
+          "format": "table",
+          "rawSql": "SELECT compliant_items AS \"준수\", non_compliant_items AS \"미준수\", needs_review_items AS \"검토\" FROM grc_cluster_compliance_results WHERE cluster_name='${cluster}' ORDER BY created_at DESC LIMIT 1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "권한(RBAC) 위험",
+      "type": "stat",
+      "datasource": { "type": "postgres", "uid": "vara-rds" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value_and_name", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "vara-rds" },
+          "format": "table",
+          "rawSql": "SELECT (SELECT COUNT(*) FROM rbac_sa_reports WHERE cluster_name='${cluster}' AND reaches_cluster_admin) AS \"admin 도달 SA\", (SELECT COUNT(*) FROM rbac_sa_reports WHERE cluster_name='${cluster}') AS \"전체 SA\", (SELECT COUNT(*) FROM rbac_escalation_paths WHERE cluster_name='${cluster}') AS \"권한상승 경로\""
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "CVE 심각도별 (distinct CVE 수)",
+      "type": "barchart",
+      "datasource": { "type": "postgres", "uid": "vara-rds" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "options": { "orientation": "auto", "xField": "metric", "legend": { "showLegend": false } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "vara-rds" },
+          "format": "table",
+          "rawSql": "SELECT COALESCE(NULLIF(severity,''),'UNKNOWN') AS metric, COUNT(DISTINCT cve_id) AS value FROM cves GROUP BY 1 ORDER BY 2 DESC"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "eBPF 통신 추이 (런타임)",
+      "type": "timeseries",
+      "datasource": { "type": "postgres", "uid": "vara-rds" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 30 } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "vara-rds" },
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(timestamp,$__interval), COUNT(*) AS \"통신 수\" FROM ebpf_network_flows WHERE cluster_name='${cluster}' AND $__timeFilter(timestamp) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}
