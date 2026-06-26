@@ -228,6 +228,12 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, depsDevH, ebpfH, edgeH, podRefreshH,
 		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH, scenarioH, authH)
+
+	// ── IAM Privesc 결과 조회 (프론트엔드 read-only: scan_runs/principal_results/findings) ──
+	iamPrivescResultsH := handler.NewIamPrivescHandler(postgres.NewIamPrivescResultRepo(pg))
+	r.GET("/api/v1/iam-privesc/scan-runs", iamPrivescResultsH.ListScanRuns)
+	r.GET("/api/v1/iam-privesc/principals", iamPrivescResultsH.ListPrincipals)
+	r.GET("/api/v1/iam-privesc/findings", iamPrivescResultsH.ListFindings)
 	r.GET("/api/v1/scoring/blast-graph", blastGraph.Handle)
 	// ── 공격 시나리오 그래프: 출발(src)·선택(dst) 사이의 "모든 경로 위 노드" 서브그래프 ──
 	r.GET("/api/v1/scoring/blast-between", blastGraph.BlastBetween) // ?cluster=&src=&dst=
