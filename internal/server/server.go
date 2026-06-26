@@ -228,6 +228,12 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, depsDevH, ebpfH, edgeH, podRefreshH,
 		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH, scenarioH, authH)
+
+	// ── IAM Privesc 결과 조회 (프론트엔드 read-only: scan_runs/principal_results/findings) ──
+	iamPrivescResultsH := handler.NewIamPrivescHandler(postgres.NewIamPrivescResultRepo(pg))
+	r.GET("/api/v1/iam-privesc/scan-runs", iamPrivescResultsH.ListScanRuns)
+	r.GET("/api/v1/iam-privesc/principals", iamPrivescResultsH.ListPrincipals)
+	r.GET("/api/v1/iam-privesc/findings", iamPrivescResultsH.ListFindings)
 	r.GET("/api/v1/scoring/blast-graph", blastGraph.Handle)
 	// ── 공격 시나리오 그래프: 출발(src)·선택(dst) 사이의 "모든 경로 위 노드" 서브그래프 ──
 	r.GET("/api/v1/scoring/blast-between", blastGraph.BlastBetween) // ?cluster=&src=&dst=
@@ -388,37 +394,4 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		log.Printf("server: flow retention scheduler started (interval=%v, maxAge=%v, maxRows=%d)", retentionInterval, retentionMaxAge, retentionMaxRows)
 	}
 	// ── IAM Privesc Scheduler 시작 (IAM 권한상승 posture 자동 탐지 → result DB 적재) ──
-	if os.Getenv("DISABLE_IAM_PRIVESC_SCHEDULER") != "true" {
-		iamPrivescInterval := 10 * time.Minute
-		if v := os.Getenv("IAM_PRIVESC_INTERVAL_MINUTES"); v != "" {
-			if mins, err := strconv.Atoi(v); err == nil && mins > 0 {
-				iamPrivescInterval = time.Duration(mins) * time.Minute
-			}
-		}
-		if iamPrivescScheduler, err := scheduler.NewIamPrivescScheduler(pg, "", iamPrivescInterval); err != nil {
-			log.Printf("server: iam-privesc scheduler init failed: %v", err)
-		} else {
-			iamPrivescScheduler.Start(context.Background())
-			log.Printf("server: iam-privesc scheduler started (interval=%v)", iamPrivescInterval)
-		}
-	}
-	return &Server{
-		cfg: cfg,
-		httpSrv: &http.Server{
-			Addr:              ":" + cfg.ServerPort,
-			Handler:           r,
-			ReadHeaderTimeout: 5 * time.Second,
-		},
-	}
-}
-
-func (s *Server) Start() error {
-	if err := s.httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return err
-	}
-	return nil
-}
-
-func (s *Server) Shutdown(ctx context.Context) error {
-	return s.httpSrv.Shutdown(ctx)
-}
+	if os.Getenv("DISABLE_IAM
