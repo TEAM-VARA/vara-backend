@@ -1,0 +1,41 @@
+# VARA 홈 대시보드용 Grafana (VARA 플랫폼 쪽에 배포 — train-ticket 아님)
+# 사용: 이 폴더에서  docker compose -f docker-compose.grafana.yml --env-file .env up -d
+# .env 는 .env.example 복사해서 RDS 접속정보 채울 것.
+services:
+  grafana:
+    image: grafana/grafana-oss:11.1.0
+    container_name: vara-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"            # FE 가 임베드할 포트 (리버스 프록시 뒤면 내부만 노출)
+    environment:
+      # ── 임베드 필수 (이거 없으면 FE iframe 빈 화면) ──
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_COOKIE_SAMESITE: "none"     # 교차 도메인 iframe 대비
+      # ── 외부 노출 URL (리버스 프록시 도메인 있으면 채우기) ──
+      GF_SERVER_ROOT_URL: "${GRAFANA_ROOT_URL:-http://localhost:3000}"
+      # ── 관리자 (운영자 로그인용; 익명은 Viewer) ──
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-changeme}"
+      # ── RDS 데이터소스 (provisioning 파일이 이 env 들을 읽음) ──
+      RDS_HOST: "${RDS_HOST}"
+      RDS_PORT: "${RDS_PORT:-5432}"
+      RDS_DB: "${RDS_DB}"
+      RDS_USER: "${RDS_USER}"
+      RDS_PASSWORD: "${RDS_PASSWORD}"
+      RDS_SSLMODE: "${RDS_SSLMODE:-require}"
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - vara            # backend의 docker 네트워크에 합류 → 'postgres' 서비스명으로 접근
+volumes:
+  grafana-data:
+networks:
+  vara:
+    external: true
+    # backend compose가 만든 네트워크 이름. 보통 "<폴더명>_default" (예: vara-backend_default).
+    # 실제 이름은 EC2에서: docker network ls | grep vara
+    name: ${BACKEND_NETWORK:-vara-backend_default}
