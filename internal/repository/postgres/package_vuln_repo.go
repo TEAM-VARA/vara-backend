@@ -587,7 +587,7 @@ func (r *PackageVulnerabilityRepo) ListClusterCVEsRanked(ctx context.Context, cl
 		),
 		cve_rows AS (
 			SELECT pv.vuln_id, pi.pod_uid,
-			       pv.severity_score, pv.severity_label, pv.summary
+			       pv.severity_score, pv.severity_label, pv.summary, pv.published_at
 			FROM package_vulnerabilities pv
 			JOIN sbom_packages sp ON sp.purl = pv.purl
 			JOIN pod_images pi ON pi.image_digest = sp.image_digest
@@ -599,7 +599,8 @@ func (r *PackageVulnerabilityRepo) ListClusterCVEsRanked(ctx context.Context, cl
 		       MAX(COALESCE(g.epss_score, 0))::float8 AS epss,
 		       BOOL_OR(COALESCE(g.in_kev, false)) AS in_kev,
 		       COUNT(DISTINCT cr.pod_uid) AS affected_pods,
-		       COALESCE(MAX(cr.summary), '') AS summary
+		       COALESCE(MAX(cr.summary), '') AS summary,
+		       MAX(cr.published_at) AS published_at
 		FROM cve_rows cr
 		LEFT JOIN cve_global_scores g ON g.cve_id = cr.vuln_id
 		GROUP BY cr.vuln_id
@@ -615,7 +616,7 @@ func (r *PackageVulnerabilityRepo) ListClusterCVEsRanked(ctx context.Context, cl
 	out := make([]sbom.ClusterCVE, 0, limit)
 	for rows.Next() {
 		var c sbom.ClusterCVE
-		if err := rows.Scan(&c.VulnID, &c.SeverityLabel, &c.CVSS, &c.EPSS, &c.InKEV, &c.AffectedPods, &c.Summary); err != nil {
+		if err := rows.Scan(&c.VulnID, &c.SeverityLabel, &c.CVSS, &c.EPSS, &c.InKEV, &c.AffectedPods, &c.Summary, &c.PublishedAt); err != nil {
 			return nil, fmt.Errorf("scan cluster cve: %w", err)
 		}
 		out = append(out, c)
