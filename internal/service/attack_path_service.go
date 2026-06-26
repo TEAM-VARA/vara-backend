@@ -173,6 +173,12 @@ func (s *AttackPathService) ComputeForPod(ctx context.Context, clusterName, podU
 	)
 	s.enrichAttackPathWithRuntime(ctx, clusterName, pods, rbacRulesByPod, rbacBindingCountByPod, results)
 
+	// 단일 파드 재계산은 새 스냅샷을 만들지 않고 최신 배치에 그 파드 행만 upsert한다.
+	// (부분 스냅샷이 MAX가 되어 읽기/retention을 깨뜨리는 문제 방지)
+	if latest, ok, err := s.repo.LatestSnapshotAt(ctx, clusterName); err == nil && ok {
+		results[0].SnapshotAt = latest
+	}
+
 	// 5. 저장
 	if err := s.repo.UpsertBatch(ctx, results); err != nil {
 		return nil, fmt.Errorf("save result: %w", err)
