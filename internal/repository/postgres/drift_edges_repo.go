@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 )
 
@@ -113,5 +114,40 @@ func (r *EdgesRepo) ComputeDriftEdges(ctx context.Context, clusterName string) (
 	if err != nil {
 		return 0, fmt.Errorf("insert drift edges: %w", err)
 	}
+
+	// 데모용 drift 시드: DEMO_DRIFT_SEED=true 일 때만, 실재하는 두 파드 사이에 drift 엣지 1건 고정.
+	// (매 사이클 재삽입되어 항상 보임. env 끄면 다음 사이클 drift 전삭제로 자동 제거. 끝점이 실재 파드라 dangling 없음.)
+	if os.Getenv("DEMO_DRIFT_SEED") == "true" {
+		const seed = `
+			WITH lp AS (
+				SELECT pod_uid, name, namespace FROM cluster_pods
+				WHERE cluster_name=$1
+				  AND snapshot_at=(SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name=$1)
+				  AND name NOT LIKE 'tetragon%' AND name NOT LIKE 'ebs-csi-node%' AND namespace <> 'default'
+			),
+			src AS (SELECT pod_uid,name,namespace FROM lp ORDER BY (name LIKE 'ts-gateway-service%') DESC, name LIMIT 1),
+			dst AS (
+				SELECT p.pod_uid,p.name,p.namespace FROM lp p, src
+				WHERE p.pod_uid <> src.pod_uid
+				ORDER BY (p.name LIKE 'ts-inside-payment-service%') DESC, (p.name LIKE 'ts-payment-service%') DESC, p.name
+				LIMIT 1
+			)
+			INSERT INTO edges (
+				cluster_name, source_pod_uid, target_pod_uid,
+				source_name, source_namespace, target_name, target_namespace,
+				source_kind, target_kind, target_type, target_service_name, target_ip,
+				layer, edge_type, mode, weight, traffic_weight, total_bytes,
+				snapshot_at, computed_at
+			)
+			SELECT $1, src.pod_uid, dst.pod_uid, src.name, src.namespace, dst.name, dst.namespace,
+				'pod','pod','pod','demo-drift-seed',NULL,
+				'drift','violates','observed', 1, 1.0, 0, $2::timestamptz, NOW()
+			FROM src, dst
+			ON CONFLICT DO NOTHING`
+		if _, err := r.pool.Exec(ctx, seed, clusterName, snapAt); err != nil {
+			fmt.Printf("warn: demo drift seed failed: %v\n", err)
+		}
+	}
+
 	return tag.RowsAffected(), nil
 }
