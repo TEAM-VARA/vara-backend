@@ -125,12 +125,16 @@ func (r *EdgesRepo) ComputeDriftEdges(ctx context.Context, clusterName string) (
 				  AND snapshot_at=(SELECT MAX(snapshot_at) FROM cluster_pods WHERE cluster_name=$1)
 				  AND name NOT LIKE 'tetragon%' AND name NOT LIKE 'ebs-csi-node%' AND namespace <> 'default'
 			),
-			src AS (SELECT pod_uid,name,namespace FROM lp ORDER BY (name LIKE 'ts-gateway-service%') DESC, name LIMIT 1),
 			dst AS (
-				SELECT p.pod_uid,p.name,p.namespace FROM lp p, src
-				WHERE p.pod_uid <> src.pod_uid
-				ORDER BY (p.name LIKE 'ts-inside-payment-service%') DESC, (p.name LIKE 'ts-payment-service%') DESC, p.name
+				SELECT pod_uid,name,namespace FROM lp
+				ORDER BY (name LIKE 'ts-inside-payment-service%') DESC, (name LIKE 'ts-payment-service%') DESC, name
 				LIMIT 1
+			),
+			src AS (
+				SELECT p.pod_uid,p.name,p.namespace,
+				       ROW_NUMBER() OVER (ORDER BY (p.name LIKE 'ts-gateway-service%') DESC,
+				                                   (p.name LIKE 'ts-order-service%') DESC, p.name) AS rn
+				FROM lp p, dst WHERE p.pod_uid <> dst.pod_uid
 			)
 			INSERT INTO edges (
 				cluster_name, source_pod_uid, target_pod_uid,
@@ -143,6 +147,7 @@ func (r *EdgesRepo) ComputeDriftEdges(ctx context.Context, clusterName string) (
 				'pod','pod','pod','demo-drift-seed',NULL,
 				'drift','violates','observed', 1, 1.0, 0, $2::timestamptz, NOW()
 			FROM src, dst
+			WHERE src.rn <= 2
 			ON CONFLICT DO NOTHING`
 		if _, err := r.pool.Exec(ctx, seed, clusterName, snapAt); err != nil {
 			fmt.Printf("warn: demo drift seed failed: %v\n", err)
