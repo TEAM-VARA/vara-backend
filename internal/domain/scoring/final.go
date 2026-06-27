@@ -148,7 +148,34 @@ type ScoreBreakdown struct {
 	Local  BreakdownSection `json:"local"`
 	Toxic  BreakdownSection `json:"toxic"`
 
+	// ISMSP는 FinalScore에 더해진 ISMS-P 미준수 가산 내역이다.
+	// 가산이 없으면(addend=0) nil → JSON에서 생략(omitempty)된다.
+	// FinalScore에는 이 가산이 이미 포함되어 있으므로, Global+Local 기여도 합과
+	// FinalScore의 차이가 곧 이 ISMSP.Addend다.
+	ISMSP *BreakdownISMSP `json:"ismsp,omitempty"`
+
 	Formula string `json:"formula"`
+}
+
+// BreakdownISMSP는 Score Breakdown에 표기할 ISMS-P 미준수 가산 섹션이다.
+// (service.ISMSPRiskBreakdown의 표시용 사본 — domain은 service를 import하지 않으므로 별도 정의)
+type BreakdownISMSP struct {
+	Label          string               `json:"label"`           // "ISMS-P 미준수 가산"
+	Addend         float64              `json:"addend"`          // FinalScore에 더해진 총합(상3+중2+하1)
+	CountHigh      int                  `json:"count_high"`      // 상 건수
+	CountMedium    int                  `json:"count_medium"`    // 중 건수
+	CountLow       int                  `json:"count_low"`       // 하 건수
+	Description    string               `json:"description"`     // 항목 정의(고정)
+	Interpretation string               `json:"interpretation"`  // 값별 해석
+	Rules          []BreakdownISMSPRule `json:"rules,omitempty"` // 가산된 룰 목록
+}
+
+// BreakdownISMSPRule은 가산에 기여한 개별 ISMS-P 룰이다.
+type BreakdownISMSPRule struct {
+	RuleID    string  `json:"rule_id"`
+	Severity  string  `json:"severity"`  // 상/중/하
+	Weight    float64 `json:"weight"`    // 3/2/1
+	Inherited bool    `json:"inherited"` // 계정/클러스터 공통 결함(상속) 투영분
 }
 
 // BreakdownSection은 한 항목(Global/Local/Toxic)의 점수·설명·해석·세부요인입니다.

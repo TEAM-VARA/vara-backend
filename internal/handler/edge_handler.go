@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	edgedomain "github.com/vara/backend/internal/domain/edge"
 	"github.com/vara/backend/internal/service"
 
 	"strconv"
@@ -199,6 +200,26 @@ func (h *EdgeHandler) GetBlastRadius(c *gin.Context) {
 	}
 
 	result, err := h.svc.BuildBlastRadius(c.Request.Context(), cluster, source, hops)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// SimulateBlastRadius — 패치탭 반응형 blast radius 재계산
+// POST /api/v1/scoring/blast-radius/simulate
+//
+// body: { cluster, source, hops?, applied[] }
+// applied가 비면 baseline만 계산해서 반환한다.
+func (h *EdgeHandler) SimulateBlastRadius(c *gin.Context) {
+	var req edgedomain.SimulateBlastRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.svc.SimulateBlastRadius(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

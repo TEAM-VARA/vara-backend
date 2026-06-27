@@ -127,6 +127,8 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	grcSvc := service.NewGRCService(grcRepo, clusterReaderRepo, rulesetStore, embClient, vlmClient)
 	// Final Score에 ISMS-P 미준수 가산을 반영하도록 grc 제공자 주입(Risk Scoring/공격 시나리오/그래프 노드 일치).
 	finalScoringSvc.SetISMSPAddender(grcSvc)
+	// Breakdown 응답에도 ISMS-P 가산 내역(섹션 + formula)을 표기하도록 동일 제공자 주입.
+	breakdownSvc.SetISMSPAddender(grcSvc)
 	// 이전 컨테이너 재시작으로 중단된 running/queued 체크를 failed로 초기화
 	{
 		resetCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

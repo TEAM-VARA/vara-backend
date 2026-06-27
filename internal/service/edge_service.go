@@ -273,19 +273,51 @@ func bfsKHop(adj map[string][]adjEdge, source string, maxHops int) []edge.Reacha
 	return reachable
 }
 
-// computeBlastScore: Σ (0.6^(hop-1) × layerWeight × criticality)
-func computeBlastScore(reachable []edge.ReachableNode) float64 {
+// nodeContribution: 단일 reachable 노드의 blast 기여도
+//
+//	0.6^(hop-1) × layerWeight(layer) × criticality
+//
+// crit이 nil이거나 노드 키가 없으면 criticality=1.0 (기존 동작 보존).
+func nodeContribution(r edge.ReachableNode, crit map[string]float64) float64 {
+	decay := math.Pow(0.6, float64(r.Hop-1))
+	lw, ok := layerWeight[r.Layer]
+	if !ok {
+		lw = 0.5 // 미지정 layer 기본값
+	}
+	c := 1.0
+	if crit != nil {
+		if v, ok := crit[r.NodeID]; ok {
+			c = v
+		}
+	}
+	return decay * lw * c
+}
+
+// computeBlastScore: Σ (0.6^(hop-1) × layerWeight × criticality), cap 25.0
+//
+// crit == nil 이면 모든 노드 criticality=1.0 (기존 호출부 비파괴).
+func computeBlastScore(reachable []edge.ReachableNode, crit map[string]float64) float64 {
 	score := 0.0
 	for _, r := range reachable {
-		decay := math.Pow(0.6, float64(r.Hop-1))
-		lw, ok := layerWeight[r.Layer]
-		if !ok {
-			lw = 0.5 // 미지정 layer 기본값
-		}
-		crit := 1.0 // 기본 criticality (현재 데이터에 criticality 없음)
-		score += decay * lw * crit
+		score += nodeContribution(r, crit)
 	}
 	return math.Min(25.0, score)
+}
+
+// normalizePageRank: PageRank(합=1) → 평균=1 스케일로 정규화.
+//
+// pagerank는 확률분포라 값이 매우 작다(예 0.001). 기존 blast_score 스케일과
+// 호환되도록 평균이 1.0이 되게 한다: crit_norm = pr × N (mean = 1/N 이므로 pr/mean = pr×N).
+func normalizePageRank(pr map[string]float64) map[string]float64 {
+	n := len(pr)
+	if n == 0 {
+		return pr
+	}
+	out := make(map[string]float64, n)
+	for k, v := range pr {
+		out[k] = v * float64(n)
+	}
+	return out
 }
 
 // BuildBlastRadius: source Pod에서 maxHops 내 영향 범위 계산
@@ -316,8 +348,8 @@ func (s *EdgeService) BuildBlastRadius(ctx context.Context, cluster, source stri
 		reachable[i].NodeKind = kindMap[reachable[i].NodeID]
 	}
 
-	// 5. Blast score
-	score := computeBlastScore(reachable)
+	// 5. Blast score (criticality 미주입 → 1.0 폴백, 기존 동작 유지)
+	score := computeBlastScore(reachable, nil)
 
 	// 6. by_layer 카운트
 	byLayer := make(map[string]int)
@@ -334,6 +366,186 @@ func (s *EdgeService) BuildBlastRadius(ctx context.Context, cluster, source stri
 		TotalCount: len(reachable),
 		ByLayer:    byLayer,
 		BuildMs:    time.Since(start).Milliseconds(),
+	}, nil
+}
+
+// ────────────────────────────────────────────────────
+// Blast Radius Simulate — 보안 적용(엣지 제거) → 재계산 (DESIGN-patch-tab-blast-radius-reactive.md)
+// ────────────────────────────────────────────────────
+
+// topoEdgeKey: TopologyEdge의 안정적 식별 키 (ID가 비어도 동작)
+func topoEdgeKey(e edge.TopologyEdge) string {
+	return e.Source + "->" + e.Target + "|" + e.Layer + "|" + e.EdgeType
+}
+
+// buildRemoveSet: applied[] predicate들의 합집합으로 "제거할 엣지 키" 집합 생성 (DESIGN §3)
+//
+// predicate 규칙 (layer가 먼저 일치해야 함):
+//   - cve_image / cve_id : source에 인접한 모든 supply_chain 엣지 제거
+//     (엣지↔CVE 메타가 없어 per-CVE granularity 미지원 → 이미지 전체 패치로 동작, DESIGN §11)
+//   - netpol_denyall     : source에 인접한 모든 network 엣지 제거
+//   - netpol_peer        : source ↔ target(peer) network 엣지만 제거
+//   - rbac_revoke        : source에 인접한 모든 identity 엣지 제거
+//   - mount_remove       : source에 인접한 모든 host 엣지 제거
+//   - (그 외 kind)        : source에 인접한 해당 layer 엣지 제거 (안전 기본값)
+func buildRemoveSet(edges []edge.TopologyEdge, source string, applied []edge.AppliedMitigation) map[string]bool {
+	remove := make(map[string]bool)
+	incidentToSource := func(e edge.TopologyEdge) bool {
+		return e.Source == source || e.Target == source
+	}
+	for _, a := range applied {
+		for _, e := range edges {
+			if e.Layer != a.Layer {
+				continue
+			}
+			var match bool
+			switch a.Kind {
+			case "netpol_peer":
+				match = (e.Source == source && e.Target == a.Target) ||
+					(e.Target == source && e.Source == a.Target)
+			default:
+				// cve_image/cve_id/netpol_denyall/rbac_revoke/mount_remove 및 미정의 kind
+				match = incidentToSource(e)
+			}
+			if match {
+				remove[topoEdgeKey(e)] = true
+			}
+		}
+	}
+	return remove
+}
+
+// colorLevel: contribution → FE 노드 색 단계 (DESIGN §7)
+func colorLevel(contribution float64, dropped bool) string {
+	switch {
+	case dropped:
+		return "removed"
+	case contribution >= 1.6:
+		return "emergency"
+	case contribution >= 0.8:
+		return "warning"
+	case contribution >= 0.3:
+		return "caution"
+	default:
+		return "safe"
+	}
+}
+
+// SimulateBlastRadius: source 기준 blast 그래프에서 applied[] 보안을 제거해 재계산.
+// baseline / simulated 2-pass (DESIGN §5) + 노드 상태 diff.
+func (s *EdgeService) SimulateBlastRadius(ctx context.Context, req edge.SimulateBlastRequest) (*edge.SimulateBlastResponse, error) {
+	start := time.Now()
+
+	hops := req.Hops
+	if hops < 1 || hops > 5 {
+		hops = 3
+	}
+
+	// 1. topology (전체 엣지)
+	topo, err := s.repo.BuildTopology(ctx, req.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	// 노드 이름/종류 매핑
+	nameMap := make(map[string]string, len(topo.Nodes))
+	kindMap := make(map[string]string, len(topo.Nodes))
+	for _, n := range topo.Nodes {
+		nameMap[n.ID] = n.Label
+		kindMap[n.ID] = n.Kind
+	}
+
+	// 2. baseline (applied와 무관 → §9에서 캐시 가능)
+	baseAdj := buildAdjacency(topo.Edges)
+	baseReach := bfsKHop(baseAdj, req.Source, hops)
+	basePR := normalizePageRank(computePageRank(BuildBlastGraph(topo)))
+	baselineScore := computeBlastScore(baseReach, basePR)
+
+	// 3. 제거할 엣지 집합 → simEdges / removedEdges
+	removeSet := buildRemoveSet(topo.Edges, req.Source, req.Applied)
+	simEdges := make([]edge.TopologyEdge, 0, len(topo.Edges))
+	removedEdges := make([]edge.RemovedEdge, 0, len(removeSet))
+	for _, e := range topo.Edges {
+		if removeSet[topoEdgeKey(e)] {
+			removedEdges = append(removedEdges, edge.RemovedEdge{
+				Source: e.Source, Target: e.Target, Layer: e.Layer,
+			})
+			continue
+		}
+		simEdges = append(simEdges, e)
+	}
+
+	// 4. simulated (엣지 제거 후 재계산)
+	simTopo := &edge.TopologyResponse{Cluster: topo.Cluster, Nodes: topo.Nodes, Edges: simEdges}
+	simAdj := buildAdjacency(simEdges)
+	simReach := bfsKHop(simAdj, req.Source, hops)
+	simPR := normalizePageRank(computePageRank(BuildBlastGraph(simTopo)))
+	simScore := computeBlastScore(simReach, simPR)
+
+	// 5. 노드 상태 diff (base ∪ sim reachable)
+	baseReachMap := make(map[string]edge.ReachableNode, len(baseReach))
+	for _, r := range baseReach {
+		baseReachMap[r.NodeID] = r
+	}
+	simReachMap := make(map[string]edge.ReachableNode, len(simReach))
+	for _, r := range simReach {
+		simReachMap[r.NodeID] = r
+	}
+
+	byLayer := make(map[string]int)
+	for _, r := range simReach {
+		byLayer[r.Layer]++
+	}
+
+	// 안정 순서: base ∪ sim 노드 ID 정렬
+	idSet := make(map[string]struct{}, len(baseReach)+len(simReach))
+	for id := range baseReachMap {
+		idSet[id] = struct{}{}
+	}
+	for id := range simReachMap {
+		idSet[id] = struct{}{}
+	}
+	ids := make([]string, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	nodes := make([]edge.SimNode, 0, len(ids))
+	for _, id := range ids {
+		simR, reachable := simReachMap[id]
+		_, inBase := baseReachMap[id]
+		dropped := inBase && !reachable
+
+		sn := edge.SimNode{
+			ID:          id,
+			Name:        nameMap[id],
+			Reachable:   reachable,
+			Criticality: simPR[id],
+		}
+		if reachable {
+			hop := simR.Hop
+			layer := simR.Layer
+			sn.Hop = &hop
+			sn.Layer = &layer
+			sn.Contribution = nodeContribution(simR, simPR)
+		}
+		sn.ColorLevel = colorLevel(sn.Contribution, dropped)
+		sn.Dropped = dropped
+		nodes = append(nodes, sn)
+	}
+
+	return &edge.SimulateBlastResponse{
+		Source:        req.Source,
+		Hops:          hops,
+		OutOf:         25.0,
+		BaselineScore: baselineScore,
+		BlastScore:    simScore,
+		Delta:         baselineScore - simScore,
+		ByLayer:       byLayer,
+		Nodes:         nodes,
+		EdgesRemoved:  removedEdges,
+		BuildMs:       time.Since(start).Milliseconds(),
 	}, nil
 }
 
