@@ -111,7 +111,7 @@ func (s *AnalysisService) precomputeBlastRadius(ctx context.Context, cluster str
 		}
 
 		reachable := bfsKHop(adj, node.ID, maxHops)
-		score := computeBlastScore(reachable)
+		score := computeBlastScore(reachable, nil)
 
 		// reachable pod ID 추출 + by_layer 집계
 		reachablePods := make([]string, 0, len(reachable))

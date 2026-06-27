@@ -115,31 +115,70 @@ func BuildRemediationItems(in RemediationInput) RemediationSet {
 		return RiskReduction{Axis: AxisImpact, Before: RoundTo2(impactBefore), After: RoundTo2(afterScore), Delta: RoundTo2(delta)}
 	}
 
-	// ───────── CVE 항목 (risk 축, Global=MAX) ─────────
+	// ───────── CVE 항목 (risk 축, 총 감소가능량을 CVE 점수 비례로 배분) ─────────
+	//
+	// MAX 집계에서는 최악 CVE 1개만 delta>0이라 "CVE 하나하나가 점수를 깎는다"는
+	// 직관과 안 맞고, delta가 가산적이지 않아 FE가 빼나가면 숫자가 틀어진다.
+	// 그래서 점수 모델(Global=MAX)·core 함수는 그대로 두고, 표시용 delta만 분배한다:
+	//
+	//   총감소가능량 = 현재 Final − (모든 CVE 패치 시 Final, Global=0)
+	//   delta_i      = 총감소가능량 × (sᵢ / Σsⱼ)
+	//
+	// → 모든 CVE가 각자 delta>0(점수 높을수록 큰 몫), Σdelta = 총감소가능량.
+	//   FE는 현재 점수에서 체크된 항목의 delta만 빼면 정확히 일치한다.
 	if len(in.CVEs) > 0 {
 		cves := append([]CVEItem(nil), in.CVEs...)
 		sort.SliceStable(cves, func(i, j int) bool { return cves[i].Score > cves[j].Score })
+
+		// 전체 CVE 패치 시(Global=0) 점수 → 총 감소가능량
+		afterAll := curRisk
+		afterAll.GlobalImage = 0
+		totalReducible := riskCalc - afterAll.Score()
+		if totalReducible < 0 {
+			totalReducible = 0
+		}
+
+		var sumScores float64
 		for _, c := range cves {
-			afterGlobal := maxCVEExcept(cves, c.ID)
-			after := curRisk
-			after.GlobalImage = afterGlobal
-			rr := mkRisk(after.Score())
+			sumScores += c.Score
+		}
+
+		// delta를 직접 받아 RiskReduction을 만든다(after = riskShown − delta).
+		mkRiskDelta := func(delta float64) RiskReduction {
+			if delta < 0 {
+				delta = 0
+			}
+			af := riskShown - delta
+			if af < 0 {
+				af = 0
+			}
+			return RiskReduction{Axis: AxisRisk, Before: RoundTo2(riskShown), After: RoundTo2(af), Delta: RoundTo2(delta)}
+		}
+
+		for _, c := range cves {
+			var delta float64
+			if sumScores > 0 {
+				delta = totalReducible * (c.Score / sumScores)
+			}
+			rr := mkRiskDelta(delta)
 			item := RemediationItem{
 				ID: "cve:" + c.ID, Kind: "cve", Target: "image",
 				Text: cveText(c), Severity: c.Severity, GroupID: "cve:image",
 				RiskReduction: rr,
 			}
 			if rr.Delta == 0 {
-				item.ZeroReason = "더 심한 CVE가 있어 단독 패치로는 점수(최악 CVE 기준)가 안 바뀜"
+				if totalReducible == 0 {
+					item.ZeroReason = "노출·독성 요인 때문에 CVE를 다 패치해도 점수가 안 내려감"
+				} else {
+					item.ZeroReason = "이 CVE의 점수 비중이 0이라 감소 몫 없음"
+				}
 			}
 			set.Items = append(set.Items, item)
 		}
-		// 그룹: 이미지 업그레이드 = 모든 CVE 제거 → Global 0
-		after := curRisk
-		after.GlobalImage = 0
+		// 그룹: 이미지 업그레이드 = 모든 CVE 제거 → Global 0 (delta = 총감소가능량)
 		set.Groups = append(set.Groups, RemediationItem{
 			ID: "cve:image", Kind: "cve", Target: "image", Text: "이미지를 패치 버전으로 업그레이드(전체 CVE 해소)",
-			RiskReduction: mkRisk(after.Score()),
+			RiskReduction: mkRiskDelta(totalReducible),
 		})
 	}
 
@@ -337,19 +376,6 @@ func removeAll(perms, drop []PermItem) []PermItem {
 		}
 	}
 	return out
-}
-
-func maxCVEExcept(cves []CVEItem, exceptID string) float64 {
-	m := 0.0
-	for _, c := range cves {
-		if c.ID == exceptID {
-			continue
-		}
-		if c.Score > m {
-			m = c.Score
-		}
-	}
-	return m
 }
 
 func permResource(p PermItem) string {

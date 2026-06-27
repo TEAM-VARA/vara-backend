@@ -100,6 +100,7 @@ func newRouter(
 		api.GET("/topology/blast-radius", edge.GetBlastRadius)
 		api.GET("/topology/criticality", edge.GetCriticality)
 		api.GET("/topology/clusters", edge.GetClusters)
+		api.POST("/scoring/blast-radius/simulate", edge.SimulateBlastRadius)
 		api.GET("/analysis/blast-radius", analysis.GetBlastRadius)
 		api.GET("/analysis/centrality", analysis.GetCentrality)
 		api.GET("/analysis/attack-paths", analysis.GetAttackPaths)

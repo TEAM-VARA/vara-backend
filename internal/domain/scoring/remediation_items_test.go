@@ -34,13 +34,17 @@ func TestBuildRemediationItems(t *testing.T) {
 		grp[g.ID] = g
 	}
 
-	// ── CVE (risk 축) ──
-	if it := byID["cve:CVE-A"]; !rrApprox(it.RiskReduction.Delta, 10.5) || it.RiskReduction.Axis != AxisRisk {
-		t.Errorf("CVE-A: Δ=%v axis=%s (want 10.5/risk)", it.RiskReduction.Delta, it.RiskReduction.Axis)
+	// ── CVE (risk 축) — 총감소가능량 63을 점수 비례 배분(sum=205): 90/75/40 ──
+	if it := byID["cve:CVE-A"]; !rrApprox(it.RiskReduction.Delta, 27.66) || it.RiskReduction.Axis != AxisRisk {
+		t.Errorf("CVE-A: Δ=%v axis=%s (want 27.66/risk)", it.RiskReduction.Delta, it.RiskReduction.Axis)
 	}
-	if it := byID["cve:CVE-B"]; it.RiskReduction.Delta != 0 || it.ZeroReason == "" {
-		t.Errorf("CVE-B: Δ=%v reason=%q (want 0 + 사유)", it.RiskReduction.Delta, it.ZeroReason)
+	if it := byID["cve:CVE-B"]; !rrApprox(it.RiskReduction.Delta, 23.05) || it.ZeroReason != "" {
+		t.Errorf("CVE-B: Δ=%v reason=%q (want 23.05 + no reason)", it.RiskReduction.Delta, it.ZeroReason)
 	}
+	if it := byID["cve:CVE-C"]; !rrApprox(it.RiskReduction.Delta, 12.29) {
+		t.Errorf("CVE-C: Δ=%v (want 12.29)", it.RiskReduction.Delta)
+	}
+	// 개별 delta 합 = 그룹(전체 패치) delta
 	if g := grp["cve:image"]; !rrApprox(g.RiskReduction.Delta, 63) {
 		t.Errorf("cve group Δ=%v want 63", g.RiskReduction.Delta)
 	}

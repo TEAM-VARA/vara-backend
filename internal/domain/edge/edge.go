@@ -304,6 +304,61 @@ type ReachableNode struct {
 }
 
 // ────────────────────────────────────────────────────
+// Blast Radius Simulate API (패치탭 반응형: 보안 적용 → 재계산)
+// DESIGN-patch-tab-blast-radius-reactive.md 참고
+// ────────────────────────────────────────────────────
+
+// AppliedMitigation — 적용된 보안 1건 (시나리오 탭 보안 카드)
+// predicate로 "제거할 엣지"를 선택한다 (DESIGN §3).
+type AppliedMitigation struct {
+	Layer  string `json:"layer"`            // supply_chain / network / identity / host
+	Kind   string `json:"kind"`             // cve_image / cve_id / netpol_denyall / netpol_peer / rbac_revoke / mount_remove
+	Target string `json:"target,omitempty"` // image_digest / cve_id / peer_uid / "sa: ns/name" 등 (kind에 따라)
+}
+
+// SimulateBlastRequest — POST /scoring/blast-radius/simulate body
+type SimulateBlastRequest struct {
+	Cluster string              `json:"cluster" binding:"required"`
+	Source  string              `json:"source" binding:"required"`
+	Hops    int                 `json:"hops,omitempty"`    // 기본 3
+	Applied []AppliedMitigation `json:"applied,omitempty"` // 빈 배열이면 baseline만
+}
+
+// SimulateBlastResponse — 재계산 결과 (per-source blast graph diff)
+type SimulateBlastResponse struct {
+	Source        string         `json:"source"`
+	Hops          int            `json:"hops"`
+	OutOf         float64        `json:"out_of"`
+	BaselineScore float64        `json:"baseline_score"`
+	BlastScore    float64        `json:"blast_score"` // 적용 후
+	Delta         float64        `json:"delta"`       // baseline - blast_score
+	ByLayer       map[string]int `json:"by_layer"`    // 적용 후 reachable layer 분포
+	Nodes         []SimNode      `json:"nodes"`
+	EdgesRemoved  []RemovedEdge  `json:"edges_removed"`
+	BuildMs       int64          `json:"build_ms"`
+}
+
+// SimNode — 적용 후 노드 상태 (FE 노드 색칠 기준)
+type SimNode struct {
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Reachable    bool    `json:"reachable"`     // 적용 후 도달 여부
+	Hop          *int    `json:"hop"`           // 미도달이면 null
+	Layer        *string `json:"layer"`         // 미도달이면 null
+	Criticality  float64 `json:"criticality"`   // 정규화 PageRank (평균=1)
+	Contribution float64 `json:"contribution"`  // 적용 후 blast 기여도
+	ColorLevel   string  `json:"color_level"`   // removed/safe/caution/warning/emergency
+	Dropped      bool    `json:"dropped"`       // baseline엔 닿았으나 적용 후 끊김
+}
+
+// RemovedEdge — 적용으로 제거된 엣지 (FE 페이드아웃용)
+type RemovedEdge struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Layer  string `json:"layer"`
+}
+
+// ────────────────────────────────────────────────────
 // Criticality API (PageRank)
 // ────────────────────────────────────────────────────
 
