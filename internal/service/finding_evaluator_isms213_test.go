@@ -35,7 +35,9 @@ func TestRuleISMSP213_ShippedRulesetEndToEnd(t *testing.T) {
 	for _, r := range rs.Rules {
 		byID[r.RuleID] = r
 	}
-	for _, want := range []string{"R-2.1.3-01", "R-2.1.3-02", "R-2.1.3-GL01", "R-2.1.3-GL02"} {
+	// R-2.1.3-01은 LBL로 흡수되어 shipping 룰셋에 없다(2.5.4가 -03부터 시작하는 것과 동일 패턴).
+	// R-01 평가 로직은 TestRuleISMSP213_01_Coverage_MissingIsNeedsReview가 별도 커버한다.
+	for _, want := range []string{"R-2.1.3-02", "R-2.1.3-GL01", "R-2.1.3-GL02"} {
 		if _, ok := byID[want]; !ok {
 			t.Fatalf("ruleset missing rule %q (rules: %d)", want, len(rs.Rules))
 		}
@@ -50,11 +52,6 @@ func TestRuleISMSP213_ShippedRulesetEndToEnd(t *testing.T) {
 		},
 	}
 
-	// R-2.1.3-01: 누락 워크로드 → NEEDS_REVIEW.
-	r01 := evaluateSingleManualRule(byID["R-2.1.3-01"], snap)
-	if r01.Verdict != grc.VerdictNEEDS_REVIEW {
-		t.Fatalf("R-2.1.3-01 verdict = %q, want NEEDS_REVIEW", r01.Verdict)
-	}
 	// R-2.1.3-02: admission 정책 미수집 → NO_DATA (준수 거짓 보고 금지).
 	r02 := evaluateSingleManualRule(byID["R-2.1.3-02"], snap)
 	if r02.Verdict != grc.VerdictNO_DATA {

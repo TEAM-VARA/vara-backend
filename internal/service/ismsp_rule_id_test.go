@@ -7,7 +7,7 @@ func TestParseFixtureRuleID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if item != "2.2.1" || rid != "2.2.1-R007" {
+	if item != "2.2.1" || rid != "R-2.2.1-07" {
 		t.Fatalf("got item=%q rid=%q", item, rid)
 	}
 }
@@ -17,7 +17,7 @@ func TestResolveItemAndRuleID_native(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if item != "2.2.1" || rid != "2.2.1-R007" {
+	if item != "2.2.1" || rid != "R-2.2.1-07" {
 		t.Fatalf("got item=%q rid=%q", item, rid)
 	}
 }
