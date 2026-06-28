@@ -34,17 +34,20 @@ func TestBuildRemediationItems(t *testing.T) {
 		grp[g.ID] = g
 	}
 
-	// ── CVE (risk 축) — 총감소가능량 63을 점수 비례 배분(sum=205): 90/75/40 ──
-	if it := byID["cve:CVE-A"]; !rrApprox(it.RiskReduction.Delta, 27.66) || it.RiskReduction.Axis != AxisRisk {
-		t.Errorf("CVE-A: Δ=%v axis=%s (want 27.66/risk)", it.RiskReduction.Delta, it.RiskReduction.Axis)
+	// ── CVE (risk 축) — tier별 cascade 하락 (Global=MAX, 0.7가중·노출30·toxic1) ──
+	// A(90→75): (0.7×90+30)−(0.7×75+30)=93−82.5=10.5
+	// B(75→40): 82.5−(0.7×40+30)=82.5−58=24.5
+	// C(40→0) : 58−30=28
+	if it := byID["cve:CVE-A"]; !rrApprox(it.RiskReduction.Delta, 10.5) || it.RiskReduction.Axis != AxisRisk {
+		t.Errorf("CVE-A: Δ=%v axis=%s (want 10.5/risk)", it.RiskReduction.Delta, it.RiskReduction.Axis)
 	}
-	if it := byID["cve:CVE-B"]; !rrApprox(it.RiskReduction.Delta, 23.05) || it.ZeroReason != "" {
-		t.Errorf("CVE-B: Δ=%v reason=%q (want 23.05 + no reason)", it.RiskReduction.Delta, it.ZeroReason)
+	if it := byID["cve:CVE-B"]; !rrApprox(it.RiskReduction.Delta, 24.5) || it.ZeroReason != "" {
+		t.Errorf("CVE-B: Δ=%v reason=%q (want 24.5 + no reason)", it.RiskReduction.Delta, it.ZeroReason)
 	}
-	if it := byID["cve:CVE-C"]; !rrApprox(it.RiskReduction.Delta, 12.29) {
-		t.Errorf("CVE-C: Δ=%v (want 12.29)", it.RiskReduction.Delta)
+	if it := byID["cve:CVE-C"]; !rrApprox(it.RiskReduction.Delta, 28) {
+		t.Errorf("CVE-C: Δ=%v (want 28)", it.RiskReduction.Delta)
 	}
-	// 개별 delta 합 = 그룹(전체 패치) delta
+	// 개별 tier delta 합 = 그룹(전체 패치) delta (telescoping)
 	if g := grp["cve:image"]; !rrApprox(g.RiskReduction.Delta, 63) {
 		t.Errorf("cve group Δ=%v want 63", g.RiskReduction.Delta)
 	}
