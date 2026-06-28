@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vara/backend/internal/domain/grc"
+	"github.com/vara/backend/internal/domain/scoring"
 )
 
 type GRCRepo struct {
@@ -1159,15 +1160,21 @@ func (r *GRCRepo) GetPodGraphEvaluation(ctx context.Context, id int64) (*grc.Pod
 
 // GetLatestPodGraphEvalByPod returns the most recent pod graph evaluation for a
 // specific pod (identified by companyID + clusterName + namespace + podName).
+//
+// 이름 매칭은 정규화(NormalizePodName) 기준이다. grc_pod_graph_evaluations에는 파드 풀네임
+// (예: ts-food-service-6f55b8f486-svxjl)이 저장되는데, 호출측(final_scores 등)은 정규화된
+// 워크로드 이름(ts-food-service)으로 조회한다. 단순 동등비교(pod_name = $1)는 이 둘이 어긋나
+// 매칭에 실패하므로(ISMS-P 가산이 통째로 누락됨), 다음 순서로 매칭한다:
+//   1) pod_name = $1            (정확 일치 — StatefulSet 등 정규화해도 동일한 경우)
+//   2) pod_name LIKE $1 || '-%' 로 후보를 좁힌 뒤 NormalizePodName(후보)=$1 로 Go에서 정확 필터
+// (2)의 prefix는 과매칭될 수 있어 Go 정규화 비교로 최종 확정한다.
 func (r *GRCRepo) GetLatestPodGraphEvalByPod(ctx context.Context, companyID, clusterName, namespace, podName string) (*grc.PodGraphEvalListItem, error) {
-	var item grc.PodGraphEvalListItem
-	var clusterNamePtr, namespacePtr *string
-
+	// pod_name = $1 OR pod_name LIKE $1 || '-%'  (후보 narrowing; 정확 매칭은 Go에서)
 	query := `
 		SELECT id, company_id, cluster_name, pod_name, namespace,
 		       overall_verdict, total_rules, passed, failed, skipped, created_at
 		FROM grc_pod_graph_evaluations
-		WHERE pod_name = $1`
+		WHERE (pod_name = $1 OR pod_name LIKE $1 || '-%')`
 	args := []any{podName}
 	argIdx := 2
 
@@ -1187,23 +1194,43 @@ func (r *GRCRepo) GetLatestPodGraphEvalByPod(ctx context.Context, companyID, clu
 		args = append(args, namespace)
 		argIdx++
 	}
-	query += " ORDER BY created_at DESC LIMIT 1"
+	// 최신순으로 후보를 받아 첫 정규화-일치 행을 채택한다. cluster+namespace+prefix로
+	// 좁혀지므로 후보 수는 작다(넉넉히 200 상한).
+	query += " ORDER BY created_at DESC LIMIT 200"
 
-	err := r.pg.QueryRow(ctx, query, args...).Scan(
-		&item.ID, &item.CompanyID, &clusterNamePtr, &item.PodName, &namespacePtr,
-		&item.OverallVerdict, &item.TotalRules, &item.Passed, &item.Failed,
-		&item.Skipped, &item.CreatedAt,
-	)
+	rows, err := r.pg.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	if clusterNamePtr != nil {
-		item.ClusterName = *clusterNamePtr
+	defer rows.Close()
+
+	for rows.Next() {
+		var item grc.PodGraphEvalListItem
+		var clusterNamePtr, namespacePtr *string
+		if err := rows.Scan(
+			&item.ID, &item.CompanyID, &clusterNamePtr, &item.PodName, &namespacePtr,
+			&item.OverallVerdict, &item.TotalRules, &item.Passed, &item.Failed,
+			&item.Skipped, &item.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		// prefix 과매칭(ts-food vs ts-food-service 등) 방지 — 정규화 기준 정확 일치만 채택.
+		if item.PodName != podName && scoring.NormalizePodName(item.PodName) != podName {
+			continue
+		}
+		if clusterNamePtr != nil {
+			item.ClusterName = *clusterNamePtr
+		}
+		if namespacePtr != nil {
+			item.Namespace = *namespacePtr
+		}
+		return &item, nil
 	}
-	if namespacePtr != nil {
-		item.Namespace = *namespacePtr
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
-	return &item, nil
+	// 매칭 없음 — 기존 계약(동등비교 LIMIT 1)과 동일하게 ErrNoRows를 돌려준다.
+	return nil, pgx.ErrNoRows
 }
 
 // ── Item Violations (ISMS-P 항목별 위반 자산 조회) ──
