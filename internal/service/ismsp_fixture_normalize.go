@@ -10,31 +10,31 @@ import (
 // rules from the ISMS-P JSON fixture "data" objects (EKS audit, Kyverno, ArgoCD, eBPF DNS, …).
 func NormalizeRuleFixtureEvidence(rulesetRuleID string, m map[string]any) {
 	switch rulesetRuleID {
-	case "2.2.1-R007":
+	case "R-2.2.1-07":
 		normalize22107(m)
-	case "2.2.5-R003":
+	case "R-2.2.5-03":
 		normalize22503(m)
-	case "2.2.5-R005":
+	case "R-2.2.5-05":
 		normalize22505(m)
-	case "1.3.1-R002":
+	case "R-1.3.1-02":
 		normalize13102(m)
-	case "2.2.6-R004":
+	case "R-2.2.6-04":
 		normalize22604(m)
-	case "1.2.1-R002":
+	case "R-1.2.1-02":
 		normalize12102(m)
-	case "1.1.4-R011":
+	case "R-1.1.4-11":
 		normalize11411(m)
-	case "1.1.4-R012":
+	case "R-1.1.4-12":
 		normalize11412(m)
-	case "1.2.3-R004":
+	case "R-1.2.3-04":
 		normalize12304(m)
-	case "1.3.1-R003":
+	case "R-1.3.1-03":
 		normalize13103(m)
-	case "2.2.1-R002":
+	case "R-2.2.1-02":
 		normalize22102(m)
-	case "2.2.2-R006":
+	case "R-2.2.2-06":
 		normalize22206(m)
-	case "2.2.2-R009":
+	case "R-2.2.2-09":
 		normalize22209(m)
 	default:
 		return

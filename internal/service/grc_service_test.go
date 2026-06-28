@@ -173,8 +173,8 @@ func TestEvaluateKeywordMatch_Compliant(t *testing.T) {
 	base := grc.RuleResult{RuleID: rule.RuleID, EvidenceFiles: []string{"policy.pdf"}}
 
 	result := evaluateKeywordMatch(rule, text, base)
-	if result.Verdict != "준수" {
-		t.Errorf("verdict = %q, want 준수", result.Verdict)
+	if result.Verdict != grc.VerdictMET {
+		t.Errorf("verdict = %q, want %q", result.Verdict, grc.VerdictMET)
 	}
 }
 
@@ -189,8 +189,8 @@ func TestEvaluateKeywordMatch_NonCompliant(t *testing.T) {
 	base := grc.RuleResult{RuleID: rule.RuleID, EvidenceFiles: []string{"policy.pdf"}}
 
 	result := evaluateKeywordMatch(rule, text, base)
-	if result.Verdict != "미준수" {
-		t.Errorf("verdict = %q, want 미준수", result.Verdict)
+	if result.Verdict != grc.VerdictNOT_MET {
+		t.Errorf("verdict = %q, want %q", result.Verdict, grc.VerdictNOT_MET)
 	}
 }
 
@@ -214,8 +214,8 @@ func TestEvaluateElementCoverage_AllPresent(t *testing.T) {
 	base := grc.RuleResult{RuleID: rule.RuleID, EvidenceFiles: []string{"policy.pdf"}}
 
 	result := evaluateElementCoverage(rule, text, base)
-	if result.Verdict != "준수" {
-		t.Errorf("verdict = %q, want 준수", result.Verdict)
+	if result.Verdict != grc.VerdictMET {
+		t.Errorf("verdict = %q, want %q", result.Verdict, grc.VerdictMET)
 	}
 }
 
@@ -235,8 +235,8 @@ func TestEvaluateElementCoverage_Missing(t *testing.T) {
 	base := grc.RuleResult{RuleID: rule.RuleID, EvidenceFiles: []string{"policy.pdf"}}
 
 	result := evaluateElementCoverage(rule, text, base)
-	if result.Verdict != "미준수" {
-		t.Errorf("verdict = %q, want 미준수", result.Verdict)
+	if result.Verdict != grc.VerdictNOT_MET {
+		t.Errorf("verdict = %q, want %q", result.Verdict, grc.VerdictNOT_MET)
 	}
 	if len(result.Violations) == 0 {
 		t.Error("expected violations for missing elements")
@@ -413,23 +413,8 @@ func login(user User) {
 // matchEvidenceToRule
 // ─────────────────────────────────────────────
 
-func TestMatchEvidenceToRule_ByCategory(t *testing.T) {
-	files := []grc.EvidenceFile{
-		{Filename: "policy.pdf", EvidenceType: "정책_문서_존재"},
-		{Filename: "iam.json", EvidenceType: "정책_시스템_설정"},
-		{Filename: "accounts.csv", EvidenceType: "변경주기_준수"},
-	}
-
-	rule := Rule{RuleID: "2.5.4-R005"}
-	matched := matchEvidenceToRule(files, rule, nil)
-
-	if len(matched) != 1 {
-		t.Fatalf("matched count = %d, want 1", len(matched))
-	}
-	if matched[0].Filename != "iam.json" {
-		t.Errorf("matched file = %q, want iam.json", matched[0].Filename)
-	}
-}
+// NOTE: check_category 기반 매칭은 Rule에서 제거됨(matchEvidenceToRule Phase 1b 참고).
+// 남은 매칭 경로(target_rule_ids, 키워드 fallback)는 아래 테스트들이 커버한다.
 
 func TestMatchEvidenceToRule_ByTargetRuleIDs(t *testing.T) {
 	files := []grc.EvidenceFile{

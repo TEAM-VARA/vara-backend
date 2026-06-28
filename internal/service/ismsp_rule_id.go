@@ -7,11 +7,16 @@ import (
 	"strings"
 )
 
-// fixtureRuleIDPattern matches test fixture IDs like R-2.2.1-07, R-1.1.4-11.
+// fixtureRuleIDPattern matches rule IDs like R-2.2.1-07, R-2.5.4-05. Ruleset JSON files
+// use this same R-{item}-{seq} shape, so it doubles as the native ruleset id.
 var fixtureRuleIDPattern = regexp.MustCompile(`(?i)^R-([\d.]+)-(\d+)$`)
 
-// ParseFixtureRuleID maps fixture rule_id (R-2.2.1-07) to ISMS-P item id (2.2.1) and
-// ruleset JSON rule_id (2.2.1-R007). Ruleset files use isms_p_{item}_ruleset.json.
+// legacyNativeRuleIDPattern matches the deprecated {item}-R### shape (e.g. 2.2.1-R007).
+var legacyNativeRuleIDPattern = regexp.MustCompile(`(?i)^([\d.]+)-R0*(\d+)$`)
+
+// ParseFixtureRuleID maps a rule_id (R-2.2.1-07) to its ISMS-P item id (2.2.1) and the
+// ruleset JSON rule_id. Ruleset files use the same R-{item}-{seq} shape, so the rule id is
+// returned with its sequence normalized to two digits (R-2.2.1-07).
 func ParseFixtureRuleID(fixtureRuleID string) (itemID string, rulesetRuleID string, err error) {
 	fixtureRuleID = strings.TrimSpace(fixtureRuleID)
 	m := fixtureRuleIDPattern.FindStringSubmatch(fixtureRuleID)
@@ -23,24 +28,24 @@ func ParseFixtureRuleID(fixtureRuleID string) (itemID string, rulesetRuleID stri
 	if err != nil {
 		return "", "", fmt.Errorf("invalid rule sequence in %q: %w", fixtureRuleID, err)
 	}
-	rulesetRuleID = fmt.Sprintf("%s-R%03d", itemID, n)
+	rulesetRuleID = fmt.Sprintf("R-%s-%02d", itemID, n)
 	return itemID, rulesetRuleID, nil
 }
 
-// ResolveItemAndRuleID accepts either a fixture id (R-2.2.1-07) or a native ruleset id (2.2.1-R007).
+// ResolveItemAndRuleID accepts a ruleset/fixture id (R-2.2.1-07) or the deprecated native
+// id (2.2.1-R007) and returns the item id plus the canonical ruleset rule_id (R-2.2.1-07).
 func ResolveItemAndRuleID(ruleRef string) (itemID string, rulesetRuleID string, err error) {
 	ruleRef = strings.TrimSpace(ruleRef)
 	if ruleRef == "" {
 		return "", "", fmt.Errorf("empty rule reference")
 	}
-	// Native ruleset shape: "{item}-R###" with item containing dots (1.2.1, 2.2.1, …).
-	if strings.Contains(ruleRef, "-R") && !strings.HasPrefix(strings.ToUpper(ruleRef), "R-") {
-		idx := strings.LastIndex(ruleRef, "-R")
-		if idx <= 0 {
-			return "", "", fmt.Errorf("invalid ruleset rule_id %q", ruleRef)
+	// Deprecated native shape: "{item}-R###" (e.g. 2.2.1-R007) → R-{item}-{seq}.
+	if m := legacyNativeRuleIDPattern.FindStringSubmatch(ruleRef); m != nil {
+		n, convErr := strconv.Atoi(m[2])
+		if convErr != nil {
+			return "", "", fmt.Errorf("invalid rule sequence in %q: %w", ruleRef, convErr)
 		}
-		itemID = ruleRef[:idx]
-		return itemID, ruleRef, nil
+		return m[1], fmt.Sprintf("R-%s-%02d", m[1], n), nil
 	}
 	return ParseFixtureRuleID(ruleRef)
 }

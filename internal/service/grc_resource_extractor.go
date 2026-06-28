@@ -35,24 +35,24 @@ type extractorFunc func(data map[string]any) []grc.Violation
 
 var resourceExtractors = map[string]extractorFunc{
 	// 1.1.4
-	"1.1.4-R007": extractNsScopeViolations,
-	"1.1.4-R011": extractDNSViolations,
-	"1.1.4-R012": extractKyvernoViolations,
+	"R-1.1.4-07": extractNsScopeViolations,
+	"R-1.1.4-11": extractDNSViolations,
+	"R-1.1.4-12": extractKyvernoViolations,
 	// 1.3.1
-	"1.3.1-R007": extractPolicyChangeViolations,
+	"R-1.3.1-07": extractPolicyChangeViolations,
 	// 2.2.1
-	"2.2.1-R002": extractIndividualRBViolations,
-	"2.2.1-R007": extractAuditLogViolations,
+	"R-2.2.1-02": extractIndividualRBViolations,
+	"R-2.2.1-07": extractAuditLogViolations,
 	// 2.2.2
-	"2.2.2-R002": extractAuditEventViolations,
-	"2.2.2-R003": extractOverlapUserViolations,
-	"2.2.2-R006": extractSoDViolations,
-	"2.2.2-R008": extractSelfMergePRViolations,
+	"R-2.2.2-02": extractAuditEventViolations,
+	"R-2.2.2-03": extractOverlapUserViolations,
+	"R-2.2.2-06": extractSoDViolations,
+	"R-2.2.2-08": extractSelfMergePRViolations,
 	// 2.2.5
-	"2.2.5-R003": extractRemainingRBViolations,
-	"2.2.5-R005": extractOldPermViolations,
-	"2.2.5-R009": extractOrphanedAccountViolations,
-	"2.2.5-R010": extractPostTermEventViolations,
+	"R-2.2.5-03": extractRemainingRBViolations,
+	"R-2.2.5-05": extractOldPermViolations,
+	"R-2.2.5-09": extractOrphanedAccountViolations,
+	"R-2.2.5-10": extractPostTermEventViolations,
 }
 
 // ── helpers ──

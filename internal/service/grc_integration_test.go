@@ -68,32 +68,8 @@ func TestCompareValues_BoolLikeEquality(t *testing.T) {
 }
 
 // ── matchEvidenceToRule with K8sSource ──
-
-func TestMatchEvidenceToRule_K8sSourcePreserved(t *testing.T) {
-	files := []grc.EvidenceFile{
-		{
-			Filename:     "pod.yaml",
-			EvidenceType: "정책_시스템_설정",
-			K8sSource: grc.K8sSource{
-				ClusterName:  "prod",
-				Namespace:    "payment",
-				ResourceKind: "Pod",
-				ResourceName: "api-123",
-			},
-		},
-	}
-	rule := Rule{RuleID: "R005"}
-	matched := matchEvidenceToRule(files, rule, nil)
-	if len(matched) != 1 {
-		t.Fatalf("matched len = %d", len(matched))
-	}
-	if matched[0].K8sSource.ClusterName != "prod" {
-		t.Error("K8sSource not preserved through matching")
-	}
-	if matched[0].K8sSource.ResourceKind != "Pod" {
-		t.Error("K8sSource.ResourceKind not preserved")
-	}
-}
+// NOTE: check_category 기반 매칭은 Rule에서 제거됨. K8sSource 보존은 target_rule_ids
+// 경로 테스트(TestMatchEvidenceToRule_TargetRuleIDs_K8sSource)가 커버한다.
 
 func TestMatchEvidenceToRule_TargetRuleIDs_K8sSource(t *testing.T) {
 	files := []grc.EvidenceFile{

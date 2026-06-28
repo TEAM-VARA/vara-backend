@@ -3639,11 +3639,14 @@ func toFloat64(v any) (float64, bool) {
 }
 
 func isAccountViolation(record map[string]string, rule Rule) bool {
-	// Check compliance indicators: a record is a violation if it fails any indicator.
+	// In the aggregated account path, ComplianceIndicators describe the *violation*
+	// condition for a single record: the record violates when an indicator's field
+	// comparison holds (e.g. days_since_change > 180) or its pattern matches
+	// (e.g. status contains "inactive").
 	for _, ind := range rule.ComplianceIndicators {
 		if ind.Field != "" && ind.Op != "" {
 			if actual, ok := record[ind.Field]; ok {
-				if !compareValues(actual, ind.Op, ind.Value) {
+				if compareValues(actual, ind.Op, ind.Value) {
 					return true
 				}
 			}
@@ -3651,7 +3654,7 @@ func isAccountViolation(record map[string]string, rule Rule) bool {
 		if ind.Pattern != "" {
 			for _, val := range record {
 				if strings.Contains(strings.ToLower(val), strings.ToLower(ind.Pattern)) {
-					return false // compliance pattern matched → not a violation
+					return true // violation pattern matched
 				}
 			}
 		}

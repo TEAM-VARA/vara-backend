@@ -40,8 +40,8 @@ func TestRulesetStoreLoad(t *testing.T) {
 	if rs.Item.Name != "비밀번호 관리" {
 		t.Errorf("item.name = %q, want 비밀번호 관리", rs.Item.Name)
 	}
-	if len(rs.Rules) != 23 {
-		t.Errorf("rules count = %d, want 23", len(rs.Rules))
+	if len(rs.Rules) != 28 {
+		t.Errorf("rules count = %d, want 28", len(rs.Rules))
 	}
 	if rs.ISMSPRevision != "2023.11" {
 		t.Errorf("isms_p_revision = %q, want 2023.11", rs.ISMSPRevision)
@@ -82,12 +82,14 @@ func TestRulesetRuleIDs(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
+	// R-01/R-02는 LBL로 흡수되어 shipping 룰셋은 R-03부터 시작한다.
 	expectedIDs := []string{
-		"R-2.5.4-01", "R-2.5.4-02", "R-2.5.4-03", "R-2.5.4-04", "R-2.5.4-05",
-		"R-2.5.4-06", "R-2.5.4-07", "R-2.5.4-08", "R-2.5.4-09", "R-2.5.4-10",
-		"R-2.5.4-11", "R-2.5.4-12", "R-2.5.4-13", "R-2.5.4-14", "R-2.5.4-15",
-		"R-2.5.4-GL01", "R-2.5.4-GL02", "R-2.5.4-GL03", "R-2.5.4-GL04",
-		"R-2.5.4-GL05", "R-2.5.4-GL06", "R-2.5.4-GL07", "R-2.5.4-GL08",
+		"R-2.5.4-03", "R-2.5.4-04", "R-2.5.4-05", "R-2.5.4-06", "R-2.5.4-07",
+		"R-2.5.4-08", "R-2.5.4-09", "R-2.5.4-10", "R-2.5.4-11", "R-2.5.4-12",
+		"R-2.5.4-13", "R-2.5.4-14", "R-2.5.4-15",
+		"R-2.5.4-GL01", "R-2.5.4-GL02", "R-2.5.4-GL03", "R-2.5.4-GL04", "R-2.5.4-GL05",
+		"R-2.5.4-GL06", "R-2.5.4-GL07", "R-2.5.4-GL08", "R-2.5.4-GL09", "R-2.5.4-GL10",
+		"R-2.5.4-GL11", "R-2.5.4-GL12", "R-2.5.4-GL13", "R-2.5.4-GL14", "R-2.5.4-GL15",
 	}
 
 	for i, expected := range expectedIDs {

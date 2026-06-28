@@ -191,8 +191,8 @@ func (s *GRCService) applyGuidelineEmbedding(
 
 	if maxSim < th {
 		msg := fmt.Sprintf("임베딩: 증적↔지침 코사인 최대 %.3f < 임계 %.3f (의미 정합성 부족)", maxSim, th)
-		if primary.Verdict == "준수" {
-			primary.Verdict = "미준수"
+		if grc.NormalizeVerdict(primary.Verdict) == grc.VerdictMET {
+			primary.Verdict = grc.VerdictNOT_MET
 			primary.Violations = append(primary.Violations, grc.Violation{
 				Description: msg,
 				Severity:    "medium",

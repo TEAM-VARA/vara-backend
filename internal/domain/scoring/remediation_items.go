@@ -28,6 +28,7 @@ type RemediationItem struct {
 	Target        string        `json:"target,omitempty"`
 	Text          string        `json:"text"`
 	Severity      string        `json:"severity,omitempty"` // 참고용 정렬(critical|high|medium|low) — 점수와 무관
+	Score         float64       `json:"score,omitempty"`    // CVE 위험도(global score, 표시 정수). cve 항목에만 설정.
 	GroupID       string        `json:"group_id,omitempty"`
 	RiskReduction RiskReduction `json:"risk_reduction"`     // axis/before/after/delta (VARA 기본 점수)
 	ZeroReason    string        `json:"zero_reason,omitempty"` // delta=0 사유(상위 포함 / 더 심한 항목 존재 / 같은 등급 잔존)
@@ -126,37 +127,50 @@ func BuildRemediationItems(in RemediationInput) RemediationSet {
 	//   1개짜리 tier가 돼 delta가 옆 CVE와의 우연한 소수 간격에 휘둘린다(같은 "99"가 갈라짐).
 	//   표시값으로 묶어야 같은 점수 CVE가 같은 delta를 갖는다. 같은 tier는 한 번에 패치되므로
 	//   각 카드가 그 tier의 band delta를 동일하게 보인다(FE는 같은 점수끼리 중복 합산 금지).
-	// 최상위 tier는 실제 현재 점수(riskCalc) 기준 → 전 tier delta 합 = 그룹(전체 패치) delta.
+	// 최상위 tier는 0.7/0.3 기준 현재 점수 기준 → 전 tier delta 합 = 그룹(전체 패치) delta.
 	if len(in.CVEs) > 0 {
 		cves := append([]CVEItem(nil), in.CVEs...)
 		sort.SliceStable(cves, func(i, j int) bool { return cves[i].Score > cves[j].Score })
 
-		// 전체 CVE 패치 시(Global=0) 점수 → 그룹(이미지 업그레이드) delta
-		afterAll := curRisk
-		afterAll.GlobalImage = 0
-		totalReducible := riskCalc - afterAll.Score()
+		// ★ 패치탭 CVE 점수 차감은 기본 가중치(0.7/0.3)로 투영한다.
+		//   전역 scoring_weights·실제 final_score(헤더 risk_score)는 그대로 두고, 여기 CVE 차감
+		//   표시에만 0.7/0.3을 적용한다. → CVE 전부 제거 시 잔여 = 노출만(노출O 30×toxic, 노출X 0).
+		const ptWGlobal, ptWExposure = 0.7, 0.3
+		ptExposure := 0.0
+		if in.Exposed {
+			ptExposure = 100
+		}
+		// Global=g 일 때 0.7/0.3 기준 재계산 Final (clamp 0~100)
+		finalAt := func(g float64) float64 {
+			v := (ptWGlobal*g + ptWExposure*ptExposure) * toxic
+			if v < 0 {
+				v = 0
+			}
+			if v > 100 {
+				v = 100
+			}
+			return v
+		}
+		ptCurrent := finalAt(in.GlobalImage) // 0.7/0.3 기준 현재 risk = CVE 차감 앵커
+
+		// 전체 CVE 패치 시(Global=0) 잔여(노출만) → 그룹 delta
+		totalReducible := ptCurrent - finalAt(0)
 		if totalReducible < 0 {
 			totalReducible = 0
 		}
 
-		// delta를 직접 받아 RiskReduction 생성(after = riskShown − delta).
+		// delta를 직접 받아 RiskReduction 생성(before/after = 0.7/0.3 기준).
 		mkRiskDelta := func(delta float64) RiskReduction {
 			if delta < 0 {
 				delta = 0
 			}
-			af := riskShown - delta
+			af := ptCurrent - delta
 			if af < 0 {
 				af = 0
 			}
-			return RiskReduction{Axis: AxisRisk, Before: RoundTo2(riskShown), After: RoundTo2(af), Delta: RoundTo2(delta)}
+			return RiskReduction{Axis: AxisRisk, Before: RoundTo2(ptCurrent), After: RoundTo2(af), Delta: RoundTo2(delta)}
 		}
 
-		// Global=g 일 때의 재계산 Final
-		finalAt := func(g float64) float64 {
-			ri := curRisk
-			ri.GlobalImage = g
-			return ri.Score()
-		}
 		tierOf := func(s float64) float64 { return math.Round(s) } // 표시 점수(정수)
 
 		// 내림차순 distinct tier 레벨 (cves가 이미 score 내림차순)
@@ -173,7 +187,7 @@ func BuildRemediationItems(in RemediationInput) RemediationSet {
 		// tier별 cascade delta (telescoping → 합 = totalReducible)
 		tierDelta := make(map[float64]float64, len(levels))
 		for k, lv := range levels {
-			upper := riskCalc // 최상위는 실제 현재 점수
+			upper := ptCurrent // 최상위는 0.7/0.3 기준 현재 점수
 			if k > 0 {
 				upper = finalAt(lv)
 			}
@@ -188,7 +202,7 @@ func BuildRemediationItems(in RemediationInput) RemediationSet {
 			rr := mkRiskDelta(tierDelta[tierOf(c.Score)])
 			item := RemediationItem{
 				ID: "cve:" + c.ID, Kind: "cve", Target: "image",
-				Text: cveText(c), Severity: c.Severity, GroupID: "cve:image",
+				Text: cveText(c), Severity: c.Severity, Score: tierOf(c.Score), GroupID: "cve:image",
 				RiskReduction: rr,
 			}
 			if rr.Delta == 0 {
