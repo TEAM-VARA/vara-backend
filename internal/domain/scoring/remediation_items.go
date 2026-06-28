@@ -115,22 +115,23 @@ func BuildRemediationItems(in RemediationInput) RemediationSet {
 		return RiskReduction{Axis: AxisImpact, Before: RoundTo2(impactBefore), After: RoundTo2(afterScore), Delta: RoundTo2(delta)}
 	}
 
-	// ───────── CVE 항목 (risk 축, 총 감소가능량을 CVE 점수 비례로 배분) ─────────
+	// ───────── CVE 항목 (risk 축, tier별 cascade 하락) ─────────
 	//
-	// MAX 집계에서는 최악 CVE 1개만 delta>0이라 "CVE 하나하나가 점수를 깎는다"는
-	// 직관과 안 맞고, delta가 가산적이지 않아 FE가 빼나가면 숫자가 틀어진다.
-	// 그래서 점수 모델(Global=MAX)·core 함수는 그대로 두고, 표시용 delta만 분배한다:
+	// UX: CVE 보완을 누르면 "그 CVE와 같은 위험도(점수)를 가진 모든 CVE"를 함께 패치한다.
+	// Global이 MAX라, 위에서부터 한 tier씩 빠지면 그 다음 점수가 새 최댓값이 된다.
+	// 그래서 각 tier delta = "그 점수 → 바로 아래 점수"로 Global이 내려갈 때의 Final 하락폭:
 	//
-	//   총감소가능량 = 현재 Final − (모든 CVE 패치 시 Final, Global=0)
-	//   delta_i      = 총감소가능량 × (sᵢ / Σsⱼ)
+	//   delta(점수 sᵢ) = Final(Global=sᵢ) − Final(Global = max{ sⱼ : sⱼ < sᵢ })   (아래가 없으면 0)
 	//
-	// → 모든 CVE가 각자 delta>0(점수 높을수록 큰 몫), Σdelta = 총감소가능량.
-	//   FE는 현재 점수에서 체크된 항목의 delta만 빼면 정확히 일치한다.
+	// 예) 99,90,75 가 있으면  99→90, 90→75, 75→0 의 각 단계 하락폭. 모두 delta>0.
+	// 전 tier delta 합 = Final(최댓값) − Final(0) = 총감소가능량(telescoping) → 그룹과 일치.
+	// 같은 점수 CVE들은 한 tier(한 번에 패치)라 각 카드가 같은 band delta를 보인다
+	// (FE는 같은 점수끼리 중복 합산하지 말 것).
 	if len(in.CVEs) > 0 {
 		cves := append([]CVEItem(nil), in.CVEs...)
 		sort.SliceStable(cves, func(i, j int) bool { return cves[i].Score > cves[j].Score })
 
-		// 전체 CVE 패치 시(Global=0) 점수 → 총 감소가능량
+		// 전체 CVE 패치 시(Global=0) 점수 → 그룹(이미지 업그레이드) delta
 		afterAll := curRisk
 		afterAll.GlobalImage = 0
 		totalReducible := riskCalc - afterAll.Score()
@@ -138,12 +139,18 @@ func BuildRemediationItems(in RemediationInput) RemediationSet {
 			totalReducible = 0
 		}
 
-		var sumScores float64
-		for _, c := range cves {
-			sumScores += c.Score
+		// nextLower(v): v보다 작은 CVE 점수들의 최댓값(없으면 0) = v tier가 빠진 뒤의 새 Global
+		nextLower := func(v float64) float64 {
+			m := 0.0
+			for _, c := range cves {
+				if c.Score < v && c.Score > m {
+					m = c.Score
+				}
+			}
+			return m
 		}
 
-		// delta를 직접 받아 RiskReduction을 만든다(after = riskShown − delta).
+		// delta를 직접 받아 RiskReduction 생성(after = riskShown − delta).
 		mkRiskDelta := func(delta float64) RiskReduction {
 			if delta < 0 {
 				delta = 0
@@ -156,10 +163,11 @@ func BuildRemediationItems(in RemediationInput) RemediationSet {
 		}
 
 		for _, c := range cves {
-			var delta float64
-			if sumScores > 0 {
-				delta = totalReducible * (c.Score / sumScores)
-			}
+			hi := curRisk
+			hi.GlobalImage = c.Score
+			lo := curRisk
+			lo.GlobalImage = nextLower(c.Score)
+			delta := hi.Score() - lo.Score() // 이 tier가 빠지면 Global이 c.Score→nextLower로 내려가는 폭
 			rr := mkRiskDelta(delta)
 			item := RemediationItem{
 				ID: "cve:" + c.ID, Kind: "cve", Target: "image",
@@ -170,7 +178,7 @@ func BuildRemediationItems(in RemediationInput) RemediationSet {
 				if totalReducible == 0 {
 					item.ZeroReason = "노출·독성 요인 때문에 CVE를 다 패치해도 점수가 안 내려감"
 				} else {
-					item.ZeroReason = "이 CVE의 점수 비중이 0이라 감소 몫 없음"
+					item.ZeroReason = "점수 상한(clamp)·독성 배수로 이 단계에선 Final 변화 없음"
 				}
 			}
 			set.Items = append(set.Items, item)
