@@ -41,20 +41,23 @@ type CatPrivilege struct {
 
 	// node 인과(dir=node, kind=rbac) 전용 — "원래 권한 → 위험 트리거 →(룰)→ 상승 권한" 체인.
 	//   TriggerPerms   : 위험한 "원래(흡수 전)" 권한 = 회수 대상 (Perms와 동일 값).
-	//   EscalatedPerms : 그 트리거로 흡수(상승)한 권한.
-	//   Rule           : 트리거된 권한상승 룰 ID (R-DIRECT-01 등).
+	//   EscalatedPerms : 그 트리거로 흡수(상승)한 권한 전체.
+	//   EdgePerms      : EscalatedPerms 중 실제 blast 엣지(측면이동)를 만드는 것.
+	//   Rule           : 관여한 권한상승 룰 ID들.
 	TriggerPerms   []string `json:"trigger_perms,omitempty"`
 	EscalatedPerms []string `json:"escalated_perms,omitempty"`
+	EdgePerms      []string `json:"edge_perms,omitempty"`
 	Rule           string   `json:"rule,omitempty"`
 }
 
-// RBACEscalation — "원래(흡수 전) 위험 권한(트리거)"이 한 룰을 거쳐 "흡수(상승) 권한"으로 번지는 한 건.
-// 서비스가 transition_triggers(어떤 원래 권한이 룰을 트리거했나) + rbac_escalation_paths(그래서
-// 흡수한 권한)를 via_transition(룰 ID)으로 묶어 채운다.
+// RBACEscalation — SA의 "원래(흡수 전) 위험 권한(트리거)"이 권한상승을 거쳐 흡수한 권한 전체로 번지는 묶음.
+// 서비스가 transition_triggers(원래 권한이 룰을 트리거) + rbac_escalation_paths(흡수 결과)를 모아
+// SA당 1건으로 합쳐 채운다(연쇄 중간단계는 흡수 결과로만, 루트 원래권한만 트리거로).
 type RBACEscalation struct {
-	Rule           string   // 트리거된 권한상승 룰 ID
-	TriggerPerms   []string // 그 룰을 트리거한 "원래(흡수 전)" 위험 권한 "verb resource"
-	EscalatedPerms []string // 그 결과 흡수(상승)한 권한 "verb resource"
+	Rule           string   // 관여한 권한상승 룰 ID들(", "로 결합)
+	TriggerPerms   []string // 상승의 뿌리가 된 "원래(흡수 전)" 위험 권한 "verb resource" (initial ∩ trigger)
+	EscalatedPerms []string // 그 결과 흡수(상승)한 권한 전체 "verb resource"
+	EdgePerms      []string // EscalatedPerms 중 실제 blast 엣지(측면이동)를 만드는 것 (blastedge.IsLateralMovement)
 }
 
 type CatNetPeer struct {
@@ -145,14 +148,19 @@ func BuildCategories(in CategoriesInput) ScenarioCategories {
 			Perms:          e.TriggerPerms,
 			TriggerPerms:   e.TriggerPerms,
 			EscalatedPerms: e.EscalatedPerms,
+			EdgePerms:      e.EdgePerms,
 			Rule:           e.Rule,
 			Remove:         fmt.Sprintf("%s의 원래 권한 '%s' 회수", sa, orPerm(trig)),
 		}
-		if esc != "" {
-			p.Text = fmt.Sprintf("%s가 원래 보유한 위험 권한 '%s'(으)로 %s 룰이 트리거돼 '%s' 권한으로 상승합니다 — 이 원래 권한을 회수하면 상승이 끊깁니다",
-				sa, orPerm(trig), orRule(e.Rule), esc)
-		} else {
-			p.Text = fmt.Sprintf("%s가 원래 보유한 위험 권한 '%s'(으)로 %s 룰이 트리거돼 권한 상승이 일어납니다 — 이 원래 권한을 회수하세요",
+		switch {
+		case esc != "" && len(e.EdgePerms) > 0:
+			p.Text = fmt.Sprintf("%s가 원래 보유한 위험 권한 '%s'(으)로 권한상승이 일어나 '%s' 권한을 갖게 됩니다. 이 중 '%s'은(는) 다른 파드로 측면이동(blast 엣지)까지 가능합니다 — 원래 권한을 회수하면 상승·이동이 모두 끊깁니다(룰: %s)",
+				sa, orPerm(trig), esc, strings.Join(e.EdgePerms, ", "), orRule(e.Rule))
+		case esc != "":
+			p.Text = fmt.Sprintf("%s가 원래 보유한 위험 권한 '%s'(으)로 권한상승이 일어나 '%s' 권한을 갖게 됩니다 — 이 원래 권한을 회수하면 상승 전체가 끊깁니다(룰: %s)",
+				sa, orPerm(trig), esc, orRule(e.Rule))
+		default:
+			p.Text = fmt.Sprintf("%s가 원래 보유한 위험 권한 '%s'(으)로 권한 상승이 일어납니다 — 이 원래 권한을 회수하세요(룰: %s)",
 				sa, orPerm(trig), orRule(e.Rule))
 		}
 		c.Privilege = append(c.Privilege, p)

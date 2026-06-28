@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/vara/backend/internal/blastedge"
@@ -251,6 +252,9 @@ func (s *ScenarioService) rbacEscalations(ctx context.Context, cluster, ns, saNa
 	if err != nil || detail == nil {
 		return nil
 	}
+	if len(detail.Escalation) == 0 {
+		return nil
+	}
 	// transition_triggers JSONB: [{transition, triggered_by:[{...perm}]}]
 	var triggers []struct {
 		Transition  string           `json:"transition"`
@@ -264,44 +268,75 @@ func (s *ScenarioService) rbacEscalations(ctx context.Context, cluster, ns, saNa
 	if len(triggers) == 0 {
 		return nil
 	}
-	// 룰 ID → 흡수(상승) 권한 "verb resource" 목록(중복 제거).
-	escByRule := map[string][]string{}
-	escSeen := map[string]map[string]bool{}
+
+	// 원래(흡수 전) 권한 집합 — 진짜 "상승 전 위험권한(트리거)"은 여기 있는 것만 인정한다.
+	// 연쇄(cascade) 중간단계(상승 도중 얻은 권한이 또 트리거가 된 것)는 트리거에서 제외하고
+	// 상승 결과로만 표시 → "원래 권한 중 위험 권한 때문에 상승" 정의를 정확히 지킨다.
+	initialSet := map[string]bool{}
+	if iperms, ierr := s.rbacChain.ListSAInitialPermissions(ctx, cluster, ns, saName); ierr == nil {
+		for _, p := range iperms {
+			initialSet[strings.TrimSpace(p.Verb+" "+p.Resource)] = true
+		}
+	}
+
+	// 루트 트리거 = 모든 트리거 중 원래 권한인 것만(중복 제거).
+	var rootTrig []string
+	rtSeen := map[string]bool{}
+	for _, t := range triggers {
+		for _, p := range t.TriggeredBy {
+			verb, _ := p["verb"].(string)
+			res, _ := p["resource"].(string)
+			label := strings.TrimSpace(verb + " " + res)
+			if label == "" || !initialSet[label] || rtSeen[label] {
+				continue
+			}
+			rtSeen[label] = true
+			rootTrig = append(rootTrig, label)
+		}
+	}
+	if len(rootTrig) == 0 {
+		return nil // 원래권한 트리거 없음 → 인과 카드 생략(plain 카드가 직접 위험권한 처리)
+	}
+
+	// 상승(흡수) 권한 전체 + 그중 blast 엣지(측면이동)를 만드는 것 분리.
+	// 엣지 판정 기준은 엣지 빌더와 동일 단일 출처(blastedge.IsLateralMovement).
+	var esc, edge []string
+	eSeen, edgeSeen := map[string]bool{}, map[string]bool{}
 	for _, e := range detail.Escalation {
 		label := strings.TrimSpace(e.Verb + " " + e.Resource)
 		if label == "" {
 			continue
 		}
-		if escSeen[e.ViaTransition] == nil {
-			escSeen[e.ViaTransition] = map[string]bool{}
+		if !eSeen[label] {
+			eSeen[label] = true
+			esc = append(esc, label)
 		}
-		if escSeen[e.ViaTransition][label] {
-			continue
+		if !edgeSeen[label] && blastedge.IsLateralMovement(blastedge.Perm{
+			APIGroup: e.APIGroup, Resource: e.Resource, Verb: e.Verb,
+		}) {
+			edgeSeen[label] = true
+			edge = append(edge, label)
 		}
-		escSeen[e.ViaTransition][label] = true
-		escByRule[e.ViaTransition] = append(escByRule[e.ViaTransition], label)
 	}
-	out := make([]scoring.RBACEscalation, 0, len(triggers))
+
+	// 관여 룰 ID 목록(중복 제거·정렬).
+	var rules []string
+	ruleSet := map[string]bool{}
 	for _, t := range triggers {
-		var trig []string
-		seen := map[string]bool{}
-		for _, p := range t.TriggeredBy {
-			verb, _ := p["verb"].(string)
-			res, _ := p["resource"].(string)
-			label := strings.TrimSpace(verb + " " + res)
-			if label == "" || seen[label] {
-				continue
-			}
-			seen[label] = true
-			trig = append(trig, label)
+		if t.Transition != "" && !ruleSet[t.Transition] {
+			ruleSet[t.Transition] = true
+			rules = append(rules, t.Transition)
 		}
-		out = append(out, scoring.RBACEscalation{
-			Rule:           t.Transition,
-			TriggerPerms:   trig,
-			EscalatedPerms: escByRule[t.Transition],
-		})
 	}
-	return out
+	sort.Strings(rules)
+
+	// SA당 1건으로 합친다(루트 원래권한 → 흡수 전체).
+	return []scoring.RBACEscalation{{
+		Rule:           strings.Join(rules, ", "),
+		TriggerPerms:   rootTrig,
+		EscalatedPerms: esc,
+		EdgePerms:      edge,
+	}}
 }
 
 // attachISMSReductions — GRC에서 이 pod의 ISMS-P 미준수 가산 breakdown을 받아,
