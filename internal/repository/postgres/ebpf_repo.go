@@ -85,61 +85,6 @@ func (r *EbpfRepo) UpsertNetworkFlows(ctx context.Context, customerID string, re
     return saved, nil
 }
 
-// UpsertFlowAgg : tcp_sendmsg 전용. 개별 row 대신 (src,dst,port,분) 단위로 누적 집계.
-// 매핑(dst_pod_id, mapping_status)이 끝난 이벤트를 받아서 분 버킷에 더한다.
-func (r *EbpfRepo) UpsertFlowAgg(ctx context.Context, customerID string, req ebpf.NetworkFlowsRequest) (int, error) {
-	if len(req.Events) == 0 {
-		return 0, nil
-	}
-
-	tx, err := r.pg.Begin(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("tx begin: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	const q = `
-		INSERT INTO ebpf_flow_agg (
-			customer_id, cluster_name, src_pod_id,
-			dst_pod_id, dst_ip, dst_port, mapping_status,
-			minute_bucket, flow_count, total_size, last_seen
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			date_trunc('minute', $8::timestamptz), 1, $9, $8
-		)
-		ON CONFLICT (customer_id, cluster_name, src_pod_id, dst_ip, dst_port, minute_bucket)
-		DO UPDATE SET
-			flow_count     = ebpf_flow_agg.flow_count + 1,
-			total_size     = ebpf_flow_agg.total_size + EXCLUDED.total_size,
-			last_seen      = GREATEST(ebpf_flow_agg.last_seen, EXCLUDED.last_seen),
-			dst_pod_id     = EXCLUDED.dst_pod_id,
-			mapping_status = EXCLUDED.mapping_status
-	`
-
-	saved := 0
-	for _, e := range req.Events {
-		var size int64 = 0
-		if e.Size > 0 {
-			size = e.Size
-		}
-		_, err := tx.Exec(ctx, q,
-			customerID, customerID, e.Src.PodID,
-			e.Dst.PodID, e.Dst.IP, e.Dst.Port, e.Dst.MappingStatus,
-			e.Timestamp, size,
-		)
-		if err != nil {
-			return 0, fmt.Errorf("upsert flow agg %s:%d→%s:%d: %w",
-				e.Src.IP, e.Src.Port, e.Dst.IP, e.Dst.Port, err)
-		}
-		saved++
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("tx commit: %w", err)
-	}
-	return saved, nil
-}
-
 // UpsertDNSQueries : DNS 쿼리 이벤트 일괄 UPSERT
 func (r *EbpfRepo) UpsertDNSQueries(ctx context.Context, customerID string, req ebpf.DNSQueriesRequest) (int, error) {
 	if len(req.Events) == 0 {
@@ -306,47 +251,71 @@ type Event struct {
 	AnomalyReason string    `json:"anomaly_reason,omitempty"`
 }
 
-// QueryFlowFeed : (src 서비스 → dst 서비스) 집계 + 인프라(A) 표시 필터
+// QueryFlowFeed : (src 서비스 → dst 서비스) 집계 + 룰(R1~R3) + ML/R5(ml_flow_anomalies) 병합
 func (r *EbpfRepo) QueryFlowFeed(
 	ctx context.Context, customerID string, since time.Time, limit int,
 ) ([]FlowFeedItem, error) {
 	const q = `
+		WITH base AS (
+			SELECT
+				regexp_replace(src_pod_id, '-[a-z0-9]+-[a-z0-9]+$', '') AS src_service,
+				CASE
+					WHEN mapping_status = 'imds'     THEN 'IMDS (메타데이터)'
+					WHEN mapping_status = 'external' THEN 'external: ' || regexp_replace(dst_ip, '^::ffff:', '')
+					ELSE regexp_replace(dst_pod_id, '-[a-z0-9]+-[a-z0-9]+$', '')
+				END AS dst_service,
+				CASE
+					WHEN mapping_status IN ('external','imds') THEN 'high'
+					WHEN dst_pod_id LIKE 'train-ticket/mysql%'
+					     AND (src_pod_id LIKE 'train-ticket/ts-gateway-service-%'
+					       OR src_pod_id LIKE 'train-ticket/ts-ui-dashboard-%') THEN 'high'
+					ELSE 'none'
+				END AS severity,
+				COALESCE(CASE
+					WHEN mapping_status = 'imds'     THEN 'imds_access'
+					WHEN mapping_status = 'external' THEN 'external_egress'
+					WHEN dst_pod_id LIKE 'train-ticket/mysql%'
+					     AND (src_pod_id LIKE 'train-ticket/ts-gateway-service-%'
+					       OR src_pod_id LIKE 'train-ticket/ts-ui-dashboard-%') THEN 'unauthorized_db_access'
+				END, '') AS anomaly_reason,
+				COALESCE(sum(flow_count), 0) AS flow_count,
+				COALESCE(sum(total_size), 0) AS total_bytes,
+				max(last_seen)               AS last_seen
+			FROM ebpf_flow_agg
+			WHERE customer_id = $1
+			  AND minute_bucket > $2
+			  AND src_pod_id NOT LIKE 'default/vara-%'
+			  AND src_pod_id NOT LIKE 'train-ticket/nacos-%'
+			  AND (
+			        (mapping_status = 'mapped' AND dst_pod_id NOT LIKE 'train-ticket/nacos-%')
+			     OR mapping_status IN ('external','imds')
+			  )
+			  AND mapping_status != 'loopback'
+			GROUP BY src_service, dst_service, severity, anomaly_reason
+		)
 		SELECT
-			regexp_replace(src_pod_id, '-[a-z0-9]+-[a-z0-9]+$', '') AS src_service,
+			base.src_service,
+			base.dst_service,
 			CASE
-				WHEN mapping_status = 'imds'     THEN 'IMDS (메타데이터)'
-				WHEN mapping_status = 'external' THEN 'external: ' || regexp_replace(dst_ip, '^::ffff:', '')
-				ELSE regexp_replace(dst_pod_id, '-[a-z0-9]+-[a-z0-9]+$', '')
-			END AS dst_service,
-			CASE 
-				WHEN mapping_status IN ('external','imds') THEN 'high' 
-				WHEN dst_pod_id LIKE 'train-ticket/mysql%'
-				     AND (src_pod_id LIKE 'train-ticket/ts-gateway-service-%'
-				       OR src_pod_id LIKE 'train-ticket/ts-ui-dashboard-%') THEN 'high'
-				ELSE 'none' 
+				WHEN base.severity = 'high' THEN 'high'
+				WHEN ml.severity = 'high'   THEN 'high'
+				WHEN ml.severity = 'medium' THEN 'medium'
+				ELSE base.severity
 			END AS severity,
-			COALESCE(CASE
-				WHEN mapping_status = 'imds'     THEN 'imds_access'
-				WHEN mapping_status = 'external' THEN 'external_egress'
-				WHEN dst_pod_id LIKE 'train-ticket/mysql%'
-				     AND (src_pod_id LIKE 'train-ticket/ts-gateway-service-%'
-				       OR src_pod_id LIKE 'train-ticket/ts-ui-dashboard-%') THEN 'unauthorized_db_access'
-			END, '') AS anomaly_reason,
-			COALESCE(sum(flow_count), 0) AS flow_count,   -- ← count(*) 에서 변경
-			COALESCE(sum(total_size), 0) AS total_bytes,  -- ← sum(size) 에서 변경
-			max(last_seen)               AS last_seen      -- ← max(timestamp) 에서 변경
-		FROM ebpf_flow_agg                                 -- ← ebpf_network_flows 에서 변경
-		WHERE customer_id = $1
-		  AND minute_bucket > $2                            -- ← received_at > $2 에서 변경
-		  AND src_pod_id NOT LIKE 'default/vara-%'
-		  AND src_pod_id NOT LIKE 'train-ticket/nacos-%'
-		  AND (
-		        (mapping_status = 'mapped' AND dst_pod_id NOT LIKE 'train-ticket/nacos-%')
-		     OR mapping_status IN ('external','imds')
-		  )
-		  AND mapping_status != 'loopback'
-		GROUP BY src_service, dst_service, severity, anomaly_reason
-		ORDER BY last_seen DESC
+			CASE
+				WHEN base.anomaly_reason <> '' THEN base.anomaly_reason
+				WHEN ml.reason IS NOT NULL     THEN ml.reason
+				ELSE ''
+			END AS anomaly_reason,
+			base.flow_count,
+			base.total_bytes,
+			base.last_seen
+		FROM base
+		LEFT JOIN ml_flow_anomalies ml
+			ON ml.customer_id = $1
+		   AND ml.src_service = base.src_service
+		   AND ml.dst_service = base.dst_service
+		ORDER BY base.last_seen DESC
 		LIMIT $3
 	`
 	rows, err := r.pg.Query(ctx, q, customerID, since, limit)
@@ -359,7 +328,7 @@ func (r *EbpfRepo) QueryFlowFeed(
 	for rows.Next() {
 		var it FlowFeedItem
 		if err := rows.Scan(&it.SrcService, &it.DstService, &it.Severity, &it.AnomalyReason,
-			&it.FlowCount, &it.TotalBytes, &it.LastSeen,); err != nil {
+			&it.FlowCount, &it.TotalBytes, &it.LastSeen); err != nil {
 			return nil, fmt.Errorf("scan flow feed: %w", err)
 		}
 		items = append(items, it)
