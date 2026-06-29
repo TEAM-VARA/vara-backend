@@ -314,6 +314,11 @@ type AppliedMitigation struct {
 	Layer  string `json:"layer"`            // supply_chain / network / identity / host
 	Kind   string `json:"kind"`             // cve_image / cve_id / netpol_denyall / netpol_peer / rbac_revoke / mount_remove
 	Target string `json:"target,omitempty"` // image_digest / cve_id / peer_uid / "sa: ns/name" 등 (kind에 따라)
+
+	// Effectiveness — 조치 효과 비율(0~1, 기본 1.0=완전 차단). mc 모드에서만 사용.
+	// 채널 확률을 (1-Effectiveness)로 감쇠해 "부분 적용"(예: 0.5=절반만 차단)을 표현한다.
+	// nil/0 미만/1 초과는 1.0으로 정규화한다(완전 차단). topology 모드는 무시.
+	Effectiveness *float64 `json:"effectiveness,omitempty"`
 }
 
 // SimulateBlastRequest — POST /scoring/blast-radius/simulate body
@@ -322,6 +327,13 @@ type SimulateBlastRequest struct {
 	Source  string              `json:"source" binding:"required"`
 	Hops    int                 `json:"hops,omitempty"`    // 기본 3
 	Applied []AppliedMitigation `json:"applied,omitempty"` // 빈 배열이면 baseline만
+
+	// Mode — "" / "topology"(기본, PageRank+BFS) 또는 "mc"(확률 전파).
+	// mc: blast_edges 채널 확률을 감쇠하고 Common-Random-Numbers 몬테카를로로
+	// 도달확률(reach_prob)을 재계산 → 상류 약화가 하위 파드로 연속 전파된다.
+	Mode string `json:"mode,omitempty"`
+	// Trials — mc 모드 시행 횟수(기본 2000). 클수록 분산↓·비용↑.
+	Trials int `json:"trials,omitempty"`
 }
 
 // SimulateBlastResponse — 재계산 결과 (per-source blast graph diff)
@@ -336,6 +348,21 @@ type SimulateBlastResponse struct {
 	Nodes         []SimNode      `json:"nodes"`
 	EdgesRemoved  []RemovedEdge  `json:"edges_removed"`
 	BuildMs       int64          `json:"build_ms"`
+
+	// Mode — 응답을 만든 계산 모드("topology" 또는 "mc"). 요청 echo.
+	Mode string `json:"mode,omitempty"`
+	// EdgesAttenuated — mc 모드에서 채널 확률이 낮아진 엣지(완전 제거가 아닌 약화 포함).
+	// PEdge가 0이 되면 EdgesRemoved에도 함께 들어간다(FE 페이드아웃 호환).
+	EdgesAttenuated []AttenuatedEdge `json:"edges_attenuated,omitempty"`
+}
+
+// AttenuatedEdge — mc 모드에서 조치로 확률이 낮아진 엣지 1건 (before/after).
+type AttenuatedEdge struct {
+	Source  string  `json:"source"`
+	Target  string  `json:"target"`
+	Channel string  `json:"channel"` // network / rbac / host (감쇠된 채널)
+	PBefore float64 `json:"p_before"`
+	PAfter  float64 `json:"p_after"`
 }
 
 // SimNode — 적용 후 노드 상태 (FE 노드 색칠 기준)
@@ -345,10 +372,16 @@ type SimNode struct {
 	Reachable    bool    `json:"reachable"`     // 적용 후 도달 여부
 	Hop          *int    `json:"hop"`           // 미도달이면 null
 	Layer        *string `json:"layer"`         // 미도달이면 null
-	Criticality  float64 `json:"criticality"`   // 정규화 PageRank (평균=1)
+	Criticality  float64 `json:"criticality"`   // 정규화 PageRank (평균=1). mc 모드는 reach_prob와 동일.
 	Contribution float64 `json:"contribution"`  // 적용 후 blast 기여도
 	ColorLevel   string  `json:"color_level"`   // removed/safe/caution/warning/emergency
 	Dropped      bool    `json:"dropped"`       // baseline엔 닿았으나 적용 후 끊김
+
+	// ReachProb/ReachProbBefore — mc 모드 전용. source→이 노드 도달확률(0~1).
+	// Before=baseline, ReachProb=적용 후. risk_after = risk_before × ReachProb/ReachProbBefore.
+	// topology 모드에서는 0.
+	ReachProb       float64 `json:"reach_prob"`
+	ReachProbBefore float64 `json:"reach_prob_before"`
 
 	// RiskBefore/RiskAfter — 이 노드를 risk_score(final_score, 0~100) 스케일로 색칠하기 위한 값.
 	// FE가 0~25 blast 스케일을 환산하지 않고 헤더 위험도와 같은 등급컷으로 바로 재색칠하게 한다.

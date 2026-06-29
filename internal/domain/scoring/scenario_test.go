@@ -26,10 +26,13 @@ func TestBuildPodScenario_Rich(t *testing.T) {
 	}
 	r := BuildPodScenario(in)
 
-	if !strings.Contains(r.AttackScenario, "【진입】") ||
-		!strings.Contains(r.AttackScenario, "【장악 후】") ||
-		!strings.Contains(r.AttackScenario, "【전파】") {
-		t.Fatalf("3단계 줄글 누락: %q", r.AttackScenario)
+	// 괄호 마커(【】) 없이 자연 연결어로 진입→장악→전파가 이어진다.
+	if strings.Contains(r.AttackScenario, "【") || strings.Contains(r.AttackScenario, "】") {
+		t.Errorf("괄호 마커가 남아있음: %q", r.AttackScenario)
+	}
+	if !strings.Contains(r.AttackScenario, "일단 이 Pod을 차지하면") ||
+		!strings.Contains(r.AttackScenario, "그리고 여기서") {
+		t.Fatalf("장악/전파 연결어 누락: %q", r.AttackScenario)
 	}
 	if !strings.Contains(r.AttackScenario, "privileged") {
 		t.Errorf("privileged 시나리오 누락")
@@ -50,9 +53,18 @@ func TestBuildPodScenario_Rich(t *testing.T) {
 	if strings.Contains(r.AttackScenario, "extra") {
 		t.Errorf("ReachablePods 가 3개 초과로 노출됨")
 	}
-	// 9013 은 writable 미확정 caveat 포함
-	if !strings.Contains(r.AttackScenario, "readOnly") {
-		t.Errorf("hostPath caveat 누락")
+	// caveat(※ 추정 근거)는 괄호 제거 정책으로 프로즈에 싣지 않고, 구조화 Caveat 필드에만 남긴다.
+	var hostCaveat string
+	for _, f := range r.NodeStates {
+		if f.MSTA == "MS-TA9013" {
+			hostCaveat = f.Caveat
+		}
+	}
+	if !strings.Contains(hostCaveat, "readOnly") {
+		t.Errorf("hostPath caveat(구조화 필드) 누락: %q", hostCaveat)
+	}
+	if strings.Contains(r.AttackScenario, "(※") {
+		t.Errorf("caveat 괄호가 프로즈에 남아있음: %q", r.AttackScenario)
 	}
 }
 

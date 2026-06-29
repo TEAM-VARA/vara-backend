@@ -222,11 +222,8 @@ func composeScenario(incoming, node, outgoing []ScenarioFinding) string {
 func joinSentences(fs []ScenarioFinding) string {
 	parts := make([]string, 0, len(fs))
 	for _, f := range fs {
-		s := f.Scenario
-		if f.Caveat != "" {
-			s += "(※ " + f.Caveat + ")"
-		}
-		parts = append(parts, s)
+		// caveat(※ 추정 근거)는 괄호 없이 프로즈에서 제외 — Caveat 필드는 구조화 응답에 그대로 남는다.
+		parts = append(parts, f.Scenario)
 	}
 	return strings.Join(parts, " ")
 }

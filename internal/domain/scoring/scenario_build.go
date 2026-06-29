@@ -151,20 +151,20 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 	}
 	if in.TopCVE != "" && in.CVEAvailabilityImpact {
 		f := mkFinding("VULN", DirNode, TacticImpact,
-			fmt.Sprintf("이미지 취약점(%s)이 가용성에 영향을 줘, 공격자가 서비스 중단·파괴를 일으킬 수 있습니다.", cveLabel(in)),
+			fmt.Sprintf("이미지의 %s 취약점이 가용성에 영향을 줘, 공격자가 서비스 중단·파괴를 일으킬 수 있습니다.", cveLabel(in)),
 			"heuristic", "CVSS 가용성 영향 기반")
 		f.CVE = in.TopCVE
 		fs = append(fs, f)
 	} else if in.TopCVE != "" && in.CVEConfidentialityImpact {
 		f := mkFinding("VULN", DirNode, TacticCredAccess,
-			fmt.Sprintf("이미지 취약점(%s)이 정보 유출로 이어져, 공격자가 민감정보를 수집할 수 있습니다.", cveLabel(in)),
+			fmt.Sprintf("이미지의 %s 취약점이 정보 유출로 이어져, 공격자가 민감정보를 수집할 수 있습니다.", cveLabel(in)),
 			"heuristic", "CVSS 기밀성 영향 기반")
 		f.CVE = in.TopCVE
 		fs = append(fs, f)
 	}
 	if in.TopCVE != "" && in.CVEScopeChanged {
 		f := mkFinding("VULN", DirNode, TacticPrivEsc,
-			fmt.Sprintf("이미지 취약점(%s)이 컨테이너 권한 경계를 벗어나(CVSS Scope 변경), 공격자가 호스트/노드로 권한을 끌어올리거나 탈출할 수 있습니다.", cveLabel(in)),
+			fmt.Sprintf("이미지의 %s 취약점이 컨테이너 권한 경계를 벗어나, 공격자가 호스트/노드로 권한을 끌어올리거나 탈출할 수 있습니다.", cveLabel(in)),
 			"heuristic", "CVSS Scope:Changed(또는 v4.0 후속 시스템 영향) 기반")
 		f.CVE = in.TopCVE
 		fs = append(fs, f)
@@ -184,7 +184,7 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 	} else if in.NetworkIsolation == "none" || in.NetworkIsolation == "" || in.NetworkIsolation == "unknown" {
 		reach := ""
 		if len(in.ReachablePods) > 0 {
-			reach = fmt.Sprintf("(예: %s)", strings.Join(trimN(in.ReachablePods, 3), ", "))
+			reach = "인 " + strings.Join(trimN(in.ReachablePods, 3), ", ") + " 등"
 		}
 		conf := "high"
 		caveat := ""
@@ -337,7 +337,7 @@ func buildOutgoingFromBlast(edges []BlastEdge, sa, execPerms string) []ScenarioF
 		a := byTech[msta]
 		targets := ""
 		if len(a.targets) > 0 {
-			targets = fmt.Sprintf("(예: %s%s)", strings.Join(trimN(a.targets, 3), ", "), moreN(len(a.targets), 3))
+			targets = fmt.Sprintf("인 %s%s", strings.Join(trimN(a.targets, 3), ", "), moreN(len(a.targets), 3))
 		}
 		out = append(out, mkFinding(msta, DirOutgoing, a.tactic,
 			blastSentence(msta, sa, targets), "high", a.reason))
@@ -387,16 +387,16 @@ func moreN(n, limit int) string {
 	return ""
 }
 
-// vulnIncomingScenario — 진입(incoming) VULN 줄글. enrichment(설계서 §4)가 있으면
-// "취약 컴포넌트 · 취약점 클래스 · 메커니즘"으로 구체화하고, 없으면 기존 generic 줄글로 폴백한다.
-// (메커니즘은 검증 통과분만 채워지므로 환각 0 — §7.2 null 규칙)
+// vulnIncomingScenario — 진입(incoming) VULN 줄글(카드용, 1~2줄). enrichment(설계서 §4)가 있으면
+// "어디에(컴포넌트) 무슨 취약점(클래스)이 있어 무엇(impact)이 가능한지" 한 문장 + 심각도 한 문장으로
+// 압축한다. CVE 번호·메커니즘 상세는 카드 배지/상세 패널에 있으므로 줄글에선 생략. 없으면 generic 폴백.
 func vulnIncomingScenario(in ScenarioInput) string {
 	e := in.CVEEnrichment
 	if e == nil {
-		return fmt.Sprintf("이 Pod 이미지에 원격 악용 가능한 취약점(%s)이 있어, 공격자가 네트워크로 바로 코드 실행을 노릴 수 있습니다.", cveLabel(in))
+		return fmt.Sprintf("이 Pod 이미지에 원격 악용이 가능한 %s 취약점이 있어, 공격자가 네트워크로 바로 코드를 실행할 수 있습니다.", cveLabel(in))
 	}
 
-	// 컴포넌트 + 클래스 (module_short 없으면 "취약 컴포넌트" 폴백 — 메서드명 생성 금지)
+	// 컴포넌트 + 클래스 (short 우선, 폴백 포함 — 메서드명 생성 금지)
 	comp := e.ModuleShort
 	if comp == "" {
 		comp = e.Module
@@ -408,36 +408,35 @@ func vulnIncomingScenario(in ScenarioInput) string {
 	if class == "" {
 		class = e.VulnClassLabel
 	}
-
-	var b strings.Builder
-	// 1) 어디에 어떤 취약점이 있는지 — 한 문장으로 쉽게 (괄호 안은 CVE ID만)
+	// "역직렬화"처럼 "취약점"이 안 붙은 라벨엔 붙여 조사·가독성 보정(중복은 피함).
+	kind := "취약점"
 	if class != "" {
-		fmt.Fprintf(&b, "이 Pod 이미지의 %s에 %s(%s)이 있습니다.", comp, class, cveLabel(in))
-	} else {
-		fmt.Fprintf(&b, "이 Pod 이미지의 %s에 취약점(%s)이 있습니다.", comp, cveLabel(in))
-	}
-
-	// 2) 어떻게 악용되는지 — 완성된 mechanism 문장이 있으면 그대로, 없으면 impact로 한 문장.
-	switch {
-	case e.Mechanism != "":
-		b.WriteString(" ")
-		b.WriteString(e.Mechanism)
-		if !strings.HasSuffix(e.Mechanism, ".") && !strings.HasSuffix(e.Mechanism, "다") {
-			b.WriteString(".")
+		if strings.Contains(class, "취약점") {
+			kind = class
+		} else {
+			kind = class + " 취약점"
 		}
-	case e.Impact != "":
-		fmt.Fprintf(&b, " 공격자가 이를 악용하면 %s까지 일으킬 수 있습니다.", impactLabelKO(e.Impact))
 	}
 
-	// 3) 원격/인증 — 한 문장으로
+	// 접근 조건(원격/인증)을 한 구절로 — impact의 "원격"과 겹치지 않게 "네트워크로"로 표현.
+	access := "공격자가 "
 	switch {
 	case e.Remote && e.Unauth:
-		b.WriteString(" 게다가 인증 없이도 네트워크를 통해 원격에서 악용할 수 있습니다.")
+		access = "공격자가 인증 없이 네트워크로 "
 	case e.Remote:
-		b.WriteString(" 네트워크를 통해 원격에서 악용할 수 있습니다.")
+		access = "공격자가 네트워크로 "
+	}
+	impact := impactLabelKO(e.Impact)
+	if impact == "" {
+		impact = "악용"
 	}
 
-	// 심각도 설명(LLM이 CVSS 점수·KEV를 쉬운 한 문장으로 푼 것) — 있으면 덧붙인다.
+	var b strings.Builder
+	// 카드용 1~2줄: 어디에 무슨 취약점이 있고 무엇이 가능한지 한 문장.
+	// (CVE 번호·메커니즘 상세는 생략 — 카드 상단 배지/상세 패널에 있음)
+	fmt.Fprintf(&b, "이 Pod 이미지의 %s에 %s이 있어, %s%s까지 할 수 있습니다.", comp, kind, access, impact)
+
+	// 심각도(LLM severity_note, 짧은 한 문장) — 있으면 한 줄 덧붙인다.
 	if note := strings.TrimSpace(e.SeverityNote); note != "" {
 		b.WriteString(" ")
 		b.WriteString(note)
@@ -452,7 +451,7 @@ func impactLabelKO(impact string) string {
 	case "RCE":
 		return "원격 코드 실행"
 	case "DoS":
-		return "서비스 거부(DoS)"
+		return "서비스 거부"
 	case "Info Disclosure":
 		return "정보 유출"
 	default:

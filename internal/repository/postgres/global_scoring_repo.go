@@ -315,7 +315,7 @@ func (r *GlobalScoringRepo) ListCVEsByImageDigest(ctx context.Context, imageDige
 					ELSE (SELECT a FROM unnest(pv.aliases) AS a WHERE a LIKE 'CVE-%' LIMIT 1)
 				END                            AS cve_id,
 				''                             AS severity,
-				''                             AS pkg_name,
+				COALESCE(pv.name, '')          AS pkg_name,
 				''                             AS installed_version,
 				COALESCE(pv.fixed_version, '') AS fixed_version
 			FROM package_vulnerabilities pv
@@ -324,7 +324,7 @@ func (r *GlobalScoringRepo) ListCVEsByImageDigest(ctx context.Context, imageDige
 			  AND pv.withdrawn_at IS NULL
 		) merged
 		WHERE cve_id LIKE 'CVE-%'
-		ORDER BY cve_id
+		ORDER BY cve_id, (pkg_name <> '') DESC
 	`
 
 	rows, err := r.pool.Query(ctx, q, imageDigest)
