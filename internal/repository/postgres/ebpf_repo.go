@@ -85,6 +85,56 @@ func (r *EbpfRepo) UpsertNetworkFlows(ctx context.Context, customerID string, re
     return saved, nil
 }
 
+// UpsertFlowAgg : tcp_sendmsg 집계를 ebpf_flow_agg에 분 단위 UPSERT
+func (r *EbpfRepo) UpsertFlowAgg(ctx context.Context, customerID string, req ebpf.NetworkFlowsRequest) (int, error) {
+	if len(req.Events) == 0 {
+		return 0, nil
+	}
+	tx, err := r.pg.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("tx begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	const q = `
+		INSERT INTO ebpf_flow_agg (
+			customer_id, cluster_name, src_pod_id,
+			dst_pod_id, dst_ip, dst_port, mapping_status,
+			minute_bucket, flow_count, total_size, last_seen
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7,
+			date_trunc('minute', $8::timestamptz), 1, $9, $8
+		)
+		ON CONFLICT (customer_id, cluster_name, src_pod_id, dst_ip, dst_port, minute_bucket)
+		DO UPDATE SET
+			flow_count     = ebpf_flow_agg.flow_count + 1,
+			total_size     = ebpf_flow_agg.total_size + EXCLUDED.total_size,
+			last_seen      = GREATEST(ebpf_flow_agg.last_seen, EXCLUDED.last_seen),
+			dst_pod_id     = EXCLUDED.dst_pod_id,
+			mapping_status = EXCLUDED.mapping_status
+	`
+	saved := 0
+	for _, e := range req.Events {
+		var size int64 = 0
+		if e.Size > 0 {
+			size = e.Size
+		}
+		_, err := tx.Exec(ctx, q,
+			customerID, customerID, e.Src.PodID,
+			e.Dst.PodID, e.Dst.IP, e.Dst.Port, e.Dst.MappingStatus,
+			e.Timestamp, size,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("upsert flow agg %s:%d→%s:%d: %w",
+				e.Src.IP, e.Src.Port, e.Dst.IP, e.Dst.Port, err)
+		}
+		saved++
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("tx commit: %w", err)
+	}
+	return saved, nil
+}
+
 // UpsertDNSQueries : DNS 쿼리 이벤트 일괄 UPSERT
 func (r *EbpfRepo) UpsertDNSQueries(ctx context.Context, customerID string, req ebpf.DNSQueriesRequest) (int, error) {
 	if len(req.Events) == 0 {
