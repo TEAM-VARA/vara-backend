@@ -135,12 +135,13 @@ func (h *FinalScoringHandler) GetByCluster(c *gin.Context) {
 	emergencyCount, warningCount, cautionCount, safeCount := 0, 0, 0, 0
 	for i := range results {
 		results[i].PodName = scoring.NormalizePodName(results[i].PodName)
-		switch {
-		case results[i].FinalScore >= 90:
+		// 설정 컷 기반 카운트 (ClassifyFinalLevel과 동일 기준)
+		switch scoring.ClassifyFinalLevel(results[i].FinalScore) {
+		case scoring.FinalLevelEmergency:
 			emergencyCount++
-		case results[i].FinalScore >= 70:
+		case scoring.FinalLevelWarning:
 			warningCount++
-		case results[i].FinalScore >= 40:
+		case scoring.FinalLevelCaution:
 			cautionCount++
 		default:
 			safeCount++
