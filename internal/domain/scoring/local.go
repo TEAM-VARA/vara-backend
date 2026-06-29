@@ -34,10 +34,10 @@ const (
 // ─────────────────────────────────────────
 //
 // 임계값 (Final과 동일):
-//   emergency : score >= 80
-//   warning   : score >= 50
-//   caution   : score >= 20
-//   safe      : score <  20
+//   emergency : score >= 90
+//   warning   : score >= 70
+//   caution   : score >= 40
+//   safe      : score <  40
 
 const (
 	LocalLevelEmergency = "emergency" // 긴급
@@ -104,10 +104,10 @@ type LocalComputeRequest struct {
 // LocalComputeResponse는 일괄 계산 결과 요약입니다.
 //
 // 카운트 필드 (4단계):
-//   emergency_count : >= 80
-//   warning_count   : >= 50
-//   caution_count   : >= 20
-//   safe_count      : <  20
+//   emergency_count : >= 90
+//   warning_count   : >= 70
+//   caution_count   : >= 40
+//   safe_count      : <  40
 type LocalComputeResponse struct {
 	ClusterName    string             `json:"cluster_name"`
 	SnapshotAt     time.Time          `json:"snapshot_at"`
@@ -168,17 +168,17 @@ func ComputeLocalScore(exposureRaw, attackPathRaw int) (localScore, exposureCont
 
 // ClassifyLocalLevel은 Local Score를 영문 등급 식별자로 분류합니다.
 //
-//	score >= 80 → "emergency" (긴급)
-//	score >= 50 → "warning"   (경고)
-//	score >= 20 → "caution"   (주의)
-//	score <  20 → "safe"      (안전)
+//	score >= 90 → "emergency" (긴급)
+//	score >= 70 → "warning"   (경고)
+//	score >= 40 → "caution"   (주의)
+//	score <  40 → "safe"      (안전)
 func ClassifyLocalLevel(score float64) string {
 	switch {
-	case score >= 80:
+	case score >= 90:
 		return LocalLevelEmergency
-	case score >= 50:
+	case score >= 70:
 		return LocalLevelWarning
-	case score >= 20:
+	case score >= 40:
 		return LocalLevelCaution
 	default:
 		return LocalLevelSafe

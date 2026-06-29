@@ -15,7 +15,7 @@ import (
 //  1. cluster_pods 최신 snapshot 기준으로 Pod 목록 로드
 //  2. 각 Pod에 exposure_scores + attack_path_scores 최신 점수 LEFT JOIN
 //  3. 두 점수를 가중 공식으로 통합
-//  4. 4단계 분류 (emergency/warning/caution/safe, 80/50/20)
+//  4. 4단계 분류 (emergency/warning/caution/safe, 90/70/40)
 //  5. local_scores에 저장
 //
 // 누락 처리:
@@ -113,11 +113,11 @@ func (s *LocalScoringService) ComputeForCluster(ctx context.Context, clusterName
 
 		// 4단계 카운트
 		switch {
-		case localScore >= 80:
+		case localScore >= 90:
 			emergencyCount++
-		case localScore >= 50:
+		case localScore >= 70:
 			warningCount++
-		case localScore >= 20:
+		case localScore >= 40:
 			cautionCount++
 		default:
 			safeCount++

@@ -138,11 +138,11 @@ func (h *LocalScoringHandler) GetByCluster(c *gin.Context) {
 	exposedCount := 0
 	for _, r := range results {
 		switch {
-		case r.LocalScore >= 80:
+		case r.LocalScore >= 90:
 			emergencyCount++
-		case r.LocalScore >= 50:
+		case r.LocalScore >= 70:
 			warningCount++
-		case r.LocalScore >= 20:
+		case r.LocalScore >= 40:
 			cautionCount++
 		default:
 			safeCount++

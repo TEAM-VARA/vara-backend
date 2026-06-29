@@ -119,13 +119,13 @@ func (s *FinalScoringService) ComputeForCluster(ctx context.Context, clusterName
 			}
 		}
 
-		// 4단계 카운트 (임계값: 80/50/20)
+		// 4단계 카운트 (임계값: 90/70/40)
 		switch {
-		case result.FinalScore >= 80:
+		case result.FinalScore >= 90:
 			emergencyCount++
-		case result.FinalScore >= 50:
+		case result.FinalScore >= 70:
 			warningCount++
-		case result.FinalScore >= 20:
+		case result.FinalScore >= 40:
 			cautionCount++
 		default:
 			safeCount++
