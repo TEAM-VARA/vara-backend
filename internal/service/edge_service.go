@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"gonum.org/v1/gonum/graph/network"
 
 	"github.com/vara/backend/internal/domain/edge"
@@ -29,13 +30,18 @@ import (
 type EdgeService struct {
 	repo   *postgres.EdgesRepo
 	config edge.AnalysisConfig
+	pool   *pgxpool.Pool // mc 모드 simulate에서 blast_edges/final_scores 직접 로드용 (nil이면 mc 비활성)
 }
 
 // NewEdgeService — 기본 설정으로 생성 (5분 윈도우, vara-* 제외)
-func NewEdgeService(repo *postgres.EdgesRepo) *EdgeService {
+//
+// pool은 mc 모드 blast-radius simulate(blast_edges 확률 전파)에서만 쓰인다.
+// nil을 넘기면 topology 모드만 동작(기존 호출 호환).
+func NewEdgeService(repo *postgres.EdgesRepo, pool *pgxpool.Pool) *EdgeService {
 	return &EdgeService{
 		repo:   repo,
 		config: edge.DefaultConfig(),
+		pool:   pool,
 	}
 }
 
@@ -434,6 +440,11 @@ func colorLevel(contribution float64, dropped bool) string {
 // SimulateBlastRadius: source 기준 blast 그래프에서 applied[] 보안을 제거해 재계산.
 // baseline / simulated 2-pass (DESIGN §5) + 노드 상태 diff.
 func (s *EdgeService) SimulateBlastRadius(ctx context.Context, req edge.SimulateBlastRequest) (*edge.SimulateBlastResponse, error) {
+	// mode=mc → blast_edges 확률 전파(CRN 몬테카를로). pool 미주입이면 topology로 폴백.
+	if req.Mode == "mc" && s.pool != nil {
+		return s.SimulateBlastRadiusMC(ctx, req)
+	}
+
 	start := time.Now()
 
 	hops := req.Hops
@@ -569,6 +580,7 @@ func (s *EdgeService) SimulateBlastRadius(ctx context.Context, req edge.Simulate
 		ByLayer:       byLayer,
 		Nodes:         nodes,
 		EdgesRemoved:  removedEdges,
+		Mode:          "topology",
 		BuildMs:       time.Since(start).Milliseconds(),
 	}, nil
 }

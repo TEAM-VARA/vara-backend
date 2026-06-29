@@ -116,7 +116,7 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	slackSvc := service.NewSlackService(postgres.NewSlackSettingsRepo(pg), os.Getenv("DASHBOARD_BASE_URL"))
 	notifSvc.SetSlack(slackSvc)
 	analysisSvc := service.NewAnalysisService(edgesRepo, analysisCacheRepo, pg)                      // 신규 (그래프 분석)
-	edgeSvc := service.NewEdgeService(edgesRepo)                                                 // 신규 (blast radius)  ← 추가
+	edgeSvc := service.NewEdgeService(edgesRepo, pg)                                             // 신규 (blast radius) — pg는 mc 모드 simulate용
 	// RBAC Chain: DB 직접 로더(PostgresLoader) + fixpoint 엔진
 	rbacChainLoader := loader.NewPostgresLoader(pg)
 	rbacChainSvc := service.NewRBACChainService(

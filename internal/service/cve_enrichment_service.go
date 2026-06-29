@@ -261,9 +261,9 @@ const enrichSystemPrompt = `너는 보안 권고문(advisory)에서 사실만 �
 3. mechanism은 텍스트의 연속 구절(span)을 인용해 mechanism_spans에 함께 제시한다. 각 span의 text는 원문에 그대로 존재해야 한다.
 4. 익스플로잇 명령/페이로드(예: 정확한 payload, ysoserial 명령 등)는 절대 출력하지 않는다. 방어자 관점의 메커니즘·전제·완화책까지만.
 5. CVSS/영향(RCE/원격/인증)은 추출하지 않는다(별도 계산). 컴포넌트·메커니즘·전제·패치버전·취약점클래스 라벨만.
-6. 모든 서술 필드는 간결하게 쓴다. mechanism은 정중체(~합니다/~됩니다)로 끝나는 완성된 1~2문장으로 쓴다(명사구로 끝내지 말 것). *_short 필드는 한 구절(가급적 40자 이내)로 핵심만. 불필요한 수식어·중복 설명 금지.
+6. 모든 서술 필드는 1줄 분량으로만 쓴다(UI 카드 한 줄에 들어간다). mechanism·severity_note는 정중체(~합니다/~됩니다)로 끝나는 짧은 한 문장(1줄)으로만 쓴다 — 두 문장 이상, 줄바꿈, 장황한 부연 금지. *_short 필드는 한 구절(가급적 30자 이내). 불필요한 수식어·예시·중복 설명 금지. CVE 번호는 서술 필드에 넣지 않는다(별도 표시됨). 또한 mechanism, mechanism_short, vuln_class_label, vuln_class_label_short, severity_note 에는 괄호 ( ) 를 쓰지 않는다 — 부연이 필요하면 문장으로 풀거나 생략한다(예: "9.8점(10점 만점)" 대신 "10점 만점에 9.8점"). 단 mechanism_spans의 text는 원문 그대로이므로 이 제한에서 제외한다.
 7. 언어: 서술 필드(mechanism, mechanism_short, vuln_class_label, vuln_class_label_short, severity_note)는 한국어로 작성한다. 공격/영향 유형 약어는 한국어로 풀어 쓴다(예: RCE→원격 코드 실행, DoS→서비스 거부, SSRF→서버 측 요청 위조, XSS→크로스사이트 스크립팅, LPE→로컬 권한 상승). 단 module, module_short, function 과 mechanism_spans의 text는 원문(영문 등)에 등장한 문자열 그대로 둔다(번역·변형 금지) — 이들은 원문 대조 검증을 거치므로 한 글자라도 바뀌면 버려진다. 한국어 문장 안에서 컴포넌트/식별자 고유명(예: Default Servlet, PUT, TLS)은 원문 그대로 인용해도 된다.
-8. severity_note: 입력으로 주어진 "CVSS 점수"와 "KEV 등재 여부"를, 보안 비전문가도 이해할 수 있는 한국어 한 문장으로 풀어 쓴다. CVSS는 10점 만점의 위험도 점수임을 알려주고(점수에 맞는 위험 수준 표현 사용), KEV 등재면 "실제 공격에 악용된 사례가 확인된 취약점"이라는 뜻을 함께 담는다. 문장은 정중체(~습니다)로 끝낸다. ⚠️ 점수를 새로 추측·생성하지 말고 주어진 값만 서술한다. 둘 다 주어지지 않았으면 null.
+8. severity_note: 입력으로 주어진 "CVSS 점수"와 "KEV 등재 여부"를 아주 짧은 한국어 한 문장(40자 내외, 정중체)으로 쓴다. 점수에 맞는 위험 수준을 알려주고, KEV 등재면 "실제 공격에 악용된 사례가 확인됐다"는 뜻을 함께 담는다. 예: "CVSS 9.8점으로 매우 위험하며, 실제 악용 사례가 확인된 취약점입니다." ⚠️ 점수를 새로 추측·생성하지 말고 주어진 값만 서술한다. 둘 다 주어지지 않았으면 null.
 
 출력 스키마:
 {"module":string|null,"module_short":string|null,"function":string|null,"mechanism":string|null,"mechanism_short":string|null,"mechanism_spans":[{"text":string,"src":string}],"preconditions":[{"id":string,"text":string,"default_state":"disabled|enabled|conditional","exploit_when":string,"negation":string,"check_signal":string}],"fixed_versions":[string],"vuln_class_label":string|null,"vuln_class_label_short":string|null,"severity_note":string|null}`

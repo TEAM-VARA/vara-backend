@@ -234,12 +234,12 @@ func parseCVSSVector(vec string) (remote, availability, confidentiality, scopeCh
 func exposedViaLabel(ex *scoring.ExposureResult) string {
 	for _, svc := range ex.MatchedServices {
 		if svc.ExternallyExposed {
-			return fmt.Sprintf("Service(%s)로 외부 노출된", svc.Type)
+			return fmt.Sprintf("%s 타입 Service로 외부 노출된", svc.Type)
 		}
 	}
 	for _, ig := range ex.MatchedIngresses {
 		if ig.Host != "" {
-			return fmt.Sprintf("Ingress(%s)로 외부 노출된", ig.Host)
+			return fmt.Sprintf("%s 호스트의 Ingress로 외부 노출된", ig.Host)
 		}
 		return "Ingress로 외부 노출된"
 	}
