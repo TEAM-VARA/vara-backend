@@ -387,9 +387,9 @@ func moreN(n, limit int) string {
 	return ""
 }
 
-// vulnIncomingScenario — 진입(incoming) VULN 줄글(카드용, 1~2줄). enrichment(설계서 §4)가 있으면
-// "어디에(컴포넌트) 무슨 취약점(클래스)이 있어 무엇(impact)이 가능한지" 한 문장 + 심각도 한 문장으로
-// 압축한다. CVE 번호·메커니즘 상세는 카드 배지/상세 패널에 있으므로 줄글에선 생략. 없으면 generic 폴백.
+// vulnIncomingScenario — 진입(incoming) VULN 줄글(카드용, 딱 1줄). enrichment(설계서 §4)가 있으면
+// "어디에(컴포넌트) 무슨 취약점(클래스)이 있어 무엇(impact)이 가능한지" 한 문장으로 압축한다.
+// CVE 번호·메커니즘·심각도 상세는 카드 배지/상세 패널에 있으므로 줄글에선 생략. 없으면 generic 폴백.
 func vulnIncomingScenario(in ScenarioInput) string {
 	e := in.CVEEnrichment
 	if e == nil {
@@ -431,17 +431,9 @@ func vulnIncomingScenario(in ScenarioInput) string {
 		impact = "악용"
 	}
 
-	var b strings.Builder
-	// 카드용 1~2줄: 어디에 무슨 취약점이 있고 무엇이 가능한지 한 문장.
-	// (CVE 번호·메커니즘 상세는 생략 — 카드 상단 배지/상세 패널에 있음)
-	fmt.Fprintf(&b, "이 Pod 이미지의 %s에 %s이 있어, %s%s까지 할 수 있습니다.", comp, kind, access, impact)
-
-	// 심각도(LLM severity_note, 짧은 한 문장) — 있으면 한 줄 덧붙인다.
-	if note := strings.TrimSpace(e.SeverityNote); note != "" {
-		b.WriteString(" ")
-		b.WriteString(note)
-	}
-	return b.String()
+	// 카드용 딱 1줄: 어디에 무슨 취약점이 있고 무엇이 가능한지 한 문장만.
+	// (CVE 번호·메커니즘·심각도 상세는 줄글에서 생략 — 카드 배지/상세 패널에 있음)
+	return fmt.Sprintf("이 Pod 이미지의 %s에 %s이 있어, %s%s까지 할 수 있습니다.", comp, kind, access, impact)
 }
 
 // impactLabelKO — enrichment의 impact 코드값을 시나리오 줄글용 한국어 라벨로 바꾼다.
