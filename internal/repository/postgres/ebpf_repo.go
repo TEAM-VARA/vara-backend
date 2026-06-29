@@ -407,6 +407,10 @@ func (r *EbpfRepo) QueryProcessFeed(
 		WHERE e.customer_id = $1
 		  AND e.received_at > $2
 		  AND e.src_pod_id NOT LIKE 'default/vara-%'
+		  AND e.src_pod_id NOT LIKE '%mysql%'
+		  AND e.src_pod_id NOT LIKE '%mysq%'
+		  AND e.src_pod_id NOT LIKE '%nacos%'
+		  AND e.src_pod_id NOT LIKE '%rabbitmq%'
 		  AND e.comm = ANY($3)
 		ORDER BY e.timestamp DESC
 		LIMIT $4
