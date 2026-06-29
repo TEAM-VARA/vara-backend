@@ -136,11 +136,11 @@ func (h *FinalScoringHandler) GetByCluster(c *gin.Context) {
 	for i := range results {
 		results[i].PodName = scoring.NormalizePodName(results[i].PodName)
 		switch {
-		case results[i].FinalScore >= 80:
+		case results[i].FinalScore >= 90:
 			emergencyCount++
-		case results[i].FinalScore >= 50:
+		case results[i].FinalScore >= 70:
 			warningCount++
-		case results[i].FinalScore >= 20:
+		case results[i].FinalScore >= 40:
 			cautionCount++
 		default:
 			safeCount++

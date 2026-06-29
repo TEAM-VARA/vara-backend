@@ -171,15 +171,21 @@ func ComputeGlobalScore(cvssScore, epssScore, ssvcValue float64) (total, cvssCon
 }
 
 // ClassifyGlobalLevel은 Global Score를 등급으로 분류합니다.
+//
+//	score >= 90 → "Critical"
+//	score >= 70 → "High"
+//	score >= 40 → "Medium"
+//	score >  0  → "Low"
+//	score == 0  → "Info"
 func ClassifyGlobalLevel(score float64) string {
 	switch {
-	case score >= 80.0:
+	case score >= 90:
 		return "Critical"
-	case score >= 60.0:
+	case score >= 70:
 		return "High"
-	case score >= 40.0:
+	case score >= 40:
 		return "Medium"
-	case score >= 20.0:
+	case score > 0:
 		return "Low"
 	default:
 		return "Info"
