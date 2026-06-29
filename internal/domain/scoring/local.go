@@ -168,17 +168,20 @@ func ComputeLocalScore(exposureRaw, attackPathRaw int) (localScore, exposureCont
 
 // ClassifyLocalLevel은 Local Score를 영문 등급 식별자로 분류합니다.
 //
-//	score >= 90 → "emergency" (긴급)
-//	score >= 70 → "warning"   (경고)
-//	score >= 40 → "caution"   (주의)
-//	score <  40 → "safe"      (안전)
+// 컷은 전역 설정(CurrentWeights)에서 읽는다 (Final과 동일, 기본 75/50/25):
+//
+//	score >= CutEmergency → "emergency" (긴급)
+//	score >= CutWarning   → "warning"   (경고)
+//	score >= CutCaution   → "caution"   (주의)
+//	score <  CutCaution   → "safe"      (안전)
 func ClassifyLocalLevel(score float64) string {
+	w := CurrentWeights()
 	switch {
-	case score >= 90:
+	case score >= w.CutEmergency:
 		return LocalLevelEmergency
-	case score >= 70:
+	case score >= w.CutWarning:
 		return LocalLevelWarning
-	case score >= 40:
+	case score >= w.CutCaution:
 		return LocalLevelCaution
 	default:
 		return LocalLevelSafe
