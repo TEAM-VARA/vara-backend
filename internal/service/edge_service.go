@@ -447,12 +447,15 @@ func (s *EdgeService) SimulateBlastRadius(ctx context.Context, req edge.Simulate
 		return nil, err
 	}
 
-	// 노드 이름/종류 매핑
+	// 노드 이름/종류/위험도 매핑. riskMap = final_score(0~100) — risk_before로 그대로 쓴다
+	// (오비탈 노드 원래 색과 동일한 값. BuildTopology가 final_scores를 JOIN해 채워둠).
 	nameMap := make(map[string]string, len(topo.Nodes))
 	kindMap := make(map[string]string, len(topo.Nodes))
+	riskMap := make(map[string]float64, len(topo.Nodes))
 	for _, n := range topo.Nodes {
 		nameMap[n.ID] = n.Label
 		kindMap[n.ID] = n.Kind
+		riskMap[n.ID] = n.RiskScore
 	}
 
 	// 2. baseline (applied와 무관 → §9에서 캐시 가능)
@@ -460,6 +463,12 @@ func (s *EdgeService) SimulateBlastRadius(ctx context.Context, req edge.Simulate
 	baseReach := bfsKHop(baseAdj, req.Source, hops)
 	basePR := normalizePageRank(computePageRank(BuildBlastGraph(topo)))
 	baselineScore := computeBlastScore(baseReach, basePR)
+
+	// 적용 전 노드별 기여도 — risk_after = risk_before × (기여도_after / 기여도_before) 의 분모.
+	baseContribMap := make(map[string]float64, len(baseReach))
+	for _, r := range baseReach {
+		baseContribMap[r.NodeID] = nodeContribution(r, basePR)
+	}
 
 	// 3. 제거할 엣지 집합 → simEdges / removedEdges
 	removeSet := buildRemoveSet(topo.Edges, req.Source, req.Applied)
@@ -532,6 +541,21 @@ func (s *EdgeService) SimulateBlastRadius(ctx context.Context, req edge.Simulate
 		}
 		sn.ColorLevel = colorLevel(sn.Contribution, dropped)
 		sn.Dropped = dropped
+
+		// risk_before/after (0~100 risk_score 스케일).
+		// before = 노드 final_score(원래 색). after = before를 전파 약화 비율만큼 낮춤.
+		// dropped/미도달 → 0. 분모(before 기여도)가 0이거나 비율>1이면 before 유지(절대 안 올림).
+		riskBefore := riskMap[id]
+		riskAfter := riskBefore
+		if dropped || !reachable {
+			riskAfter = 0
+		} else if cb := baseContribMap[id]; cb > 0 {
+			if ratio := sn.Contribution / cb; ratio < 1 {
+				riskAfter = riskBefore * ratio
+			}
+		}
+		sn.RiskBefore = riskBefore
+		sn.RiskAfter = riskAfter
 		nodes = append(nodes, sn)
 	}
 

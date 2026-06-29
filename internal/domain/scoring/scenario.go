@@ -200,17 +200,16 @@ func mkFinding(id, dir, tactic, scenario, confidence, caveat string) ScenarioFin
 func composeScenario(incoming, node, outgoing []ScenarioFinding) string {
 	var b strings.Builder
 	if len(incoming) > 0 {
-		b.WriteString("【진입】 ")
 		b.WriteString(joinSentences(incoming))
 		b.WriteString(" ")
 	}
 	if len(node) > 0 {
-		b.WriteString("【장악 후】 일단 이 Pod을 차지하면, ")
+		b.WriteString("일단 이 Pod을 차지하면, ")
 		b.WriteString(joinSentences(node))
 		b.WriteString(" ")
 	}
 	if len(outgoing) > 0 {
-		b.WriteString("【전파】 그리고 여기서 ")
+		b.WriteString("그리고 여기서 ")
 		b.WriteString(joinSentences(outgoing))
 	}
 	s := strings.TrimSpace(b.String())
