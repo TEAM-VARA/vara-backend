@@ -260,7 +260,7 @@ const enrichSystemPrompt = `너는 보안 권고문(advisory)에서 사실만 �
 3. mechanism은 텍스트의 연속 구절(span)을 인용해 mechanism_spans에 함께 제시한다. 각 span의 text는 원문에 그대로 존재해야 한다.
 4. 익스플로잇 명령/페이로드(예: 정확한 payload, ysoserial 명령 등)는 절대 출력하지 않는다. 방어자 관점의 메커니즘·전제·완화책까지만.
 5. CVSS/영향(RCE/원격/인증)은 추출하지 않는다(별도 계산). 컴포넌트·메커니즘·전제·패치버전·취약점클래스 라벨만.
-6. 반드시 JSON 객체 하나만 출력. 산문/마크다운/코드펜스 금지.
+6. 모든 서술 필드는 간결하게 쓴다. mechanism은 1~2문장, *_short 필드는 한 구절(가급적 40자 이내)로 핵심만. 불필요한 수식어·중복 설명 금지.
 
 출력 스키마:
 {"module":string|null,"module_short":string|null,"function":string|null,"mechanism":string|null,"mechanism_short":string|null,"mechanism_spans":[{"text":string,"src":string}],"preconditions":[{"id":string,"text":string,"default_state":"disabled|enabled|conditional","exploit_when":string,"negation":string,"check_signal":string}],"fixed_versions":[string],"vuln_class_label":string|null,"vuln_class_label_short":string|null}`
