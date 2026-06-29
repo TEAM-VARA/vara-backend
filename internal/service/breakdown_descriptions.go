@@ -32,11 +32,11 @@ const (
 func interpretGlobal(score float64, topCVE string) string {
 	level := "낮은 위험"
 	switch {
-	case score >= 80:
+	case score >= 90:
 		level = "매우 높은 위험"
-	case score >= 50:
+	case score >= 70:
 		level = "높은 위험"
-	case score >= 20:
+	case score >= 40:
 		level = "중간 위험"
 	}
 	if topCVE != "" {
@@ -98,11 +98,11 @@ func interpretExploitDB(in bool) string {
 func interpretLocal(score float64, exposed bool, attackLevel string) string {
 	level := "낮은 편"
 	switch {
-	case score >= 80:
+	case score >= 90:
 		level = "매우 높음"
-	case score >= 50:
+	case score >= 70:
 		level = "높음"
-	case score >= 20:
+	case score >= 40:
 		level = "중간"
 	}
 	exp := "외부 노출은 없고"

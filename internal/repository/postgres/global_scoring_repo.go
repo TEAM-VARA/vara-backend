@@ -315,8 +315,8 @@ func (r *GlobalScoringRepo) ListCVEsByImageDigest(ctx context.Context, imageDige
 					ELSE (SELECT a FROM unnest(pv.aliases) AS a WHERE a LIKE 'CVE-%' LIMIT 1)
 				END                            AS cve_id,
 				''                             AS severity,
-				COALESCE(pv.name, '')          AS pkg_name,
-				''                             AS installed_version,
+				COALESCE(sp.name, '')          AS pkg_name,
+				COALESCE(sp.version, '')       AS installed_version,
 				COALESCE(pv.fixed_version, '') AS fixed_version
 			FROM package_vulnerabilities pv
 			JOIN sbom_packages sp ON sp.purl = pv.purl
@@ -324,7 +324,8 @@ func (r *GlobalScoringRepo) ListCVEsByImageDigest(ctx context.Context, imageDige
 			  AND pv.withdrawn_at IS NULL
 		) merged
 		WHERE cve_id LIKE 'CVE-%'
-		ORDER BY cve_id, (pkg_name <> '') DESC
+		-- 한 CVE가 Trivy·OSV 양쪽에 있으면 패키지명/패치버전이 채워진 행을 우선 선택(비결정성 제거)
+		ORDER BY cve_id, (pkg_name <> '') DESC, (fixed_version <> '') DESC
 	`
 
 	rows, err := r.pool.Query(ctx, q, imageDigest)

@@ -29,13 +29,15 @@ func (r *ScoringWeightsRepo) Get(ctx context.Context) (scoring.Weights, error) {
 	const q = `
 		SELECT final_weight_global, final_weight_exposure,
 		       global_weight_cvss, global_weight_epss, global_weight_ssvc,
-		       toxic_critical, toxic_high, toxic_medium
+		       toxic_critical, toxic_high, toxic_medium,
+		       cut_emergency, cut_warning, cut_caution
 		FROM scoring_weights WHERE id = 1`
 	var w scoring.Weights
 	err := r.pool.QueryRow(ctx, q).Scan(
 		&w.FinalGlobal, &w.FinalExposure,
 		&w.GlobalCVSS, &w.GlobalEPSS, &w.GlobalSSVC,
 		&w.ToxicCritical, &w.ToxicHigh, &w.ToxicMedium,
+		&w.CutEmergency, &w.CutWarning, &w.CutCaution,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return scoring.DefaultWeights(), nil
@@ -47,6 +49,7 @@ func (r *ScoringWeightsRepo) Get(ctx context.Context) (scoring.Weights, error) {
 	w.FinalGlobal, w.FinalExposure = round4(w.FinalGlobal), round4(w.FinalExposure)
 	w.GlobalCVSS, w.GlobalEPSS, w.GlobalSSVC = round4(w.GlobalCVSS), round4(w.GlobalEPSS), round4(w.GlobalSSVC)
 	w.ToxicCritical, w.ToxicHigh, w.ToxicMedium = round4(w.ToxicCritical), round4(w.ToxicHigh), round4(w.ToxicMedium)
+	w.CutEmergency, w.CutWarning, w.CutCaution = round4(w.CutEmergency), round4(w.CutWarning), round4(w.CutCaution)
 	return w, nil
 }
 
@@ -123,8 +126,9 @@ func (r *ScoringWeightsRepo) Upsert(ctx context.Context, w scoring.Weights) erro
 		INSERT INTO scoring_weights (
 			id, final_weight_global, final_weight_exposure,
 			global_weight_cvss, global_weight_epss, global_weight_ssvc,
-			toxic_critical, toxic_high, toxic_medium, updated_at
-		) VALUES (1, $1,$2,$3,$4,$5,$6,$7,$8, NOW())
+			toxic_critical, toxic_high, toxic_medium,
+			cut_emergency, cut_warning, cut_caution, updated_at
+		) VALUES (1, $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, NOW())
 		ON CONFLICT (id) DO UPDATE SET
 			final_weight_global   = EXCLUDED.final_weight_global,
 			final_weight_exposure = EXCLUDED.final_weight_exposure,
@@ -134,11 +138,15 @@ func (r *ScoringWeightsRepo) Upsert(ctx context.Context, w scoring.Weights) erro
 			toxic_critical        = EXCLUDED.toxic_critical,
 			toxic_high            = EXCLUDED.toxic_high,
 			toxic_medium          = EXCLUDED.toxic_medium,
+			cut_emergency         = EXCLUDED.cut_emergency,
+			cut_warning           = EXCLUDED.cut_warning,
+			cut_caution           = EXCLUDED.cut_caution,
 			updated_at            = NOW()`
 	_, err := r.pool.Exec(ctx, q,
 		w.FinalGlobal, w.FinalExposure,
 		w.GlobalCVSS, w.GlobalEPSS, w.GlobalSSVC,
 		w.ToxicCritical, w.ToxicHigh, w.ToxicMedium,
+		w.CutEmergency, w.CutWarning, w.CutCaution,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert scoring_weights: %w", err)

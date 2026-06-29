@@ -17,6 +17,11 @@ type Weights struct {
 	ToxicCritical float64 `json:"toxic_critical"`
 	ToxicHigh     float64 `json:"toxic_high"`
 	ToxicMedium   float64 `json:"toxic_medium"`
+
+	// 위험 등급 컷(Final/Local 공용). 0 <= caution < warning < emergency <= 100.
+	CutEmergency float64 `json:"cut_emergency"`
+	CutWarning   float64 `json:"cut_warning"`
+	CutCaution   float64 `json:"cut_caution"`
 }
 
 // DefaultWeights는 코드 기본값입니다 (DB 미설정/로드 실패 시 폴백).
@@ -30,6 +35,9 @@ func DefaultWeights() Weights {
 		ToxicCritical: 1.5,
 		ToxicHigh:     1.3,
 		ToxicMedium:   1.2,
+		CutEmergency:  75,
+		CutWarning:    50,
+		CutCaution:    25,
 	}
 }
 

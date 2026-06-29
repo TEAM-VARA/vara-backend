@@ -60,6 +60,9 @@ func validateWeights(w scoring.Weights) error {
 	if w.ToxicCritical < 1.0 || w.ToxicHigh < 1.0 || w.ToxicMedium < 1.0 {
 		return fmt.Errorf("toxic 배수는 1.0 이상이어야 합니다")
 	}
+	if !(w.CutCaution >= 0 && w.CutCaution < w.CutWarning && w.CutWarning < w.CutEmergency && w.CutEmergency <= 100) {
+		return fmt.Errorf("컷은 0<=주의<경고<긴급<=100 이어야 합니다 (현재 caution=%.2f warning=%.2f emergency=%.2f)", w.CutCaution, w.CutWarning, w.CutEmergency)
+	}
 	return nil
 }
 
@@ -215,6 +218,10 @@ func (s *WeightsService) Recommend(ctx context.Context, profile string) (*scorin
 		ToxicCritical: lw.ToxicCritical,
 		ToxicHigh:     lw.ToxicHigh,
 		ToxicMedium:   lw.ToxicMedium,
+		// 위험 등급 컷은 AI 추천 대상이 아니다 — 현재 컷을 그대로 유지(검증 통과 + 적용 시 변동 없음).
+		CutEmergency: current.CutEmergency,
+		CutWarning:   current.CutWarning,
+		CutCaution:   current.CutCaution,
 	}
 	normalizeWeights(&rec)
 	if err := validateWeights(rec); err != nil {

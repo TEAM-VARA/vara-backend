@@ -33,10 +33,10 @@ const (
 // ─────────────────────────────────────────
 //
 // 임계값:
-//   emergency : score >= 80
-//   warning   : score >= 50
-//   caution   : score >= 20
-//   safe      : score < 20
+//   emergency : score >= 90
+//   warning   : score >= 70
+//   caution   : score >= 40
+//   safe      : score < 40
 
 const (
 	FinalLevelEmergency = "emergency" // 긴급
@@ -110,10 +110,10 @@ type FinalComputeRequest struct {
 // FinalComputeResponse는 일괄 계산 결과 요약입니다.
 //
 // 카운트 필드 (4단계):
-//   emergency_count : >= 80
-//   warning_count   : >= 50
-//   caution_count   : >= 20
-//   safe_count      : < 20
+//   emergency_count : >= 90
+//   warning_count   : >= 70
+//   caution_count   : >= 40
+//   safe_count      : < 40
 type FinalComputeResponse struct {
 	ClusterName string    `json:"cluster_name"`
 	SnapshotAt  time.Time `json:"snapshot_at"`
@@ -247,17 +247,20 @@ func ComputeFinalScore(globalImage, exposure, toxic float64) (final, globalContr
 
 // ClassifyFinalLevel은 Final Score를 영문 등급 식별자로 분류합니다.
 //
-//	score >= 80 → "emergency" (긴급)
-//	score >= 50 → "warning"   (경고)
-//	score >= 20 → "caution"   (주의)
-//	score <  20 → "safe"      (안전)
+// 컷은 전역 설정(CurrentWeights)에서 읽는다 (기본 75/50/25):
+//
+//	score >= CutEmergency → "emergency" (긴급)
+//	score >= CutWarning   → "warning"   (경고)
+//	score >= CutCaution   → "caution"   (주의)
+//	score <  CutCaution   → "safe"      (안전)
 func ClassifyFinalLevel(score float64) string {
+	w := CurrentWeights()
 	switch {
-	case score >= 80:
+	case score >= w.CutEmergency:
 		return FinalLevelEmergency
-	case score >= 50:
+	case score >= w.CutWarning:
 		return FinalLevelWarning
-	case score >= 20:
+	case score >= w.CutCaution:
 		return FinalLevelCaution
 	default:
 		return FinalLevelSafe

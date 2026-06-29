@@ -19,11 +19,28 @@ import (
 //   - CreateKEVAdded: KEV 등재 알림 (24h dedup)
 //   - CreateToxicCombo: Toxic 조합 매칭 (1h dedup)
 type NotificationService struct {
-	repo *postgres.NotificationRepo
+	repo  *postgres.NotificationRepo
+	slack *SlackService // nil-safe: 미설정 시 자동 발화 없음
 }
 
 func NewNotificationService(repo *postgres.NotificationRepo) *NotificationService {
 	return &NotificationService{repo: repo}
+}
+
+// SetSlack은 Slack 자동 발화기를 주입합니다 (server.go 배선).
+func (s *NotificationService) SetSlack(slack *SlackService) {
+	s.slack = slack
+}
+
+// persist는 알림을 저장하고, 저장 성공 시 단일 지점에서 Slack 자동 발화를 트리거합니다.
+// 모든 생성 경로(Create/createNewCVE/CreateRiskChange/CreateScanComplete/CreateKEVAdded)가
+// 이 헬퍼를 거치므로 알림 1건당 최대 1회만 발화됩니다 (중복 없음). 발화는 비치명적.
+func (s *NotificationService) persist(ctx context.Context, req notification.CreateRequest) (*notification.Notification, error) {
+	n, err := s.repo.Create(ctx, req)
+	if err == nil && n != nil && s.slack != nil {
+		s.slack.Dispatch(context.Background(), n)
+	}
+	return n, err
 }
 
 // ─────────────────────────────────────────
@@ -32,7 +49,7 @@ func NewNotificationService(repo *postgres.NotificationRepo) *NotificationServic
 
 // Create는 알림을 생성합니다 (단순, dedup 없음).
 func (s *NotificationService) Create(ctx context.Context, req notification.CreateRequest) (*notification.Notification, error) {
-	return s.repo.Create(ctx, req)
+	return s.persist(ctx, req)
 }
 
 // List는 알림 목록을 반환합니다.
@@ -134,7 +151,7 @@ func (s *NotificationService) createNewCVE(
 		message += fmt.Sprintf(" · 위험도 최대 +%.1f점 상승(%s)", meta.MaxScoreDelta, meta.MaxScoreDeltaPodName)
 	}
 
-	return s.repo.Create(ctx, notification.CreateRequest{
+	return s.persist(ctx, notification.CreateRequest{
 		ClusterName: clusterName,
 		Severity:    severity,
 		Category:    notification.CategoryNewCVE,
@@ -192,7 +209,7 @@ func (s *NotificationService) CreateRiskChange(
 	message := fmt.Sprintf("%s → %s (점수: %.1f → %.1f)",
 		meta.PreviousLevel, meta.NewLevel, meta.PreviousScore, meta.NewScore)
 
-	return s.repo.Create(ctx, notification.CreateRequest{
+	return s.persist(ctx, notification.CreateRequest{
 		ClusterName: clusterName,
 		Severity:    severity,
 		Category:    notification.CategoryRiskChange,
@@ -225,7 +242,7 @@ func (s *NotificationService) CreateScanComplete(
 	message := fmt.Sprintf("신규 vuln %d개 (critical %d, high %d, %.1fs 소요)",
 		meta.NewVulnsCount, meta.CriticalCount, meta.HighCount, meta.DurationSeconds)
 
-	return s.repo.Create(ctx, notification.CreateRequest{
+	return s.persist(ctx, notification.CreateRequest{
 		ClusterName: clusterName,
 		Severity:    severity,
 		Category:    notification.CategoryScanComplete,
@@ -259,7 +276,7 @@ func (s *NotificationService) CreateKEVAdded(
 	title := fmt.Sprintf("🚨 CVE가 KEV에 등재: %s", meta.VulnID)
 	message := fmt.Sprintf("CISA가 '실제 악용 중'으로 분류. %d개 Pod 영향", meta.AffectedCount)
 
-	return s.repo.Create(ctx, notification.CreateRequest{
+	return s.persist(ctx, notification.CreateRequest{
 		ClusterName: clusterName,
 		Severity:    notification.SeverityCritical,
 		Category:    notification.CategoryKEVAdded,

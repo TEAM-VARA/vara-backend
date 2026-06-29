@@ -112,6 +112,9 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 	sbomSvc.SetEnrichment(sbomPackageSvc, packageVulnSvc)
 	depsDevSvc := service.NewDepsDevService(depsDevClient, versionReleaseRepo, sbomPackageRepo, packageVulnRepo) // 신규 (deps.dev)
 	notifSvc := service.NewNotificationService(notifRepo)                                        // 신규 (대시보드 알림)
+	// Slack 알림 연동: 알림 저장 직후 NotificationService.persist 단일 지점에서 자동 발화.
+	slackSvc := service.NewSlackService(postgres.NewSlackSettingsRepo(pg), os.Getenv("DASHBOARD_BASE_URL"))
+	notifSvc.SetSlack(slackSvc)
 	analysisSvc := service.NewAnalysisService(edgesRepo, analysisCacheRepo, pg)                      // 신규 (그래프 분석)
 	edgeSvc := service.NewEdgeService(edgesRepo, pg)                                             // 신규 (blast radius) — pg는 mc 모드 simulate용
 	// RBAC Chain: DB 직접 로더(PostgresLoader) + fixpoint 엔진
@@ -230,6 +233,12 @@ func New(cfg *config.Config, pg *pgxpool.Pool, rdb *redis.Client) *Server {
 		exposureH, globalScoringH, attackPathH, localScoringH, imageGlobalCacheH,
 		finalScoringH, toxicH, sbomPackageH, packageVulnH, depsDevH, ebpfH, edgeH, podRefreshH,
 		notifH, analysisH, rbacChainH, grcH, breakdownH, podDetailH, awsReaderH, scenarioH, authH)
+
+	// ── Slack 알림 연동 설정 (webhook은 응답에서 마스킹) ──
+	slackH := handler.NewSlackHandler(slackSvc)
+	r.GET("/api/v1/integrations/slack", slackH.Get)
+	r.POST("/api/v1/integrations/slack", slackH.Upsert)
+	r.POST("/api/v1/integrations/slack/test", slackH.Test)
 
 	// ── IAM Privesc 결과 조회 (프론트엔드 read-only: scan_runs/principal_results/findings) ──
 	iamPrivescResultsH := handler.NewIamPrivescHandler(postgres.NewIamPrivescResultRepo(pg))
