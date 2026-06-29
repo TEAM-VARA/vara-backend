@@ -184,6 +184,10 @@ func (h *EbpfHandler) NetworkFlows(c *gin.Context) {
 	rawReq.Node = req.Node
 	for _, e := range req.Events {
 		if e.EventType == "tcp_sendmsg" {
+			// mysql이 임시포트로 보내는 배경 트래픽(복제/응답/loopback)은 집계 제외
+			if isReplicaNoise(e.Src.PodID, e.Dst.Port) {
+				continue
+			}
 			aggReq.Events = append(aggReq.Events, e)
 		} else {
 			rawReq.Events = append(rawReq.Events, e)
@@ -351,4 +355,35 @@ func (h *EbpfHandler) GetEvents(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"events": events})
+}
+
+// isReplicaNoise : mysql이 src인 배경 트래픽 판별 (복제/응답/loopback/클러스터).
+//   - dst_port >= 32768 : 임시포트 (복제 응답, loopback)
+//   - dst_port == 8801   : MySQL Galera 클러스터 동기화 포트
+// 둘 다 DB가 일상적으로 주고받는 트래픽이라 보안 신호 아님.
+func isReplicaNoise(srcPodID string, dstPort int) bool {
+	if !strings.Contains(srcPodID, "mysq") {  // "mysql" 잘려서 "mysq"인 경우도 잡게
+		return false
+	}
+	return dstPort >= 32768 || dstPort == 8801
+}
+
+// stripReplicaSuffix : 끝의 "-<숫자>" (StatefulSet replica 번호)를 제거.
+// "train-ticket/ts-order-mysql-0" → "train-ticket/ts-order-mysql"
+func stripReplicaSuffix(podID string) string {
+	i := strings.LastIndex(podID, "-")
+	if i < 0 {
+		return podID
+	}
+	// "-" 뒤가 전부 숫자면 replica 번호로 보고 제거
+	suffix := podID[i+1:]
+	if suffix == "" {
+		return podID
+	}
+	for _, c := range suffix {
+		if c < '0' || c > '9' {
+			return podID // 숫자 아닌 게 섞이면 replica 번호 아님 → 그대로
+		}
+	}
+	return podID[:i]
 }

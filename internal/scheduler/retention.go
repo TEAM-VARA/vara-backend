@@ -52,4 +52,11 @@ func (s *RetentionScheduler) prune(ctx context.Context) {
 	} else if tag.RowsAffected() > 0 {
 		log.Printf("scheduler: flow retention cap prune: %d rows", tag.RowsAffected())
 	}
+
+	if tag, err := s.pg.Exec(ctx,
+		`DELETE FROM ebpf_flow_agg WHERE minute_bucket < NOW() - make_interval(days => 7)`); err != nil {
+		log.Printf("scheduler: flow_agg retention prune error: %v", err)
+	} else if tag.RowsAffected() > 0 {
+		log.Printf("scheduler: flow_agg retention prune: %d rows", tag.RowsAffected())
+	}
 }
