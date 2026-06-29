@@ -24,7 +24,8 @@ const EnrichmentTTL = 7 * 24 * time.Hour
 
 // EnrichmentExtractorVersion — 추출 파이프라인 버전. 프롬프트/스키마 변경 시 올려 캐시 무효화.
 // v2: rendered.card(T0 노드 카드 한 줄) 추가 — v1 캐시는 카드가 없어 재추출 필요.
-const EnrichmentExtractorVersion = "v2"
+// v3: 서술 필드 한국어화(약어 풀어쓰기) + severity_note(CVSS/KEV 쉬운 설명 문장) 추가 — v2 캐시 재추출 필요.
+const EnrichmentExtractorVersion = "v3"
 
 // ConfidenceUnconfirmed — L2(config/reachability) 미구현 동안 모든 enrichment의 기본 confidence.
 // 비대칭 원칙(설계서 §2-5): 미확인 ≠ 안전. 강등/dismiss 하지 않는다.
@@ -71,6 +72,10 @@ type CVEEnrichment struct {
 
 	// 신호 (KEV/PoC/EPSS)
 	Signals *EnrichSignals `json:"signals,omitempty"`
+
+	// 심각도 설명 — 제공된 CVSS 점수·KEV 등재 여부를 일반 독자용 한국어 한 문장으로 푼 것
+	// (LLM 생성, 제공된 수치만 서술 — 점수 자체는 별도 계산값이며 LLM이 만들지 않는다).
+	SeverityNote string `json:"severity_note,omitempty"`
 
 	// L2 confidence (현재 항상 unconfirmed). 렌더 톤만 변조.
 	Confidence string `json:"confidence"`

@@ -349,6 +349,14 @@ type SimNode struct {
 	Contribution float64 `json:"contribution"`  // 적용 후 blast 기여도
 	ColorLevel   string  `json:"color_level"`   // removed/safe/caution/warning/emergency
 	Dropped      bool    `json:"dropped"`       // baseline엔 닿았으나 적용 후 끊김
+
+	// RiskBefore/RiskAfter — 이 노드를 risk_score(final_score, 0~100) 스케일로 색칠하기 위한 값.
+	// FE가 0~25 blast 스케일을 환산하지 않고 헤더 위험도와 같은 등급컷으로 바로 재색칠하게 한다.
+	//   RiskBefore = 이 노드의 final_score (오비탈 노드 원래 색과 동일한 값)
+	//   RiskAfter  = RiskBefore × (적용후 기여도 / 적용전 기여도)  ("전파 약화분"을 노드 위험에 투영)
+	// 보장: RiskAfter ≤ RiskBefore (클램프), dropped/미도달 노드는 RiskAfter=0, applied 비면 RiskAfter==RiskBefore.
+	RiskBefore float64 `json:"risk_before"`
+	RiskAfter  float64 `json:"risk_after"`
 }
 
 // RemovedEdge — 적용으로 제거된 엣지 (FE 페이드아웃용)

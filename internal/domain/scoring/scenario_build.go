@@ -396,7 +396,7 @@ func vulnIncomingScenario(in ScenarioInput) string {
 		return fmt.Sprintf("이 Pod 이미지에 원격 악용 가능한 취약점(%s)이 있어, 공격자가 네트워크로 바로 코드 실행을 노릴 수 있습니다.", cveLabel(in))
 	}
 
-	// 컴포넌트 + 클래스 표제 (module_short 없으면 "취약 컴포넌트" 폴백 — 메서드명 생성 금지)
+	// 컴포넌트 + 클래스 (module_short 없으면 "취약 컴포넌트" 폴백 — 메서드명 생성 금지)
 	comp := e.ModuleShort
 	if comp == "" {
 		comp = e.Module
@@ -410,46 +410,60 @@ func vulnIncomingScenario(in ScenarioInput) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(comp)
+	// 1) 어디에 어떤 취약점이 있는지 — 한 문장으로 쉽게 (괄호 안은 CVE ID만)
 	if class != "" {
-		b.WriteString(" · ")
-		b.WriteString(class)
+		fmt.Fprintf(&b, "이 Pod 이미지의 %s에 %s(%s)이 있습니다.", comp, class, cveLabel(in))
+	} else {
+		fmt.Fprintf(&b, "이 Pod 이미지의 %s에 취약점(%s)이 있습니다.", comp, cveLabel(in))
 	}
-	if e.Impact != "" {
-		b.WriteString(" · ")
-		b.WriteString(e.Impact)
-	}
-	fmt.Fprintf(&b, " 취약점(%s).", cveLabel(in))
 
-	// 메커니즘(검증 통과분만) — 있으면 한 절 덧붙인다.
-	if e.MechanismShort != "" {
+	// 2) 어떻게 악용되는지 — 완성된 mechanism 문장이 있으면 그대로, 없으면 impact로 한 문장.
+	switch {
+	case e.Mechanism != "":
 		b.WriteString(" ")
-		b.WriteString(e.MechanismShort)
-		if !strings.HasSuffix(e.MechanismShort, ".") {
+		b.WriteString(e.Mechanism)
+		if !strings.HasSuffix(e.Mechanism, ".") && !strings.HasSuffix(e.Mechanism, "다") {
 			b.WriteString(".")
 		}
+	case e.Impact != "":
+		fmt.Fprintf(&b, " 공격자가 이를 악용하면 %s까지 일으킬 수 있습니다.", impactLabelKO(e.Impact))
 	}
 
-	// 원격/인증 절
+	// 3) 원격/인증 — 한 문장으로
 	switch {
 	case e.Remote && e.Unauth:
-		b.WriteString(" 인증 없이 네트워크에서 원격 악용 가능.")
+		b.WriteString(" 게다가 인증 없이도 네트워크를 통해 원격에서 악용할 수 있습니다.")
 	case e.Remote:
-		b.WriteString(" 네트워크에서 원격 악용 가능.")
+		b.WriteString(" 네트워크를 통해 원격에서 악용할 수 있습니다.")
+	}
+
+	// 심각도 설명(LLM이 CVSS 점수·KEV를 쉬운 한 문장으로 푼 것) — 있으면 덧붙인다.
+	if note := strings.TrimSpace(e.SeverityNote); note != "" {
+		b.WriteString(" ")
+		b.WriteString(note)
 	}
 	return b.String()
 }
 
-// cveLabel — "CVE-2025-1234, CVSS 9.8, KEV 등재" 형태의 라벨
+// impactLabelKO — enrichment의 impact 코드값을 시나리오 줄글용 한국어 라벨로 바꾼다.
+// DeriveImpact가 내는 값(RCE/DoS/Info Disclosure)만 매핑하고, 그 외는 원문 그대로.
+func impactLabelKO(impact string) string {
+	switch impact {
+	case "RCE":
+		return "원격 코드 실행"
+	case "DoS":
+		return "서비스 거부(DoS)"
+	case "Info Disclosure":
+		return "정보 유출"
+	default:
+		return impact
+	}
+}
+
+// cveLabel — 괄호 안에 넣는 CVE 식별자. CVSS/KEV는 enrichment.SeverityNote(LLM이 쉬운 문장으로
+// 풀어 쓴 것)로 별도 서술하므로 여기서는 CVE ID만 남긴다(중복·전문용어 방지).
 func cveLabel(in ScenarioInput) string {
-	s := in.TopCVE
-	if in.CVEScore > 0 {
-		s += fmt.Sprintf(", CVSS %.1f", in.CVEScore)
-	}
-	if in.CVEKEV {
-		s += ", KEV 등재"
-	}
-	return s
+	return in.TopCVE
 }
 
 func trimN(xs []string, n int) []string {
