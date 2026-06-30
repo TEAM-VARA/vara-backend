@@ -84,6 +84,15 @@ type FinalScoreResult struct {
 	GlobalImageScore float64 `json:"global_image_score"`
 	LocalScore       float64 `json:"local_score"`
 
+	// 미리보기용 원천 구성요소 (FE가 가중치 변경 시 점수를 실시간 재계산하는 데 사용)
+	//   Cvss: top CVE의 CVSS (0~10) / Epss: 0~1 / Ssvc: active=1.0·poc=0.5·none=0.0
+	//   ToxicTier: 매칭된 toxic 룰 중 최고 severity (critical/high/medium/none).
+	//     toxic multiplier가 max(곱 아님)라 tier만으로 새 가중치 multiplier를 정확히 재현 가능.
+	Cvss      float64 `json:"cvss"`
+	Epss      float64 `json:"epss"`
+	Ssvc      float64 `json:"ssvc"`
+	ToxicTier string  `json:"toxic_tier"`
+
 	// 사용된 이미지
 	UsedImageDigest string `json:"used_image_digest,omitempty"`
 	UsedImageTag    string `json:"used_image_tag,omitempty"`

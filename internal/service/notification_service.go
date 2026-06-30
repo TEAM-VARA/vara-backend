@@ -239,8 +239,9 @@ func (s *NotificationService) CreateScanComplete(
 	}
 
 	title := fmt.Sprintf("ℹ️  자동 스캔 완료: %d 이미지", meta.ScannedImages)
-	message := fmt.Sprintf("신규 vuln %d개 (critical %d, high %d, %.1fs 소요)",
-		meta.NewVulnsCount, meta.CriticalCount, meta.HighCount, meta.DurationSeconds)
+	// "신규 vuln"은 오해 소지(캐시 미스 패키지의 전체 매칭 = 재집계 포함)라 "스캔된 취약점"으로 표기.
+	// critical/high 는 이 요약 경로에서 채워지지 않아(항상 0) 메시지에서 제외 — 실제 위험은 별도 new_cve 알림.
+	message := fmt.Sprintf("스캔된 취약점 %d건 · %.1fs 소요", meta.NewVulnsCount, meta.DurationSeconds)
 
 	return s.persist(ctx, notification.CreateRequest{
 		ClusterName: clusterName,

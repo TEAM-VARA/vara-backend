@@ -493,17 +493,41 @@ func (r *FinalScoringRepo) ListByCluster(ctx context.Context, clusterName string
 	}
 
 	rows, err := r.pool.Query(ctx,
-		`SELECT 
-			cluster_name, pod_uid, pod_name, pod_namespace,
-			final_score, risk_level,
-			global_contribution, local_contribution, toxic_multiplier,
-			global_image_score, local_score,
-			used_image_digest, used_image_tag, used_top_cve,
-			missing_global_image, missing_local, missing_sbom,
-			snapshot_at, computed_at
-		 FROM final_scores
-		 WHERE cluster_name = $1 AND snapshot_at = $2
-		 ORDER BY final_score DESC, pod_namespace, pod_name`,
+		`SELECT
+			f.cluster_name, f.pod_uid, f.pod_name, f.pod_namespace,
+			f.final_score, f.risk_level,
+			f.global_contribution, f.local_contribution, f.toxic_multiplier,
+			f.global_image_score, f.local_score,
+			f.used_image_digest, f.used_image_tag, f.used_top_cve,
+			f.missing_global_image, f.missing_local, f.missing_sbom,
+			f.snapshot_at, f.computed_at,
+			COALESCE(g.cvss_score, 0)::float8 AS cvss,
+			COALESCE(g.epss_score, 0)::float8 AS epss,
+			CASE lower(COALESCE(g.ssvc_exploitation, 'none'))
+				WHEN 'active' THEN 1.0 WHEN 'poc' THEN 0.5 ELSE 0.0 END::float8 AS ssvc,
+			COALESCE(tx.tier, 'none') AS toxic_tier
+		 FROM final_scores f
+		 -- top CVE의 원천 신호(cvss/epss/ssvc) — FE 글로벌 재계산용. cve_global_scores는 cve_id 단위.
+		 LEFT JOIN cve_global_scores g ON g.cve_id = f.used_top_cve
+		 -- 해당 Pod의 최신 toxic_results 1건
+		 LEFT JOIN LATERAL (
+			SELECT tr.matched_rules
+			FROM toxic_results tr
+			WHERE tr.cluster_name = f.cluster_name AND tr.pod_uid = f.pod_uid
+			ORDER BY tr.snapshot_at DESC
+			LIMIT 1
+		 ) tl ON true
+		 -- 매칭 룰들 중 최고 severity → tier (multiplier가 max라 tier로 정확히 재현됨)
+		 LEFT JOIN LATERAL (
+			SELECT CASE
+				WHEN bool_or(lower(rr->>'severity') = 'critical') THEN 'critical'
+				WHEN bool_or(lower(rr->>'severity') = 'high')     THEN 'high'
+				WHEN bool_or(lower(rr->>'severity') = 'medium')   THEN 'medium'
+				ELSE 'none' END AS tier
+			FROM jsonb_array_elements(COALESCE(tl.matched_rules, '[]'::jsonb)) rr
+		 ) tx ON true
+		 WHERE f.cluster_name = $1 AND f.snapshot_at = $2
+		 ORDER BY f.final_score DESC, f.pod_namespace, f.pod_name`,
 		clusterName, *latest,
 	)
 	if err != nil {
@@ -524,6 +548,7 @@ func (r *FinalScoringRepo) ListByCluster(ctx context.Context, clusterName string
 			&digest, &tag, &topCVE,
 			&res.MissingGlobalImage, &res.MissingLocal, &res.MissingSBOM,
 			&res.SnapshotAt, &res.ComputedAt,
+			&res.Cvss, &res.Epss, &res.Ssvc, &res.ToxicTier,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan result: %w", err)
