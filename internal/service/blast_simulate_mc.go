@@ -329,7 +329,16 @@ func (s *EdgeService) SimulateBlastRadiusMC(ctx context.Context, req edge.Simula
 			riskAfter = 0
 		case rb > 0:
 			if ratio := ra / rb; ratio < 1 {
-				riskAfter = riskBefore * ratio // 전파 약화분 투영
+				riskAfter = riskBefore * ratio // 전파(reach) 약화분 투영
+			}
+		}
+		// CVE 패치 대상 파드(자기 image의 CVE가 제거된 image-shared/하류 파드)는
+		// intrinsic risk도 그만큼 하락한다. 우회 경로로 reach가 그대로여도(전파 미감소)
+		// 자기 위험은 내려가므로 cveKeep을 별도로 곱한다. cveKeep≤1 보장이라
+		// risk_after ≤ risk_before 불변. (cve_image 완전패치=0 근처, cve_id=차순위 비율)
+		if reachable {
+			if k, ok := cveKeep[id]; ok && k < 1 {
+				riskAfter *= k
 			}
 		}
 
