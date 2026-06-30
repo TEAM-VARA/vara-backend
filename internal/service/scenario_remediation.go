@@ -102,7 +102,7 @@ func (s *ScenarioService) buildRemediation(ctx context.Context, companyID, clust
 
 	// ── 공격 시나리오 3분류 뷰(categories) — 같은 신호 재사용 + 양방향 blast 엣지 ──
 	// CVE/권한/NetworkPolicy. 권한·NetworkPolicy는 이 pod이 src/dst인 엣지를 모두 본다.
-	s.buildCategories(ctx, cluster, podUID, ap.PodNamespace, ap.NetworkDetails.Isolation, in, res)
+	s.buildCategories(ctx, cluster, podUID, ap.PodNamespace, ap.NetworkDetails.Isolation, fin.UsedImageDigest, in, res)
 }
 
 // buildCategories — 이미 모은 신호(in) + 격리등급에 양방향 blast 엣지를 더해 3분류 뷰를 만든다.
@@ -111,9 +111,10 @@ func (s *ScenarioService) buildRemediation(ctx context.Context, companyID, clust
 // rbac 엣지에는 그 엣지를 만든 "출발 SA의 실제 초기권한"을 붙인다(권한 항목이 "…권한을 해제하세요"로
 // 구체 지목하도록). 출발 SA = src 엣지는 이 pod의 SA, dst 엣지는 상대(출발) pod의 SA(uid→SA 조회).
 // rbac_sa_initial_permissions를 SA당 1회만 조회하도록 캐시한다.
-func (s *ScenarioService) buildCategories(ctx context.Context, cluster, podUID, podNamespace, isolation string, in scoring.RemediationInput, res *scoring.PodScenarioResult) {
+func (s *ScenarioService) buildCategories(ctx context.Context, cluster, podUID, podNamespace, isolation, imageDigest string, in scoring.RemediationInput, res *scoring.PodScenarioResult) {
 	catIn := scoring.CategoriesInput{
 		CVEs:                 in.CVEs,
+		ImageDigest:          imageDigest,
 		SAName:               in.SAName,
 		PrivilegedContainers: in.PrivilegedContainers,
 		HostPathVolumes:      in.HostPathVolumes,

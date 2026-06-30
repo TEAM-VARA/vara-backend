@@ -25,6 +25,10 @@ type CatCVE struct {
 	Fixed    string  `json:"fixed,omitempty"`
 	Package  string  `json:"package,omitempty"` // 이 CVE를 포함한 패키지명 (어떤 패키지 때문에 취약한지)
 	Text     string  `json:"text"`
+	// ImageDigest — 이 CVE가 속한 이미지 digest(파드의 used_image_digest). 패치탭에서
+	// blast-radius simulate의 cve_image target으로 그대로 보내 image-shared 파드 전부를
+	// 패치 대상으로 잡게 한다(FE가 pod_uid 폴백 없이 digest 직접 전송).
+	ImageDigest string `json:"image_digest,omitempty"`
 }
 
 // CatPrivilege — 권한 항목(이 Pod 자체 또는 엣지 1건).
@@ -97,7 +101,8 @@ type CatEdge struct {
 }
 
 type CategoriesInput struct {
-	CVEs []CVEItem // 이 Pod 이미지 CVE 전체
+	CVEs        []CVEItem // 이 Pod 이미지 CVE 전체
+	ImageDigest string    // 이 Pod의 used_image_digest → CatCVE.ImageDigest로 부착
 
 	// 권한(node-level)
 	SAName               string
@@ -124,6 +129,7 @@ func BuildCategories(in CategoriesInput) ScenarioCategories {
 	for _, v := range cves {
 		c.CVE = append(c.CVE, CatCVE{
 			ID: v.ID, Severity: v.Severity, CVSS: v.Score, Fixed: v.Fixed, Package: v.Package, Text: cveText(v),
+			ImageDigest: in.ImageDigest,
 		})
 	}
 
