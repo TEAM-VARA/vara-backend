@@ -1144,6 +1144,7 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			WHERE mapping_status = 'mapped' AND cluster_name = $1
 			  AND src_pod_id IS NOT NULL AND dst_pod_id IS NOT NULL
 			  AND src_pod_id != dst_pod_id
+			  AND timestamp > NOW() - INTERVAL '10 minutes'
 			GROUP BY 1,2,3,4,5,6
 		),
 		resolved AS (
