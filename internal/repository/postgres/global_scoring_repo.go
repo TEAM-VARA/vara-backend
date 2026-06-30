@@ -269,15 +269,16 @@ type CVEFromSBOM struct {
 // trivy JSON 형식 가정.
 //
 // sboms.raw_data 구조:
-//   {
-//     "Results": [
-//       {
-//         "Vulnerabilities": [
-//           { "VulnerabilityID": "CVE-...", "Severity": "...", "PkgName": "...", ... }
-//         ]
-//       }
-//     ]
-//   }
+//
+//	{
+//	  "Results": [
+//	    {
+//	      "Vulnerabilities": [
+//	        { "VulnerabilityID": "CVE-...", "Severity": "...", "PkgName": "...", ... }
+//	      ]
+//	    }
+//	  ]
+//	}
 //
 // 중복 CVE는 제거 (같은 이미지에 같은 CVE가 여러 패키지에서 나올 수 있음).
 func (r *GlobalScoringRepo) ListCVEsByImageDigest(ctx context.Context, imageDigest string) ([]CVEFromSBOM, error) {
