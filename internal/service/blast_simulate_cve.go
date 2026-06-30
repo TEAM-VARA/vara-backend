@@ -167,11 +167,18 @@ func (s *EdgeService) resolveCVEKeep(ctx context.Context, cluster string, applie
 	for _, m := range applied {
 		switch m.Kind {
 		case "cve_image":
-			// target = image_digest 우선, 없으면 pod_uid로 해석.
+			// target = image_digest 우선. pod_uid면 그 파드의 digest로 풀어
+			// 같은 이미지를 쓰는 파드(image-shared) 전부를 패치 대상으로 잡는다.
+			// (시나리오 응답에 image_digest가 비어 FE가 pod_uid로 폴백해도 동작)
 			uids := byDigest[m.Target]
 			if len(uids) == 0 {
-				if _, ok := byPod[m.Target]; ok {
-					uids = []string{m.Target}
+				if p, ok := byPod[m.Target]; ok {
+					if p.digest != "" {
+						uids = byDigest[p.digest] // 같은 image_digest 쓰는 파드 전부
+					}
+					if len(uids) == 0 {
+						uids = []string{m.Target} // digest 미상이면 그 파드만
+					}
 				}
 			}
 			for _, uid := range uids {
