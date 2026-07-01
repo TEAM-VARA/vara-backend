@@ -1130,20 +1130,33 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			  AND name NOT LIKE 'tetragon%'
 			  AND name NOT LIKE 'ebs-csi-node%'
 		),
-		observed AS (
+		-- ★ 방향 정규화(개시자→수신자): eBPF 는 요청·응답 패킷을 모두 기록해 src/dst 가 양방향으로 남는다.
+		--   에페메랄(높은) 포트 쪽 = 클라이언트(개시자), 낮은 포트 쪽 = 서버(수신자) → 엣지를 항상 client→server 로 통일.
+		--   예) service:52344→mysql:3306(요청)과 mysql:3306→service:52344(응답)이 모두 service→mysql 한 엣지로 합쳐진다.
+		--   이 한 곳이 방향의 원천 — blast_edges·scenario ingress/egress·오비탈 그래프가 전부 여기서 파생된다.
+		flows_dir AS (
 			SELECT
-				regexp_replace(src_ip, '^::ffff:', '') AS src_ip,
-				dst_pod_ip,
-				split_part(src_pod_id, '/', 1) AS src_ns,
-				regexp_replace(split_part(src_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS src_svc,
-				split_part(dst_pod_id, '/', 1) AS dst_ns,
-				regexp_replace(split_part(dst_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS dst_svc,
-				MIN(timestamp) AS first_seen,
-				MAX(timestamp) AS last_seen
+				CASE WHEN src_port >= dst_port THEN src_ip     ELSE dst_pod_ip END AS c_ip,
+				CASE WHEN src_port >= dst_port THEN dst_pod_ip ELSE src_ip     END AS s_ip,
+				CASE WHEN src_port >= dst_port THEN src_pod_id ELSE dst_pod_id END AS c_pod_id,
+				CASE WHEN src_port >= dst_port THEN dst_pod_id ELSE src_pod_id END AS s_pod_id,
+				timestamp
 			FROM ebpf_network_flows
 			WHERE mapping_status = 'mapped' AND cluster_name = $1
 			  AND src_pod_id IS NOT NULL AND dst_pod_id IS NOT NULL
 			  AND src_pod_id != dst_pod_id
+		),
+		observed AS (
+			SELECT
+				regexp_replace(c_ip, '^::ffff:', '') AS src_ip,
+				regexp_replace(s_ip, '^::ffff:', '') AS dst_pod_ip,
+				split_part(c_pod_id, '/', 1) AS src_ns,
+				regexp_replace(split_part(c_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS src_svc,
+				split_part(s_pod_id, '/', 1) AS dst_ns,
+				regexp_replace(split_part(s_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS dst_svc,
+				MIN(timestamp) AS first_seen,
+				MAX(timestamp) AS last_seen
+			FROM flows_dir
 			GROUP BY 1,2,3,4,5,6
 		),
 		resolved AS (

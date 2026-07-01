@@ -722,8 +722,46 @@ func (h *GRCHandler) GetComplianceOverview(c *gin.Context) {
 			result.Items[i].Layers.F = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.F))
 			result.Items[i].Layers.Report = humanizeRuleGuidance(deduplicateRuleResults(result.Items[i].Layers.Report))
 		}
+		h.attachCompliantRules(&result.Items[i])
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+// attachCompliantRules surfaces the passed (MET/준수) rules per item so the
+// overview shows which checks passed, not only violations. Distinct by rule_id,
+// with names resolved from the item's ruleset when available.
+func (h *GRCHandler) attachCompliantRules(item *grc.ItemComplianceResult) {
+	nameByID := map[string]string{}
+	if rs, err := h.rulesetStore.Load(item.ISMSPItemID); err == nil && rs != nil {
+		for i := range rs.Rules {
+			nameByID[rs.Rules[i].RuleID] = rs.Rules[i].Name
+		}
+	}
+	seen := map[string]bool{}
+	var out []grc.CompliantRule
+	collect := func(results []grc.RuleResult) {
+		for _, r := range results {
+			if r.RuleID == "" || seen[r.RuleID] {
+				continue
+			}
+			if grc.NormalizeVerdict(r.Verdict) != grc.VerdictMET {
+				continue
+			}
+			seen[r.RuleID] = true
+			out = append(out, grc.CompliantRule{
+				RuleID: r.RuleID,
+				Name:   nameByID[r.RuleID],
+				Layer:  r.Layer,
+			})
+		}
+	}
+	if item.Layers != nil {
+		collect(item.Layers.R)
+		collect(item.Layers.GL)
+		collect(item.Layers.F)
+	}
+	collect(item.RuleResults)
+	item.CompliantRules = out
 }
 
 // deduplicateRuleResults collapses per-pod rule results into one entry per rule_id.

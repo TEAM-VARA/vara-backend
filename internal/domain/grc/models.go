@@ -404,6 +404,14 @@ type ItemLayers struct {
 	Report []RuleResult `json:"report,omitempty"` // 인벤토리/방증 리포트 — 합격률 분모 제외
 }
 
+// CompliantRule is a passed (MET/준수) rule surfaced in the overview so users
+// can see which checks passed, not only violations.
+type CompliantRule struct {
+	RuleID string `json:"rule_id"`
+	Name   string `json:"name,omitempty"`
+	Layer  string `json:"layer,omitempty"`
+}
+
 // ItemComplianceResult holds compliance results for a single ISMS-P item.
 type ItemComplianceResult struct {
 	ISMSPItemID    string          `json:"isms_p_item_id"`
@@ -421,6 +429,7 @@ type ItemComplianceResult struct {
 	ViolatedAssetCount int              `json:"violated_asset_count,omitempty"`
 	ViolatedAssets     []ViolatedAsset  `json:"violated_assets,omitempty"`
 	RuleResults        []RuleResult     `json:"rule_results,omitempty"`
+	CompliantRules     []CompliantRule  `json:"compliant_rules,omitempty"` // 통과(준수) 룰 목록 (id+name)
 	Layers         *ItemLayers     `json:"layers,omitempty"`
 }
 
