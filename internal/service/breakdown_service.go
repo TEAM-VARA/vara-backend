@@ -111,12 +111,23 @@ func (s *BreakdownService) GetBreakdown(ctx context.Context, clusterName, podUID
 	}
 	if f.UsedTopCVE != "" {
 		if cve, err := s.globalRepo.GetByCVEID(ctx, f.UsedTopCVE); err == nil && cve != nil {
+			// CVSS 결측 보완 출처를 해석 문구에도 반영(API 소비자용). 배지는 FE가 구조화 필드로 렌더.
+			cvssInterp := interpretCVSS(cve.CVSSScore)
+			switch cve.ImputationSource {
+			case "ai":
+				cvssInterp += fmt.Sprintf(" · NVD 결측 → AI 추정(신뢰도 %.0f%%), 점수엔 신뢰도만큼만 반영", cve.ImputationConfidence*100)
+			case "osv":
+				cvssInterp += " · NVD 결측 → OSV 출처값 사용"
+			}
 			bd.Global.Factors = []scoring.BreakdownFactor{
 				{
-					Name:           "CVSS",
-					Value:          fmt.Sprintf("%.1f (%s)", cve.CVSSScore, cve.CVSSSeverity),
-					Description:    descCVSS,
-					Interpretation: interpretCVSS(cve.CVSSScore),
+					Name:                 "CVSS",
+					Value:                fmt.Sprintf("%.1f (%s)", cve.CVSSScore, cve.CVSSSeverity),
+					Description:          descCVSS,
+					Interpretation:       cvssInterp,
+					Imputed:              cve.CVSSImputed,
+					ImputationSource:     cve.ImputationSource,
+					ImputationConfidence: cve.ImputationConfidence,
 				},
 				{
 					Name:           "EPSS",
