@@ -584,11 +584,13 @@ func selectTopVuln(vulns []sbom.PackageVulnerability) sbom.PackageVulnerability 
 // summarizeAffectedPods는 역추적된 영향 Pod 목록을 알림 메타용으로 가공합니다.
 //
 // 반환:
-//   - refs:    구조화된 Pod 정보 (최대 50건, 표시 과다 방지)
+//   - refs:    구조화된 Pod 정보 (pod_uid 기준 고유, 최대 200건). FE 칩 ×N 합 = count 가 되도록
+//              파드×패키지 중복은 pod_uid 로 dedup(패키지별 중복 카운트 방지).
 //   - display: "namespace/pod_name" 표시용 문자열 (고유 Pod, 최대 20건)
 //   - digests: 영향 이미지 digest (고유)
 //   - count:   영향받는 고유 Pod 수 (pod_uid 기준)
 func summarizeAffectedPods(pods []sbom.AffectedPod) (refs []notification.AffectedPodRef, display []string, digests []string, count int) {
+	const refsCap = 200
 	seenPod := make(map[string]bool)
 	seenDisplay := make(map[string]bool)
 	seenDigest := make(map[string]bool)
@@ -597,15 +599,16 @@ func summarizeAffectedPods(pods []sbom.AffectedPod) (refs []notification.Affecte
 		if !seenPod[p.PodUID] {
 			seenPod[p.PodUID] = true
 			count++
-		}
-		if len(refs) < 50 {
-			refs = append(refs, notification.AffectedPodRef{
-				PodUID:      p.PodUID,
-				PodName:     p.PodName,
-				Namespace:   p.Namespace,
-				PackageName: p.PackageName,
-				Version:     p.Version,
-			})
+			// refs 는 pod_uid 당 1건만(고유). 최대 refsCap 까지 — 그 안이면 칩 ×N 합 = count 일치.
+			if len(refs) < refsCap {
+				refs = append(refs, notification.AffectedPodRef{
+					PodUID:      p.PodUID,
+					PodName:     p.PodName,
+					Namespace:   p.Namespace,
+					PackageName: p.PackageName,
+					Version:     p.Version,
+				})
+			}
 		}
 		key := p.Namespace + "/" + p.PodName
 		if !seenDisplay[key] && len(display) < 20 {
