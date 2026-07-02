@@ -213,6 +213,13 @@ type BreakdownFactor struct {
 	Value          string `json:"value"`          // "9.8 (CRITICAL)"
 	Description    string `json:"description"`    // 지표 정의 (고정)
 	Interpretation string `json:"interpretation"` // 값별 해석 (다)
+
+	// CVSS 결측 보완 표기 (CVSS 지표에만 채워짐).
+	//   ImputationSource: "" (NVD 직접) | "osv" (OSV 출처값) | "ai" (Claude 추정)
+	//   Imputed: ai일 때만 true(점수에 confidence 페널티 반영). FE는 이 값으로 "AI 추정" 배지를 렌더.
+	Imputed              bool    `json:"imputed,omitempty"`
+	ImputationSource     string  `json:"imputation_source,omitempty"`
+	ImputationConfidence float64 `json:"imputation_confidence,omitempty"`
 }
 
 type BreakdownGlobal struct {
