@@ -816,6 +816,38 @@ func (s *GRCService) EvaluateAll(ctx context.Context, req EvaluateAllRequest) (*
 // ── Compliance Overview (전체 항목 한눈에) ──
 
 // GetComplianceOverview returns the latest cluster compliance result merged with GL check results.
+// projectFindingsLayer copies verdict_type-bearing rule results into each item's
+// layers.f (Findings) for the FE FINDINGS pills. F 레이어는 'F 흡수' 이후 비어 있고
+// (finding_evaluator.go 참고) 정성 판단 룰은 점수 일관성 때문에 layers.r에 남아 있다.
+// FE는 layers.f[]를 verdict별로 집계하므로 표시용으로만 r→f에 복사한다.
+// 원본은 r에 그대로 유지되어 합격률 분모·점수 로직에는 영향이 없다.
+func projectFindingsLayer(items []grc.ItemComplianceResult) {
+	for i := range items {
+		item := &items[i]
+		if item.Layers == nil {
+			continue
+		}
+		var findings []grc.RuleResult
+		seen := map[string]bool{}
+		collect := func(rrs []grc.RuleResult) {
+			for _, rr := range rrs {
+				if rr.VerdictType == "" || seen[rr.RuleID] {
+					continue
+				}
+				seen[rr.RuleID] = true
+				rr.Verdict = grc.NormalizeVerdict(rr.Verdict) // FE 계약: 대문자 enum 보장
+				findings = append(findings, rr)
+			}
+		}
+		collect(item.Layers.R)
+		collect(item.Layers.GL)
+		collect(item.Layers.Report)
+		if len(findings) > 0 {
+			item.Layers.F = findings
+		}
+	}
+}
+
 func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clusterName string) (*grc.ClusterComplianceResult, error) {
 	if companyID == "" {
 		return nil, &GRCError{Code: "INVALID_REQUEST", Message: "company_id 필수", HTTPStatus: 400}
@@ -914,6 +946,9 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 			itemMap[rs.Item.ID] = len(result.Items) - 1
 		}
 	}
+
+	// 5.5 Findings projection: verdict_type 보유 룰을 layers.f로 복사 투영한다(표시 전용).
+	projectFindingsLayer(result.Items)
 
 	// 6. Recalculate item verdicts, totals, and generate notes
 	// (EvaluateClusterCompliance와 동일한 분기 순서 — overview/evaluate 판정 일관성)
