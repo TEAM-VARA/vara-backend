@@ -75,6 +75,10 @@ type FinalScoreResult struct {
 	RiskLevel  string  `json:"risk_level"`  // emergency/warning/caution/safe
 	RiskLabel  string  `json:"risk_label"`  // 긴급/경고/주의/안전
 
+	// FinalScoreRaw는 100 상한 적용 전 원점수(ISMS-P 가산 포함).
+	// final_score가 100에 몰린 파드들의 실제 위험 순서를 가리는 tiebreak용.
+	FinalScoreRaw float64 `json:"final_score_raw"`
+
 	// 기여도
 	GlobalContribution float64 `json:"global_contribution"`
 	LocalContribution  float64 `json:"local_contribution"`

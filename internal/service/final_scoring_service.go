@@ -62,6 +62,8 @@ func applyISMSPToFinalScoreResult(r *scoring.FinalScoreResult, addend float64) {
 	r.FinalScore = roundTo2(score)
 	r.RiskLevel = scoring.ClassifyFinalLevel(r.FinalScore)
 	r.RiskLabel = scoring.FinalLevelLabel(r.RiskLevel)
+	// raw(상한 없음)에도 가산분을 반영 — tiebreak가 ISMS-P까지 정확히 반영되도록.
+	r.FinalScoreRaw = roundTo2(r.FinalScoreRaw + addend)
 }
 
 func (s *FinalScoringService) ComputeForCluster(ctx context.Context, clusterName string) (*scoring.FinalComputeResponse, error) {
@@ -302,6 +304,12 @@ func (s *FinalScoringService) computePod(input postgres.PodFinalInput, clusterNa
 	result.LocalContribution = localContrib
 	result.GlobalImageScore = maxGlobalScore
 	result.LocalScore = localScore
+
+	// clamp(100) 전 원점수 — final_score가 100에 몰린 파드의 랭킹 tiebreak용.
+	// ISMS-P 가산은 applyISMSPToFinalScoreResult에서 이 값에도 더해진다.
+	fw := scoring.CurrentWeights()
+	result.FinalScoreRaw = roundTo2((maxGlobalScore*fw.FinalGlobal + localScore*fw.FinalExposure) * toxic)
+
 	result.UsedImageDigest = usedDigest
 	result.UsedImageTag = usedTag
 	result.UsedTopCVE = usedTopCVE
