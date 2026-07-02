@@ -595,12 +595,16 @@ func (r *PackageVulnerabilityRepo) ListClusterCVEsRanked(ctx context.Context, cl
 		)
 		SELECT cr.vuln_id,
 		       COALESCE(MAX(cr.severity_label), '') AS severity_label,
-		       COALESCE(MAX(cr.severity_score), 0)::float8 AS cvss,
+		       -- OSV severity 우선, 없으면(AI 보완 등) global의 cvss_score로 폴백
+		       COALESCE(NULLIF(MAX(cr.severity_score), 0), MAX(g.cvss_score), 0)::float8 AS cvss,
 		       MAX(COALESCE(g.epss_score, 0))::float8 AS epss,
 		       BOOL_OR(COALESCE(g.in_kev, false)) AS in_kev,
 		       COUNT(DISTINCT cr.pod_uid) AS affected_pods,
 		       COALESCE(MAX(cr.summary), '') AS summary,
-		       MAX(cr.published_at) AS published_at
+		       MAX(cr.published_at) AS published_at,
+		       BOOL_OR(COALESCE(g.cvss_imputed, false)) AS cvss_imputed,
+		       COALESCE(MAX(g.imputation_source), '') AS imputation_source,
+		       MAX(COALESCE(g.imputation_confidence, 0))::float8 AS imputation_confidence
 		FROM cve_rows cr
 		LEFT JOIN cve_global_scores g ON g.cve_id = cr.vuln_id
 		GROUP BY cr.vuln_id
@@ -616,7 +620,8 @@ func (r *PackageVulnerabilityRepo) ListClusterCVEsRanked(ctx context.Context, cl
 	out := make([]sbom.ClusterCVE, 0, limit)
 	for rows.Next() {
 		var c sbom.ClusterCVE
-		if err := rows.Scan(&c.VulnID, &c.SeverityLabel, &c.CVSS, &c.EPSS, &c.InKEV, &c.AffectedPods, &c.Summary, &c.PublishedAt); err != nil {
+		if err := rows.Scan(&c.VulnID, &c.SeverityLabel, &c.CVSS, &c.EPSS, &c.InKEV, &c.AffectedPods, &c.Summary, &c.PublishedAt,
+			&c.CVSSImputed, &c.ImputationSource, &c.ImputationConfidence); err != nil {
 			return nil, fmt.Errorf("scan cluster cve: %w", err)
 		}
 		out = append(out, c)
