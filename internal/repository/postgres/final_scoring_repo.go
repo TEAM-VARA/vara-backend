@@ -366,9 +366,9 @@ func (r *FinalScoringRepo) UpsertBatch(ctx context.Context, results []scoring.Fi
 			global_image_score, local_score,
 			used_image_digest, used_image_tag, used_top_cve,
 			missing_global_image, missing_local, missing_sbom,
-			snapshot_at
+			snapshot_at, final_score_raw
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
 		)
 		ON CONFLICT (cluster_name, pod_uid, snapshot_at) DO UPDATE SET
 			pod_name             = EXCLUDED.pod_name,
@@ -386,6 +386,7 @@ func (r *FinalScoringRepo) UpsertBatch(ctx context.Context, results []scoring.Fi
 			missing_global_image = EXCLUDED.missing_global_image,
 			missing_local        = EXCLUDED.missing_local,
 			missing_sbom         = EXCLUDED.missing_sbom,
+			final_score_raw      = EXCLUDED.final_score_raw,
 			computed_at          = NOW()
 	`
 
@@ -397,7 +398,7 @@ func (r *FinalScoringRepo) UpsertBatch(ctx context.Context, results []scoring.Fi
 			res.GlobalImageScore, res.LocalScore,
 			nilIfEmptyStr(res.UsedImageDigest), nilIfEmptyStr(res.UsedImageTag), nilIfEmptyStr(res.UsedTopCVE),
 			res.MissingGlobalImage, res.MissingLocal, res.MissingSBOM,
-			res.SnapshotAt,
+			res.SnapshotAt, res.FinalScoreRaw,
 		)
 		if err != nil {
 			return fmt.Errorf("upsert pod %s: %w", res.PodUID, err)
@@ -501,6 +502,8 @@ func (r *FinalScoringRepo) ListByCluster(ctx context.Context, clusterName string
 			f.used_image_digest, f.used_image_tag, f.used_top_cve,
 			f.missing_global_image, f.missing_local, f.missing_sbom,
 			f.snapshot_at, f.computed_at,
+			COALESCE(f.final_score_raw, 0)::float8 AS final_score_raw,
+			COALESCE(br.total_risk, 0)::float8 AS blast_total_risk,
 			COALESCE(g.cvss_score, 0)::float8 AS cvss,
 			COALESCE(g.epss_score, 0)::float8 AS epss,
 			CASE lower(COALESCE(g.ssvc_exploitation, 'none'))
@@ -526,8 +529,16 @@ func (r *FinalScoringRepo) ListByCluster(ctx context.Context, clusterName string
 				ELSE 'none' END AS tier
 			FROM jsonb_array_elements(COALESCE(tl.matched_rules, '[]'::jsonb)) rr
 		 ) tx ON true
+		 -- 파드별 총 전파 위험(MC) — 위험 동점 시 "더 멀리 번지는 파드"를 위로. src 단위 동일값이라 MAX.
+		 LEFT JOIN (
+			SELECT src_pod_uid, MAX(total_risk) AS total_risk
+			FROM blast_pair_risk
+			WHERE cluster_name = $1
+			GROUP BY src_pod_uid
+		 ) br ON br.src_pod_uid = f.pod_uid
 		 WHERE f.cluster_name = $1 AND f.snapshot_at = $2
-		 ORDER BY f.final_score DESC, f.pod_namespace, f.pod_name`,
+		 ORDER BY f.final_score DESC, f.final_score_raw DESC NULLS LAST,
+		          COALESCE(br.total_risk, 0) DESC, f.pod_namespace, f.pod_name`,
 		clusterName, *latest,
 	)
 	if err != nil {
@@ -548,6 +559,7 @@ func (r *FinalScoringRepo) ListByCluster(ctx context.Context, clusterName string
 			&digest, &tag, &topCVE,
 			&res.MissingGlobalImage, &res.MissingLocal, &res.MissingSBOM,
 			&res.SnapshotAt, &res.ComputedAt,
+			&res.FinalScoreRaw, &res.BlastTotalRisk,
 			&res.Cvss, &res.Epss, &res.Ssvc, &res.ToxicTier,
 		)
 		if err != nil {
