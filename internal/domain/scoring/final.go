@@ -79,6 +79,11 @@ type FinalScoreResult struct {
 	// final_score가 100에 몰린 파드들의 실제 위험 순서를 가리는 tiebreak용.
 	FinalScoreRaw float64 `json:"final_score_raw"`
 
+	// BlastTotalRisk는 이 파드 침해 시 총 전파 위험(MC 사전계산, blast_pair_risk).
+	// 위험 점수(raw)까지 동점일 때 "더 멀리 번지는 파드"를 위로 올리는 tiebreak·근거용.
+	// blast_pair_risk 미적재 시 0 → tiebreak 무영향(알파벳순으로 폴백).
+	BlastTotalRisk float64 `json:"blast_total_risk"`
+
 	// 기여도
 	GlobalContribution float64 `json:"global_contribution"`
 	LocalContribution  float64 `json:"local_contribution"`
