@@ -1139,7 +1139,8 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 				split_part(dst_pod_id, '/', 1) AS dst_ns,
 				regexp_replace(split_part(dst_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS dst_svc,
 				MIN(timestamp) AS first_seen,
-				MAX(timestamp) AS last_seen
+				MAX(timestamp) AS last_seen,
+				MIN(dst_port)  AS min_dst_port
 			FROM ebpf_network_flows
 			WHERE mapping_status = 'mapped' AND cluster_name = $1
 			  AND src_pod_id IS NOT NULL AND dst_pod_id IS NOT NULL
@@ -1155,7 +1156,8 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 				COALESCE(dp_ip.name,    dp_svc.name)        AS dst_name,
 				COALESCE(dp_ip.namespace, dp_svc.namespace) AS dst_namespace,
 				MIN(o.first_seen) AS first_seen,
-				MAX(o.last_seen)  AS last_seen
+				MAX(o.last_seen)  AS last_seen,
+				MIN(o.min_dst_port) AS min_dst_port
 			FROM observed o
 			LEFT JOIN latest_pods sp_ip  ON sp_ip.pod_ip = o.src_ip
 			LEFT JOIN latest_pods sp_svc ON sp_svc.namespace = o.src_ns AND sp_svc.svc_name = o.src_svc
@@ -1172,7 +1174,7 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			target_type,
 			layer, edge_type, mode,
 			weight, traffic_weight,
-			first_seen_at, last_seen_at,
+			first_seen_at, last_seen_at, min_dst_port,
 			snapshot_at, computed_at
 		)
 		SELECT
@@ -1184,7 +1186,7 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			'pod',
 			'network', 'connects_to', 'observed',
 			1, 0.8,
-			first_seen, last_seen,
+			first_seen, last_seen, min_dst_port,
 			$2::timestamptz, NOW()
 		FROM resolved
 		WHERE src_uid IS NOT NULL AND dst_uid IS NOT NULL
