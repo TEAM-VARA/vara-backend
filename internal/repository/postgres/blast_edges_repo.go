@@ -150,6 +150,7 @@ func (r *BlastEdgesRepo) LoadObservedFlows(ctx context.Context, cluster string) 
 		WHERE cluster_name = $1
 		  AND edge_type = 'connects_to'
 		  AND mode = 'observed'
+		  AND min_dst_port < 32768
 		  AND snapshot_at = (
 		      SELECT MAX(snapshot_at) FROM edges
 		      WHERE cluster_name = $1 AND edge_type = 'connects_to' AND mode = 'observed'
