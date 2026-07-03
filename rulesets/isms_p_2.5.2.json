@@ -21,67 +21,6 @@
   ],
   "rules": [
     {
-      "rule_id": "R-2.5.2-01",
-      "name": "추측 가능한 SA 이름",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "guessable_name_patterns": [
-        "^admin$",
-        "^root$",
-        "^test$",
-        "^user$",
-        "^sa$",
-        "^service$",
-        "^app$",
-        "^demo$",
-        "^temp$",
-        "^tmp$"
-      ],
-      "compliance_indicators": [
-        {
-          "field": "sa_name_is_guessable",
-          "op": "==",
-          "value": false,
-          "description": "ServiceAccount 이름이 추측 불가능한 고유 식별명 사용"
-        }
-      ],
-      "remediation": {
-        "source": {
-          "framework": "자체 정책 (표준 미대응)",
-          "version": null,
-          "reference": "네이밍 규칙 (Kyverno metadata-match-regex로 형식 강제)",
-          "url": null
-        },
-        "action": "ServiceAccount 이름을 워크로드·기능 식별이 가능한 고유 명명규칙으로 변경한다(Kyverno 정규식 정책으로 형식 강제 가능)."
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      },
-      "manual_check_output": {
-        "applies_when": "fail",
-        "absorbed_from": "F-2.5.2-01",
-        "kisa_defect_case_refs": [
-          {
-            "case_number": null,
-            "description": "admin, guest, test 등 추측 가능한 ID 운영",
-            "match": "direct"
-          }
-        ],
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.5.2",
-            "match_strength": "direct"
-          }
-        ],
-        "offcluster_satisfaction_conditions": [
-          "용도가 의미적으로 식별 가능하게 매핑·관리되는지 확인"
-        ]
-      }
-    },
-    {
       "rule_id": "R-2.5.2-GL01",
       "name": "사용자별 유일 식별자 부여",
       "judgment_source": "text_extraction",

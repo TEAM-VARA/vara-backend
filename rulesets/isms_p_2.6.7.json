@@ -97,67 +97,6 @@
       }
     },
     {
-      "rule_id": "R-2.6.7-02",
-      "name": "실제 외부 도메인 접속 관찰 (eBPF)",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "verdict_type": "compliant_indicator",
-      "manual_meta": {
-        "target_resource": "eBPF DNS queries",
-        "required_data": [
-          "ebpf_dns_queries",
-          "cluster_pods"
-        ],
-        "condition": {
-          "operator": "external_domain_traffic_report",
-          "time_window": "24h"
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.6.7",
-            "match_strength": "supportive"
-          }
-        ],
-        "kisa_defect_case_refs": [],
-        "automation_coverage": {
-          "percentage": 80,
-          "covered": "실제 통신 패턴 관찰",
-          "not_covered": "통제 정책 자체"
-        },
-        "offcluster_satisfaction_conditions": [
-          "K8s 외 VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제되고 있다면 결함이 아닙니다."
-        ],
-        "k8s_only_check": true,
-        "deferred": true,
-        "deferred_reason": "행위 관측(외부 도메인 트래픽). eBPF/DNS 로그 파이프라인 연동 후 활성화"
-      },
-      "deferred_from": "F-2.6.7-02",
-      "manual_check_output": {
-        "applies_when": "always",
-        "absorbed_from": "F-2.6.7-02",
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.6.7",
-            "match_strength": "supportive"
-          }
-        ],
-        "offcluster_satisfaction_conditions": [
-          "K8s 외 VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제되고 있다면 결함이 아닙니다."
-        ]
-      },
-      "remediation": {
-        "source": {
-          "framework": "런타임 보안(Falco/Tetragon)",
-          "version": null,
-          "reference": "아웃바운드 도메인 통제(eBPF/프록시)",
-          "url": "https://falco.org/docs/"
-        },
-        "action": "eBPF(Cilium/Tetragon)로 아웃바운드 도메인 접속을 관찰하거나 프록시·NAT 화이트리스트로 통제한다."
-      }
-    },
-    {
       "rule_id": "R-2.6.7-SG01",
       "name": "Security Group egress 전체 개방 (아웃바운드 인터넷 통제)",
       "judgment_source": "aws_api",

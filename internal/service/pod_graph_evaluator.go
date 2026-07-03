@@ -448,15 +448,15 @@ var implementedPodRules = map[string]bool{
 	"R-2.5.1-01": true, "R-2.5.1-03": true,
 	"R-2.5.2-01": true, "R-2.5.2-02": true,
 	"R-2.5.5-01": true, "R-2.5.5-02": true,
-	"R-2.6.1-01": true, "R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true,
+	"R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true, // R-2.6.1-01(hostNS)은 2.10.2-01로 이관
 	"R-2.6.2-01": true,
 	"R-2.6.3-01": true,
 	"R-2.6.7-01": true,
 	"R-2.7.1-01": true, "R-2.7.1-02": true,
 	"R-2.8.3-02": true, "R-2.8.3-03": true,
 	"R-2.9.1-02": true,
-	"R-2.10.2-08": true,
-	"R-2.10.3-01": true, "R-2.10.3-02": true, "R-2.10.3-04": true,
+	"R-2.10.2-01": true, "R-2.10.2-08": true, // R-2.10.2-01: hostNS 격리(2.6.1→2.10.2 이관)
+	"R-2.10.3-01": true,
 	"R-2.10.5-01": true, "R-2.10.5-03": true,
 	"R-2.10.8-01": true, "R-2.10.8-02": true, "R-2.10.8-03": true,
 	"R-2.11.3-01": true, "R-2.11.3-03": true,
@@ -608,7 +608,7 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	case "R-2.5.5-POD-02", "R-2.5.5-02":
 		result = evalDangerousVerbCombos(rule, req, base)
 	// 2.6.1 네트워크 접근
-	case "R-2.6.1-POD-01", "R-2.6.1-01":
+	case "R-2.10.2-POD-01", "R-2.10.2-01": // hostNS 격리 (2.6.1→2.10.2 이관)
 		result = evalHostNamespace(rule, req, base)
 	case "R-2.6.1-POD-02", "R-2.6.1-02":
 		result = evalNetworkPolicy(rule, req, base)
@@ -907,7 +907,7 @@ func evalServiceAccountPrivileges(rule Rule, req PodGraphRequest, base PodRuleRe
 }
 
 // ─────────────────────────────────────────────
-// R-2.6.1-POD-01: hostNetwork/hostPID/hostIPC 점검
+// R-2.10.2-01: hostNetwork/hostPID/hostIPC 점검 (2.6.1→2.10.2 이관)
 // ─────────────────────────────────────────────
 
 func evalHostNamespace(rule Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {

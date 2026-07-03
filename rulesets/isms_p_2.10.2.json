@@ -66,7 +66,62 @@
         "fail": "미충족",
         "no_uncertain_fallback": true,
         "_decision": "네임스페이스 PSA enforce 라벨(baseline↑) 부재 시 확인불가 없이 미충족 확정."
-      }
+      },
+      "status": "blocked_by_schema",
+      "blocking_reason": "cluster_namespaces에 labels 컬럼 부재 — namespace label collector/스키마 보강 전까지 PSA enforce/audit 라벨 평가 불가",
+      "pending_dependency": [
+        "cluster_namespaces.labels(jsonb) 컬럼 추가",
+        "namespace label collector 연동"
+      ]
+    },
+    {
+      "rule_id": "R-2.10.2-01",
+      "name": "호스트 네임스페이스 격리(hostNetwork/PID/IPC) 점검",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "pod.spec.hostNetwork",
+          "op": "!=",
+          "value": true,
+          "description": "hostNetwork 비활성"
+        },
+        {
+          "field": "pod.spec.hostPID",
+          "op": "!=",
+          "value": true,
+          "description": "hostPID 비활성"
+        },
+        {
+          "field": "pod.spec.hostIPC",
+          "op": "!=",
+          "value": true,
+          "description": "hostIPC 비활성"
+        }
+      ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§4.2.2 hostPID / §4.2.3 hostIPC / §4.2.4 hostNetwork 최소화",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "Pod spec의 hostNetwork·hostPID·hostIPC를 false(미설정)로 두고, 불가피하면 사유 annotation으로 예외 관리한다."
+      },
+      "exception_check": {
+        "annotation": "security-exception/justification",
+        "system_namespaces": [
+          "kube-system",
+          "kube-node-lease",
+          "amazon-cloudwatch"
+        ]
+      },
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "description": "Pod가 호스트 네임스페이스(hostNetwork/hostPID/hostIPC)를 공유하지 않도록 하여 컨테이너-호스트 격리(호스트 탈출 방지)를 보장한다. (2.6.1 네트워크 접근 → 2.10.2 클라우드 보안/Pod Security로 이관)"
     },
     {
       "rule_id": "R-2.10.2-GL01",

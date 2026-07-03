@@ -10,40 +10,6 @@
   "legal_references": [],
   "rules": [
     {
-      "rule_id": "R-2.9.1-01",
-      "name": "change-cause annotation 부재",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "compliance_indicators": [
-        {
-          "field": "deployment.metadata.annotations.kubernetes.io/change-cause",
-          "op": "!=",
-          "value": null,
-          "description": "Deployment에 change-cause annotation 존재 — 변경 사유 기록됨"
-        },
-        {
-          "field": "latest_replicaset_has_change_cause",
-          "op": "==",
-          "value": true,
-          "description": "최신 ReplicaSet에 change-cause annotation 전파됨"
-        }
-      ],
-      "remediation": {
-        "source": {
-          "framework": "자체 정책 (표준 미대응)",
-          "version": null,
-          "reference": "변경 이력(kubernetes.io/change-cause)",
-          "url": null
-        },
-        "action": "배포 시 kubernetes.io/change-cause annotation에 변경 사유를 기록한다(매니페스트 명시 또는 배포 파이프라인에서 주입)."
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      }
-    },
-    {
       "rule_id": "R-2.9.1-GL01",
       "name": "변경 절차 및 이력 관리",
       "judgment_source": "text_extraction",
