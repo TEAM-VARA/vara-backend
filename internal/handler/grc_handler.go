@@ -764,6 +764,20 @@ func (h *GRCHandler) attachCompliantRules(item *grc.ItemComplianceResult) {
 	item.CompliantRules = out
 }
 
+// allNAIndicators reports whether every matched indicator is a "해당 없음"(리소스 부재)
+// 지표인지 — 미준수로 승격 시 오해 소지의 NA 지표를 걷어낼지 판단하는 데 쓴다.
+func allNAIndicators(indicators []string) bool {
+	if len(indicators) == 0 {
+		return false
+	}
+	for _, mi := range indicators {
+		if !strings.Contains(mi, "해당 없음") {
+			return false
+		}
+	}
+	return true
+}
+
 // deduplicateRuleResults collapses per-pod rule results into one entry per rule_id.
 // Tracks pass/fail counts so mixed-verdict rules (2 fail out of 14) are visible.
 func deduplicateRuleResults(results []grc.RuleResult) []grc.RuleResult {
@@ -803,9 +817,17 @@ func deduplicateRuleResults(results []grc.RuleResult) []grc.RuleResult {
 		deduped = append(deduped, r)
 	}
 	for i := range deduped {
-		if deduped[i].AffectedFailCount > 0 && deduped[i].AffectedPassCount > 0 {
+		// real fail(critical violation 동반)이 1건이라도 있으면 미준수로 승격한다.
+		// 기존엔 AffectedPassCount>0(=실제 준수 pod 존재)도 요구했는데, non-fail pod가
+		// 전부 '해당없음→검토필요'(예: Ingress 미사용)면 PassCount=0이라 승격이 안 돼
+		// 기저 pod의 '리소스 부재' verdict가 남고 fail이 숨는 모순이 발생했다(2.10.5).
+		if deduped[i].AffectedFailCount > 0 {
 			deduped[i].Verdict = grc.VerdictNOT_MET
 			deduped[i].Reason = fmt.Sprintf("%d/%d pods 미준수", deduped[i].AffectedFailCount, deduped[i].AffectedCount)
+			// 기저 엔트리가 '해당없음' pod였던 경우 오해 소지의 NA 지표를 걷어낸다.
+			if allNAIndicators(deduped[i].MatchedIndicators) {
+				deduped[i].MatchedIndicators = nil
+			}
 		}
 	}
 	return deduped
