@@ -21,54 +21,6 @@
   ],
   "rules": [
     {
-      "rule_id": "R-2.6.1-01",
-      "name": "hostNetwork 사용 점검",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "compliance_indicators": [
-        {
-          "field": "pod.spec.hostNetwork",
-          "op": "!=",
-          "value": true,
-          "description": "hostNetwork 비활성"
-        },
-        {
-          "field": "pod.spec.hostPID",
-          "op": "!=",
-          "value": true,
-          "description": "hostPID 비활성"
-        },
-        {
-          "field": "pod.spec.hostIPC",
-          "op": "!=",
-          "value": true,
-          "description": "hostIPC 비활성"
-        }
-      ],
-      "remediation": {
-        "source": {
-          "framework": "Kubernetes Pod Security Standards",
-          "version": null,
-          "reference": "Baseline: Host Namespaces — CIS EKS §5 대응",
-          "url": "https://kubernetes.io/docs/concepts/security/pod-security-standards/"
-        },
-        "action": "Pod spec의 hostNetwork·hostPID·hostIPC를 false(미설정)로 두고, 불가피하면 사유 annotation으로 예외 관리한다."
-      },
-      "exception_check": {
-        "annotation": "security-exception/justification",
-        "system_namespaces": [
-          "kube-system",
-          "kube-node-lease",
-          "amazon-cloudwatch"
-        ]
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      }
-    },
-    {
       "rule_id": "R-2.6.1-02",
       "name": "NetworkPolicy 적용 점검",
       "judgment_source": "k8s_api",

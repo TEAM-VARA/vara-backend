@@ -1,4 +1,4 @@
-{
+﻿{
   "schema_version": "4.0.0",
   "isms_p_revision": "2023.11",
   "item": {
@@ -36,73 +36,6 @@
           "url": null
         },
         "action": "Service에 loadBalancerSourceRanges로 허용 IP 대역을 명시하고 0.0.0.0/0 전체 개방을 제거한다."
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      }
-    },
-    {
-      "rule_id": "R-2.10.3-02",
-      "name": "공개 Ingress WAF annotation 부재",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "waf_annotations": [
-        "alb.ingress.kubernetes.io/wafv2-acl-arn",
-        "alb.ingress.kubernetes.io/waf-acl-id",
-        "nginx.ingress.kubernetes.io/modsecurity-snippet"
-      ],
-      "compliance_indicators": [
-        {
-          "field": "public_ingress_has_waf",
-          "op": "==",
-          "value": true,
-          "description": "공개 Ingress에 WAF(AWS WAFv2 ACL 또는 ModSecurity) annotation 존재"
-        }
-      ],
-      "remediation": {
-        "source": {
-          "framework": "보안 best-practice",
-          "version": null,
-          "reference": "AWS WAFv2/ModSecurity 연동",
-          "url": null
-        },
-        "action": "공개 Ingress에 AWS WAFv2(또는 ModSecurity) 연동 annotation을 추가한다."
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      }
-    },
-    {
-      "rule_id": "R-2.10.3-04",
-      "name": "공개 Ingress rate limit 미설정",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "rate_limit_annotations": [
-        "nginx.ingress.kubernetes.io/limit-rps",
-        "nginx.ingress.kubernetes.io/limit-rpm",
-        "nginx.ingress.kubernetes.io/limit-connections",
-        "alb.ingress.kubernetes.io/actions.rate-limit"
-      ],
-      "compliance_indicators": [
-        {
-          "field": "public_ingress_has_rate_limit",
-          "op": "==",
-          "value": true,
-          "description": "공개 Ingress에 rate limit annotation 설정됨 — DDoS/과다요청 방어"
-        }
-      ],
-      "remediation": {
-        "source": {
-          "framework": "자체 정책 (표준 미대응)",
-          "version": null,
-          "reference": "rate limit(과다요청·DDoS 방어)",
-          "url": null
-        },
-        "action": "공개 Ingress에 rate-limit annotation(예: nginx limit-rps)을 설정한다."
       },
       "judgment_logic": {
         "type": "structured_match",

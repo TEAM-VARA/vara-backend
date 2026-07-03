@@ -19,7 +19,7 @@ package scoring
 //	rbac:sa:<sa>(그룹) ← R-2.5.5-01    cluster-admin·와일드카드·클러스터 Secret 접근
 //	                    R-2.5.5-02    위험 RBAC verb 조합(exec/attach, secret r/w, escalate/bind/impersonate, nodes/proxy, sa/token)
 //	                    R-2.6.3-01    워크로드 생성 권한(pods/deployments/… create) — RBAC 권한 룰
-//	mount:pod   (그룹) ← R-2.6.1-01    hostNetwork/hostPID/hostIPC
+//	mount:pod   (그룹) ← R-2.10.2-01    hostNetwork/hostPID/hostIPC
 //	net:isolation(항목)← R-2.6.1-02/03/04, R-2.6.7-01  default-deny/CNI/cross-ns/egress NetworkPolicy
 //	sg:inbound-open   ← R-2.6.1-SG01   SG 인바운드 0.0.0.0/0 전체개방
 //	sg:remote-port    ← R-2.6.6-01     SG 원격 관리 포트(SSH 22/RDP 3389) 0.0.0.0/0 개방
@@ -60,7 +60,7 @@ func ismsBucket(ruleID string) string {
 		return bucketCVEImage
 	case "R-2.5.5-01", "R-2.5.5-02", "R-2.6.3-01":
 		return bucketRBACSA
-	case "R-2.6.1-01":
+	case "R-2.10.2-01":
 		return bucketMountPod
 	case "R-2.6.1-02", "R-2.6.1-03", "R-2.6.1-04", "R-2.6.7-01":
 		return bucketNetIsolation

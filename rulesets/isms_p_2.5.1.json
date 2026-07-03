@@ -80,40 +80,6 @@
       }
     },
     {
-      "rule_id": "R-2.5.1-02",
-      "name": "ServiceAccount owner 라벨 부재",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "compliance_indicators": [
-        {
-          "field": "serviceaccount.metadata.labels.isms-p/owner",
-          "op": "!=",
-          "value": null,
-          "description": "ServiceAccount에 소유자(owner) 라벨 존재"
-        },
-        {
-          "field": "serviceaccount.metadata.labels.isms-p/purpose",
-          "op": "!=",
-          "value": null,
-          "description": "ServiceAccount에 용도(purpose) 라벨 존재"
-        }
-      ],
-      "remediation": {
-        "source": {
-          "framework": "자체 정책 (표준 미대응)",
-          "version": null,
-          "reference": "owner/purpose 라벨 (Kyverno require-labels로 강제)",
-          "url": null
-        },
-        "action": "ServiceAccount에 isms-p/owner·purpose 라벨을 부여한다(Kyverno require-labels로 강제 가능)."
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      }
-    },
-    {
       "rule_id": "R-2.5.1-04",
       "name": "미사용(orphan) ServiceAccount 발견",
       "judgment_source": "k8s_api",
