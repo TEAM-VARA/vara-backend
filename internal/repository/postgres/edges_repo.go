@@ -3,7 +3,9 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"os"      // EDGE_MIN_FLOWS / EDGE_WINDOW_MINUTES env
 	"sort"    // layers 정렬용
+	"strconv" // env int 파싱
 	"strings" // conditions 파싱용
 	"time"
 
@@ -11,6 +13,17 @@ import (
 
 	"github.com/vara/backend/internal/domain/edge"
 )
+
+// edgeEnvInt는 양의 정수 env를 읽고, 없거나 잘못되면 기본값을 반환한다.
+// (connects_to 빈도 임계값·시간 윈도우 튜닝용 — 재기동만으로 조정)
+func edgeEnvInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
 
 // ────────────────────────────────────────────────────
 // EdgesRepo — edges 테이블 CRUD + ebpf_network_flows 집계
@@ -1145,7 +1158,9 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			WHERE mapping_status = 'mapped' AND cluster_name = $1
 			  AND src_pod_id IS NOT NULL AND dst_pod_id IS NOT NULL
 			  AND src_pod_id != dst_pod_id
+			  AND timestamp > NOW() - make_interval(mins => $4)   -- 최근 N분(EDGE_WINDOW_MINUTES) 통신만
 			GROUP BY 1,2,3,4,5,6
+			HAVING COUNT(*) >= $3                                 -- 지속 통신만(EDGE_MIN_FLOWS 미만 일회성 제외)
 		),
 		resolved AS (
 			SELECT
@@ -1193,7 +1208,10 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 		  AND src_uid != dst_uid
 		ON CONFLICT DO NOTHING
 	`
-	tag4, err := r.pool.Exec(ctx, qConnectsTo, clusterName, snapAt)
+	// connects_to 튜닝: 최근 N분(EDGE_WINDOW_MINUTES, 기본10) 내 M회+(EDGE_MIN_FLOWS, 기본3) 통신한 쌍만.
+	minFlows := edgeEnvInt("EDGE_MIN_FLOWS", 3)
+	windowMin := edgeEnvInt("EDGE_WINDOW_MINUTES", 10)
+	tag4, err := r.pool.Exec(ctx, qConnectsTo, clusterName, snapAt, minFlows, windowMin)
 	if err != nil {
 		return nil, fmt.Errorf("insert connects_to: %w", err)
 	}
