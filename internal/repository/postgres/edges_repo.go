@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"log"
+	"runtime" // [DEBUG min_dst_port] 호출자 추적용 (원인 확정 후 제거)
 	"sort"    // layers 정렬용
 	"strings" // conditions 파싱용
 	"time"
@@ -1196,6 +1198,38 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 	tag4, err := r.pool.Exec(ctx, qConnectsTo, clusterName, snapAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert connects_to: %w", err)
+	}
+
+	// [DEBUG min_dst_port] 방금 이 snapshot에 적재된 connects_to의 min_dst_port 실적재 통계.
+	// 스케줄러 경로에서만 NULL로 남는 미스터리 추적용 — 원인 확정 후 제거할 것.
+	{
+		var total, nn int64
+		var caller string
+		if dbgErr := r.pool.QueryRow(ctx, `
+			SELECT count(*), count(min_dst_port)
+			FROM edges
+			WHERE cluster_name=$1 AND edge_type='connects_to' AND snapshot_at=$2
+		`, clusterName, snapAt).Scan(&total, &nn); dbgErr != nil {
+			log.Printf("[DEBUG min_dst_port] stat query failed: %v", dbgErr)
+		} else {
+			// 호출 스택에서 스케줄러/핸들러 구분
+			pc := make([]uintptr, 12)
+			n := runtime.Callers(2, pc)
+			frames := runtime.CallersFrames(pc[:n])
+			for {
+				f, more := frames.Next()
+				if strings.Contains(f.Function, "scheduler") || strings.Contains(f.Function, "Precompute") ||
+					strings.Contains(f.Function, "refreshEdges") || strings.Contains(f.Function, "handler") ||
+					strings.Contains(f.Function, "ComputeNetwork") {
+					caller += f.Function + " "
+				}
+				if !more {
+					break
+				}
+			}
+			log.Printf("[DEBUG min_dst_port] connects_to snapshot=%s total=%d non_null=%d rows_affected=%d caller=[%s]",
+				snapAt.Format(time.RFC3339Nano), total, nn, tag4.RowsAffected(), caller)
+		}
 	}
 
 	return &edge.NetworkComputeResult{
