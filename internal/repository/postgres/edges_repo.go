@@ -3,7 +3,9 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"os"      // EDGE_MIN_FLOWS / EDGE_WINDOW_MINUTES env
 	"sort"    // layers 정렬용
+	"strconv" // env int 파싱
 	"strings" // conditions 파싱용
 	"time"
 
@@ -11,6 +13,17 @@ import (
 
 	"github.com/vara/backend/internal/domain/edge"
 )
+
+// edgeEnvInt는 양의 정수 env를 읽고, 없거나 잘못되면 기본값을 반환한다.
+// (connects_to 빈도 임계값·시간 윈도우 튜닝용 — 재기동만으로 조정)
+func edgeEnvInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
 
 // ────────────────────────────────────────────────────
 // EdgesRepo — edges 테이블 CRUD + ebpf_network_flows 집계
@@ -1130,40 +1143,34 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 			  AND name NOT LIKE 'tetragon%'
 			  AND name NOT LIKE 'ebs-csi-node%'
 		),
-		observed AS (
+		agg AS (
+			-- ebpf_flow_agg(집계 테이블)에서 mapped 통신만. src/dst_pod_id = "namespace/name" 풀네임.
+			-- staleness: last_seen이 최근 N분(EDGE_WINDOW_MINUTES) 이내인 쌍만 = 그 이상 조용하면 죽은 것으로 간주해 제외.
 			SELECT
-				regexp_replace(src_ip, '^::ffff:', '') AS src_ip,
-				dst_pod_ip,
 				split_part(src_pod_id, '/', 1) AS src_ns,
-				regexp_replace(split_part(src_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS src_svc,
+				split_part(src_pod_id, '/', 2) AS src_name,
 				split_part(dst_pod_id, '/', 1) AS dst_ns,
-				regexp_replace(split_part(dst_pod_id, '/', 2), '-[a-z0-9]+-[a-z0-9]+$', '') AS dst_svc,
-				MIN(timestamp) AS first_seen,
-				MAX(timestamp) AS last_seen,
+				split_part(dst_pod_id, '/', 2) AS dst_name,
+				MIN(last_seen) AS first_seen,
+				MAX(last_seen) AS last_seen,
 				MIN(dst_port)  AS min_dst_port
-			FROM ebpf_network_flows
+			FROM ebpf_flow_agg
 			WHERE mapping_status = 'mapped' AND cluster_name = $1
 			  AND src_pod_id IS NOT NULL AND dst_pod_id IS NOT NULL
 			  AND src_pod_id != dst_pod_id
-			GROUP BY 1,2,3,4,5,6
+			  AND last_seen > NOW() - make_interval(mins => $4)   -- staleness N분(EDGE_WINDOW_MINUTES)
+			GROUP BY 1,2,3,4
+			HAVING SUM(flow_count) >= $3                          -- 총 통신 횟수 임계값(EDGE_MIN_FLOWS)
 		),
 		resolved AS (
+			-- (namespace, name) 정확 매칭 — IP/서비스명 폴백 불필요(StatefulSet·IP 미스매치 버그 제거)
 			SELECT
-				COALESCE(sp_ip.pod_uid, sp_svc.pod_uid)     AS src_uid,
-				COALESCE(sp_ip.name,    sp_svc.name)        AS src_name,
-				COALESCE(sp_ip.namespace, sp_svc.namespace) AS src_namespace,
-				COALESCE(dp_ip.pod_uid, dp_svc.pod_uid)     AS dst_uid,
-				COALESCE(dp_ip.name,    dp_svc.name)        AS dst_name,
-				COALESCE(dp_ip.namespace, dp_svc.namespace) AS dst_namespace,
-				MIN(o.first_seen) AS first_seen,
-				MAX(o.last_seen)  AS last_seen,
-				MIN(o.min_dst_port) AS min_dst_port
-			FROM observed o
-			LEFT JOIN latest_pods sp_ip  ON sp_ip.pod_ip = o.src_ip
-			LEFT JOIN latest_pods sp_svc ON sp_svc.namespace = o.src_ns AND sp_svc.svc_name = o.src_svc
-			LEFT JOIN latest_pods dp_ip  ON dp_ip.pod_ip = o.dst_pod_ip
-			LEFT JOIN latest_pods dp_svc ON dp_svc.namespace = o.dst_ns AND dp_svc.svc_name = o.dst_svc
-			GROUP BY 1,2,3,4,5,6
+				sp.pod_uid AS src_uid, sp.name AS src_name, sp.namespace AS src_namespace,
+				dp.pod_uid AS dst_uid, dp.name AS dst_name, dp.namespace AS dst_namespace,
+				a.first_seen, a.last_seen, a.min_dst_port
+			FROM agg a
+			JOIN latest_pods sp ON sp.namespace = a.src_ns AND sp.name = a.src_name
+			JOIN latest_pods dp ON dp.namespace = a.dst_ns AND dp.name = a.dst_name
 		)
 		INSERT INTO edges (
 			cluster_name,
@@ -1193,7 +1200,10 @@ func (r *EdgesRepo) ComputeNetworkEdges(ctx context.Context, clusterName string)
 		  AND src_uid != dst_uid
 		ON CONFLICT DO NOTHING
 	`
-	tag4, err := r.pool.Exec(ctx, qConnectsTo, clusterName, snapAt)
+	// connects_to 튜닝: 최근 N분(EDGE_WINDOW_MINUTES, 기본10) 내 M회+(EDGE_MIN_FLOWS, 기본3) 통신한 쌍만.
+	minFlows := edgeEnvInt("EDGE_MIN_FLOWS", 3)
+	windowMin := edgeEnvInt("EDGE_WINDOW_MINUTES", 10)
+	tag4, err := r.pool.Exec(ctx, qConnectsTo, clusterName, snapAt, minFlows, windowMin)
 	if err != nil {
 		return nil, fmt.Errorf("insert connects_to: %w", err)
 	}
