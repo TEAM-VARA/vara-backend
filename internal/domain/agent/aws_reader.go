@@ -61,6 +61,19 @@ type AwsKmsKey struct {
 	CreationDate    *time.Time `json:"creation_date"`
 }
 
+type AwsEksAccessConfigRequest struct {
+	AccountID          string                `json:"account_id"`
+	Region             string                `json:"region"`
+	SnapshotAt         time.Time             `json:"snapshot_at"`
+	ClusterName        string                `json:"cluster_name" binding:"required"`
+	AuthenticationMode string                `json:"authentication_mode"`
+	AccessEntries      []AwsEksAccessEntry   `json:"access_entries"`
+}
+
+type AwsEksAccessEntry struct {
+	PrincipalArn string `json:"principal_arn"`
+}
+
 type AwsCloudTrailTrailsRequest struct {
 	AccountID  string               `json:"account_id" binding:"required"`
 	Region     string               `json:"region" binding:"required"`

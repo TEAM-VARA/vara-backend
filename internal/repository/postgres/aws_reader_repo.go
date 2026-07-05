@@ -101,6 +101,29 @@ func (r *AwsReaderRepo) UpsertKmsKeys(ctx context.Context, req agent.AwsKmsKeysR
 	return saved, nil
 }
 
+func (r *AwsReaderRepo) UpsertEksAccessConfig(ctx context.Context, req agent.AwsEksAccessConfigRequest) (int, error) {
+	entriesJSON, _ := json.Marshal(req.AccessEntries)
+
+	const q = `
+		INSERT INTO cluster_aws_config (
+			account_id, region, cluster_name, snapshot_at,
+			authentication_mode, access_entries
+		) VALUES (
+			$1, $2, $3, $4, $5, $6
+		)
+		ON CONFLICT (cluster_name, snapshot_at) DO UPDATE SET
+			authentication_mode = EXCLUDED.authentication_mode,
+			access_entries      = EXCLUDED.access_entries
+	`
+	if _, err := r.pool.Exec(ctx, q,
+		req.AccountID, req.Region, req.ClusterName, req.SnapshotAt,
+		req.AuthenticationMode, entriesJSON,
+	); err != nil {
+		return 0, fmt.Errorf("upsert eks access config: %w", err)
+	}
+	return 1, nil
+}
+
 func (r *AwsReaderRepo) UpsertCloudTrailTrails(ctx context.Context, req agent.AwsCloudTrailTrailsRequest) (int, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

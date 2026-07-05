@@ -44,6 +44,20 @@ func (h *AwsReaderHandler) KmsKeys(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"saved": saved})
 }
 
+func (h *AwsReaderHandler) EksAccessConfig(c *gin.Context) {
+	var req agent.AwsEksAccessConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	saved, err := h.repo.UpsertEksAccessConfig(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"saved": saved})
+}
+
 func (h *AwsReaderHandler) CloudTrailTrails(c *gin.Context) {
 	var req agent.AwsCloudTrailTrailsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
