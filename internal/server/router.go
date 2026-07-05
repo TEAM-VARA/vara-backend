@@ -72,6 +72,7 @@ func newRouter(
 		// ── AWS Reader Agent ──
 		api.POST("/agents/aws-reader/security-groups", awsReader.SecurityGroups)
 		api.POST("/agents/aws-reader/kms-keys", awsReader.KmsKeys)
+		api.POST("/agents/aws-reader/eks-access-config", awsReader.EksAccessConfig)
 		api.POST("/agents/aws-reader/cloudtrail-trails", awsReader.CloudTrailTrails)
 		api.POST("/agents/aws-reader/iam-authorization", awsReader.IamAuthorization)
 

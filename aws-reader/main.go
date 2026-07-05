@@ -20,6 +20,8 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
+
+	"github.com/aws/aws-sdk-go-v2/service/eks"
 )
 
 type sgRule map[string]interface{}
@@ -78,6 +80,19 @@ type cloudTrailPayload struct {
 	Trails     []cloudTrailTrail `json:"trails"`
 }
 
+type eksAccessEntry struct {
+	PrincipalArn string `json:"principal_arn"`
+}
+
+type eksAccessConfigPayload struct {
+	AccountID          string           `json:"account_id"`
+	Region             string           `json:"region"`
+	SnapshotAt         time.Time        `json:"snapshot_at"`
+	ClusterName        string           `json:"cluster_name"`
+	AuthenticationMode string           `json:"authentication_mode"`
+	AccessEntries      []eksAccessEntry `json:"access_entries"`
+}
+
 func main() {
 	backendURL := getenv("BACKEND_URL", "http://backend:8080")
 	region := getenv("AWS_REGION", "ap-northeast-2")
@@ -102,6 +117,8 @@ func main() {
 	kmsClient := kms.NewFromConfig(cfg)
 	ctClient := cloudtrail.NewFromConfig(cfg)
 	iamClient := iam.NewFromConfig(cfg)
+	eksClient := eks.NewFromConfig(cfg)
+	clusterName := getenv("EKS_CLUSTER_NAME", "vara-test-eks")
 
 	log.Printf("aws-reader starting (region=%s, account=%s, backend=%s, interval=%s)", region, accountID, backendURL, interval)
 
@@ -118,6 +135,9 @@ func main() {
 		if err := collectAndSendIam(ctx, iamClient, backendURL, accountID); err != nil {
 			log.Printf("[iam] error: %v", err)
 		}
+		if err := collectAndSendEksAccess(ctx, eksClient, backendURL, accountID, region, clusterName); err != nil {
+		log.Printf("[eks] error: %v", err)
+	}
 	}
 	run() // 즉시 1회
 	t := time.NewTicker(interval)
@@ -389,4 +409,46 @@ func ensureArray(v []any) json.RawMessage {
 	}
 	b, _ := json.Marshal(v)
 	return b
+}
+
+func collectAndSendEksAccess(ctx context.Context, ec *eks.Client, backendURL, accountID, region, clusterName string) error {
+	// 1) 클러스터 인증 모드
+	desc, err := ec.DescribeCluster(ctx, &eks.DescribeClusterInput{Name: &clusterName})
+	if err != nil {
+		return fmt.Errorf("describe cluster: %w", err)
+	}
+	authMode := ""
+	if desc.Cluster != nil && desc.Cluster.AccessConfig != nil {
+		authMode = string(desc.Cluster.AccessConfig.AuthenticationMode)
+	}
+
+	// 2) access entry 목록 (페이지네이션)
+	var entries []eksAccessEntry
+	pager := eks.NewListAccessEntriesPaginator(ec, &eks.ListAccessEntriesInput{ClusterName: &clusterName})
+	for pager.HasMorePages() {
+		out, err := pager.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("list access entries: %w", err)
+		}
+		for _, arn := range out.AccessEntries {
+			entries = append(entries, eksAccessEntry{PrincipalArn: arn})
+		}
+	}
+
+	body := eksAccessConfigPayload{
+		AccountID:          accountID,
+		Region:             region,
+		SnapshotAt:         time.Now().UTC(),
+		ClusterName:        clusterName,
+		AuthenticationMode: authMode,
+		AccessEntries:      entries,
+	}
+	buf, _ := json.Marshal(body)
+	resp, err := http.Post(backendURL+"/api/v1/agents/aws-reader/eks-access-config", "application/json", bytes.NewReader(buf))
+	if err != nil {
+		return fmt.Errorf("post: %w", err)
+	}
+	defer resp.Body.Close()
+	log.Printf("[eks] sent: authMode=%s, entries=%d", authMode, len(entries))
+	return nil
 }

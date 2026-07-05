@@ -116,9 +116,9 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 			cluster_name, snapshot_at, pod_uid, name, namespace,
 			node, pod_ip, phase, restart_count, service_account,
 			labels, annotations, containers, volumes,
-			host_network, started_at, host_pid
+			host_network, started_at, host_pid, host_ipc
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
 		)
 		ON CONFLICT (cluster_name, snapshot_at, pod_uid) DO UPDATE SET
 			phase             = EXCLUDED.phase,
@@ -128,7 +128,8 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 			volumes           = EXCLUDED.volumes,
 			host_network      = EXCLUDED.host_network,
 			started_at        = EXCLUDED.started_at,
-			host_pid          = EXCLUDED.host_pid
+			host_pid          = EXCLUDED.host_pid,
+			host_ipc          = EXCLUDED.host_ipc
 	`
 
 	saved := 0
@@ -142,7 +143,7 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 			req.Cluster, req.SnapshotAt, p.UID, p.Name, p.Namespace,
 			p.Node, p.PodIP, p.Phase, p.RestartCount, p.ServiceAccount,
 			labelsJSON, annotationsJSON, containersJSON, volumesJSON,
-			p.HostNetwork, p.StartedAt, p.HostPID,
+			p.HostNetwork, p.StartedAt, p.HostPID, p.HostIPC,
 		)
 		if err != nil {
 			return 0, 0, fmt.Errorf("upsert pod %s: %w", p.Name, err)
@@ -350,24 +351,25 @@ func (r *ClusterReaderRepo) UpsertIngresses(ctx context.Context, req agent.Clust
 	const q = `
 		INSERT INTO cluster_ingresses (
 			cluster_name, snapshot_at, ingress_uid, name, namespace,
-			ingress_class, rules, tls
+			ingress_class, rules, tls, annotations
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
 		)
 		ON CONFLICT (cluster_name, snapshot_at, ingress_uid) DO UPDATE SET
 			ingress_class = EXCLUDED.ingress_class,
 			rules         = EXCLUDED.rules,
-			tls           = EXCLUDED.tls
+			tls           = EXCLUDED.tls,
+			annotations   = EXCLUDED.annotations
 	`
 
 	saved := 0
 	for _, ing := range req.Ingresses {
 		rulesJSON, _ := json.Marshal(ing.Rules)
 		tlsJSON, _ := json.Marshal(ing.TLS)
-
+		annotationsJSON, _ := json.Marshal(ing.Annotations)
 		_, err := tx.Exec(ctx, q,
 			req.Cluster, req.SnapshotAt, ing.UID, ing.Name, ing.Namespace,
-			ing.IngressClass, rulesJSON, tlsJSON,
+			ing.IngressClass, rulesJSON, tlsJSON, annotationsJSON,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("upsert ingress %s: %w", ing.Name, err)

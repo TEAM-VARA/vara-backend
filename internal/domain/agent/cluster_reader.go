@@ -61,6 +61,7 @@ type ClusterPod struct {
 	ServiceAccount string                   `json:"service_account"`
 	HostNetwork    bool                     `json:"host_network"`
 	HostPID		   bool                     `json:"host_pid"`
+	HostIPC        bool                     `json:"host_ipc"`
 	StartedAt 	   *time.Time 				`json:"started_at,omitempty"`
 	Labels         map[string]string        `json:"labels"`
 	Annotations    map[string]string        `json:"annotations"`
@@ -136,6 +137,7 @@ type ClusterIngress struct {
 	IngressClass string                   `json:"ingress_class"`
 	Rules        []map[string]interface{} `json:"rules"`
 	TLS          []map[string]interface{} `json:"tls"`
+	Annotations  map[string]string        `json:"annotations"`
 }
 
 // ────────────────────────────────────────────
