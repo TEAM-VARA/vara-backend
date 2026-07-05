@@ -33,7 +33,7 @@ import (
 var ismspRiskSeverity = map[string]string{
 	// 상 (가중치 3) — Kubescape baseScore 7-8 / AWS SecHub High~Critical / Trivy HIGH+
 	"R-2.5.5-01": "상", "R-2.5.5-02": "상", "R-2.10.2-01": "상",
-	"R-2.7.1-02": "상", "R-2.10.2-08": "상",
+	"R-2.10.2-08": "상",
 	"R-2.10.3-SG01": "상", "R-2.6.6-01": "상", "R-2.6.1-SG01": "상", "R-2.9.4-01": "상",
 	"R-2.10.8-04": "상",
 	// 중 (가중치 2) — Kubescape baseScore 5-6 / AWS SecHub Medium / Kyverno medium

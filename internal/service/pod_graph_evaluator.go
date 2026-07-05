@@ -360,7 +360,6 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	"R-2.6.7-01": {"Pod에 Egress NetworkPolicy 미적용", "Pod에 Egress NetworkPolicy를 적용하여 외부 인터넷 접속을 통제하세요"},
 	// 2.7.1 암호정책 적용
 	"R-2.7.1-01": {"Secret이 etcd에 암호화되지 않은 상태로 저장될 수 있음", "etcd 저장 시 Secret 암호화(EncryptionConfiguration)를 활성화하세요"},
-	"R-2.7.1-02": {"ConfigMap에 비밀번호, API 키 등 민감 정보 포함 의심", "ConfigMap에서 민감 정보를 제거하고 Secret 리소스로 이동하세요"},
 	"R-2.7.1-04": {"KMS 키가 비활성 상태이거나 자동 로테이션 미설정 또는 비승인 알고리즘 사용", "KMS 키를 활성 상태로 유지하고 자동 키 로테이션을 활성화하며 승인된 알고리즘(AES-256/RSA-2048 이상)을 사용하세요"},
 	// 2.8.3 시험과 운영 환경 분리
 	"R-2.8.3-02": {"하나의 네임스페이스에 서로 다른 환경의 워크로드가 혼합 배치됨", "production과 staging/development 워크로드를 별도 네임스페이스로 분리하세요"},
@@ -452,7 +451,7 @@ var implementedPodRules = map[string]bool{
 	"R-2.6.2-01": true,
 	"R-2.6.3-01": true,
 	"R-2.6.7-01": true,
-	"R-2.7.1-01": true, "R-2.7.1-02": true,
+	"R-2.7.1-01": true,
 	"R-2.8.3-02": true, "R-2.8.3-03": true,
 	"R-2.9.1-02": true,
 	"R-2.10.2-01": true, "R-2.10.2-08": true, // R-2.10.2-01: hostNS 격리(2.6.1→2.10.2 이관)
@@ -628,8 +627,6 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	// 2.7.1 암호정책 적용
 	case "R-2.7.1-POD-01", "R-2.7.1-01":
 		result = evalSecretEncryption(rule, req, base)
-	case "R-2.7.1-POD-02", "R-2.7.1-02":
-		result = evalConfigMapSecrets(rule, req, base)
 	// 2.8.3 시험과 운영 환경 분리
 	case "R-2.8.3-POD-02", "R-2.8.3-02":
 		result = evalNSEnvMixing(rule, req, base)

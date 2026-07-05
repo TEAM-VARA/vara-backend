@@ -96,56 +96,6 @@
       }
     },
     {
-      "rule_id": "R-2.7.1-02",
-      "name": "ConfigMap 평문 비밀값 점검",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "secret_patterns": [
-        {
-          "name": "password",
-          "regex": "(?i)(password|passwd|pwd)\\s*[:=]\\s*[\"']?[\\w@!#$%^&*-]{6,}"
-        },
-        {
-          "name": "aws_access_key",
-          "regex": "AKIA[0-9A-Z]{16}"
-        },
-        {
-          "name": "private_key",
-          "regex": "-----BEGIN [A-Z ]*PRIVATE KEY-----"
-        },
-        {
-          "name": "secret_token",
-          "regex": "(?i)(secret|token|api[_-]?key)\\s*[:=]\\s*[\"']?[\\w\\-\\.]{16,}"
-        },
-        {
-          "name": "jwt",
-          "regex": "eyJ[\\w-]+\\.[\\w-]+\\.[\\w-]+"
-        }
-      ],
-      "compliance_indicators": [
-        {
-          "field": "configmap_has_secrets",
-          "op": "==",
-          "value": false,
-          "description": "Pod가 참조하는 ConfigMap에 평문 비밀값 없음"
-        }
-      ],
-      "remediation": {
-        "source": {
-          "framework": "보안 best-practice",
-          "version": null,
-          "reference": "Secrets management — ConfigMap 평문 금지",
-          "url": null
-        },
-        "action": "ConfigMap에 담긴 비밀값을 Secret 또는 외부 비밀관리(Secrets Manager/External Secrets)로 이전한다."
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      }
-    },
-    {
       "rule_id": "R-2.7.1-04",
       "name": "KMS 키 로테이션 및 상태 점검",
       "judgment_source": "aws_api",
@@ -165,10 +115,19 @@
           "operator": "kms_key_rotation",
           "require_enabled": true,
           "require_rotation": true,
-          "approved_key_specs": ["SYMMETRIC_DEFAULT", "RSA_2048", "RSA_3072", "RSA_4096"]
+          "approved_key_specs": [
+            "SYMMETRIC_DEFAULT",
+            "RSA_2048",
+            "RSA_3072",
+            "RSA_4096"
+          ]
         },
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.7.1", "match_strength": "direct" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.7.1",
+            "match_strength": "direct"
+          }
         ],
         "automation_coverage": {
           "percentage": 90,
