@@ -1639,19 +1639,16 @@ func applyReviewDemotion(grr *grc.RuleResult, def *Rule) {
 	}
 
 	normID := strings.Replace(grr.RuleID, "-POD-", "-", 1)
-	demote := demoteToReviewOverride[normID]
 
-	if !demote && def != nil && def.ManualCheckOutput != nil {
-		mco := def.ManualCheckOutput
-		if len(mco.AlternativeControls) > 0 || !hasDirectMapping(mco.ComplianceMappings) {
-			demote = true
-		}
-	}
-
-	if demote {
-		grr.Reason = fmt.Sprintf("R 자동측정: %s → 수동 검토 필요 (대체통제/클러스터 외 충족 가능 — 확인불가)", grr.Verdict)
+	// 명시적 화이트리스트(demoteToReviewOverride)만 NEEDS_REVIEW로 강등한다.
+	// AlternativeControls 존재/non-direct 매핑 '가능성'만으로는 강등하지 않는다:
+	// off-cluster 보완통제는 증적이 확인된 경우에만 GL/증적 레이어에서 충족으로 인정하고,
+	// 그 전까지 자동측정 미준수는 NOT_MET을 유지한다(거짓 준수 방지 — 2.6.1 등).
+	if demoteToReviewOverride[normID] {
+		grr.Reason = fmt.Sprintf("R 자동측정: %s → 수동 검토 필요 (명시적 review 대상)", grr.Verdict)
 		grr.Verdict = grc.VerdictNEEDS_REVIEW
 	}
+	_ = def // AlternativeControls/매핑은 verdict에 영향 주지 않고 안내 필드로만 유지
 }
 
 // enrichManualOutput copies absorbed F-finding metadata (ARI/MCA/AC/KDC/etc.) into

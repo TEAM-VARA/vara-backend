@@ -22,8 +22,10 @@ func isms213RulesetDir(t *testing.T) string {
 	return filepath.Join(root, "rulesets")
 }
 
-// 출시본 isms_p_2.1.3.json이 파싱되고, R-2.1.3-01/02가 operator로 디스패치되며,
-// 기존 GL01/GL02가 보존됨을 end-to-end로 확인한다 (JSON 스키마 회귀 가드).
+// 출시본 isms_p_2.1.3.json이 파싱되고, 가이드라인 룰(GL01/GL02)이 보존됨을
+// end-to-end로 확인한다 (JSON 스키마 회귀 가드).
+// R-2.1.3-01/02는 shipping 룰셋에 없다(LBL 흡수/제외). 평가 로직은
+// TestRuleISMSP213_01_Coverage_* / TestRuleISMSP213_02_AdmissionPolicy_NoData가 별도 커버한다.
 func TestRuleISMSP213_ShippedRulesetEndToEnd(t *testing.T) {
 	store := NewRulesetStore(isms213RulesetDir(t))
 	rs, err := store.Load("2.1.3")
@@ -35,27 +37,14 @@ func TestRuleISMSP213_ShippedRulesetEndToEnd(t *testing.T) {
 	for _, r := range rs.Rules {
 		byID[r.RuleID] = r
 	}
-	// R-2.1.3-01은 LBL로 흡수되어 shipping 룰셋에 없다(2.5.4가 -03부터 시작하는 것과 동일 패턴).
-	// R-01 평가 로직은 TestRuleISMSP213_01_Coverage_MissingIsNeedsReview가 별도 커버한다.
-	for _, want := range []string{"R-2.1.3-02", "R-2.1.3-GL01", "R-2.1.3-GL02"} {
+	for _, want := range []string{"R-2.1.3-GL01", "R-2.1.3-GL02"} {
 		if _, ok := byID[want]; !ok {
 			t.Fatalf("ruleset missing rule %q (rules: %d)", want, len(rs.Rules))
 		}
 	}
-	if pf := byID["R-2.1.3-02"].PromotedFrom; pf != "LBL-2.1.3-02" {
-		t.Fatalf("R-2.1.3-02 promoted_from = %q, want LBL-2.1.3-02", pf)
-	}
-
-	snap := &ClusterSnapshot{
-		Pods: []postgres.ClusterPodRow{
-			pod("app", "web-abc", map[string]string{"app": "web"}, nil), // 후보 키 전무 → 누락
-		},
-	}
-
-	// R-2.1.3-02: admission 정책 미수집 → NO_DATA (준수 거짓 보고 금지).
-	r02 := evaluateSingleManualRule(byID["R-2.1.3-02"], snap)
-	if r02.Verdict != grc.VerdictNO_DATA {
-		t.Fatalf("R-2.1.3-02 verdict = %q, want NO_DATA", r02.Verdict)
+	// R-2.1.3-02는 출시 룰셋에서 제외되었다 — 재유입 방지 가드.
+	if _, ok := byID["R-2.1.3-02"]; ok {
+		t.Fatalf("R-2.1.3-02 should not be shipped in the 2.1.3 ruleset")
 	}
 }
 

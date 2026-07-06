@@ -15,6 +15,13 @@ type BlastEdge struct {
 	TargetName string  // 도달 대상 Pod 이름
 	RBACProb   float64 // p_rbac. win_channel이 host/network라도 >0이면 rbac 측면이동 권한이 실재.
 	NetProb    float64 // p_net. win_channel이 host/rbac라도 >0이면 네트워크 도달이 실재 → NetworkPolicy 권고 대상.
+
+	// 대상 Pod의 대표 CVE (network 측면이동 게이트용). 네트워크로 "도달"만으로는 이동이 성립하지 않고,
+	// 대상에 원격(AV:N) + RCE(impact) 취약점이 있어야 실제 침투·이동이 가능하다. 서비스가 채운다.
+	TargetPodUID    string // 대상 Pod UID (대상 CVE 조회 키)
+	TargetTopCVE    string // 대상 Pod 대표 CVE (근거 표기용)
+	TargetCVERemote bool   // 대상 CVE 원격 악용(AV:N)
+	TargetCVEImpact string // 대상 CVE 영향 (RCE|DoS|Info Disclosure|"") — enrichment CWE 도출값
 }
 
 // ScenarioInput — pod 1개의 "이미 수집되는" 신호 모음.
@@ -274,7 +281,7 @@ func blastChannelTech(channel, reason string) (msta, tactic string, ok bool) {
 func blastSentence(msta, sa, targets string) string {
 	switch msta {
 	case "MS-TA9034":
-		return fmt.Sprintf("이 Pod에서 네트워크로 옆 Pod%s까지 직접 도달해 옮겨갈 수 있습니다.", targets)
+		return fmt.Sprintf("이 Pod에서 네트워크로 옆 Pod%s에 도달할 수 있고, 그 Pod에 원격 코드 실행이 가능한 취약점이 있어 침투해 옮겨갈 수 있습니다.", targets)
 	case "MS-TA9006":
 		return fmt.Sprintf("%s 권한으로 다른 컨테이너%s 안에 들어가 명령을 실행할 수 있습니다.", sa, targets)
 	case "MS-TA9018":
@@ -293,13 +300,15 @@ func buildOutgoingFromBlast(edges []BlastEdge, sa, execPerms string) []ScenarioF
 		reason  string   // 대표 근거 (첫 엣지)
 		targets []string // 중복 제거된 타겟 이름
 		seen    map[string]bool
+		cves    []string // 근거 CVE (9034: 게이트를 통과한 대상의 원격 RCE CVE)
+		cveSeen map[string]bool
 	}
 	order := []string{}
 	byTech := map[string]*agg{}
 	addTarget := func(msta, tactic, reason, target string) {
 		a := byTech[msta]
 		if a == nil {
-			a = &agg{tactic: tactic, reason: reason, seen: map[string]bool{}}
+			a = &agg{tactic: tactic, reason: reason, seen: map[string]bool{}, cveSeen: map[string]bool{}}
 			byTech[msta] = a
 			order = append(order, msta)
 		}
@@ -308,11 +317,26 @@ func buildOutgoingFromBlast(edges []BlastEdge, sa, execPerms string) []ScenarioF
 			a.targets = append(a.targets, target)
 		}
 	}
+	addCVE := func(msta, cve string) {
+		if a := byTech[msta]; a != nil && cve != "" && !a.cveSeen[cve] {
+			a.cveSeen[cve] = true
+			a.cves = append(a.cves, cve)
+		}
+	}
 
 	// 1) win_channel(= max 채널) 기준 매핑: network/portforward→9034, exec/nodes-proxy→9006, host→9018.
+	//    단, network 도달 측면이동(9034)은 엄격 게이트: 대상 Pod에 원격(AV:N)+RCE CVE가 확인된 경우에만 인정한다.
+	//    네트워크가 열려 있어도 대상에 원격 코드 실행 취약점이 없으면 실제 이동이 성립하지 않기 때문이다.
+	//    (네트워크 도달 자체는 악용 가능성과 무관하게 NetworkPolicy 보완 권고로 유지된다 — scenario.go collectMitigations 참고.)
 	for _, e := range edges {
 		if msta, tactic, ok := blastChannelTech(e.Channel, e.Reason); ok {
+			if msta == "MS-TA9034" && !(e.TargetCVERemote && e.TargetCVEImpact == "RCE") {
+				continue // 대상에 원격 RCE CVE 미확인 → 측면이동에서 제외 (non-RCE·미확인 모두 제외)
+			}
 			addTarget(msta, tactic, e.Reason, e.TargetName)
+			if msta == "MS-TA9034" {
+				addCVE(msta, e.TargetTopCVE)
+			}
 		}
 	}
 
@@ -339,8 +363,13 @@ func buildOutgoingFromBlast(edges []BlastEdge, sa, execPerms string) []ScenarioF
 		if len(a.targets) > 0 {
 			targets = fmt.Sprintf("인 %s%s", strings.Join(trimN(a.targets, 3), ", "), moreN(len(a.targets), 3))
 		}
+		reason := a.reason
+		if msta == "MS-TA9034" && len(a.cves) > 0 {
+			// 게이트 통과 근거(대상의 원격 RCE CVE)를 caveat에 부기(심사 증적성).
+			reason = "대상 파드의 원격 코드 실행 취약점: " + strings.Join(trimN(a.cves, 3), ", ") + moreN(len(a.cves), 3)
+		}
 		out = append(out, mkFinding(msta, DirOutgoing, a.tactic,
-			blastSentence(msta, sa, targets), "high", a.reason))
+			blastSentence(msta, sa, targets), "high", reason))
 	}
 	return out
 }
@@ -387,13 +416,28 @@ func moreN(n, limit int) string {
 	return ""
 }
 
-// vulnIncomingScenario — 진입(incoming) VULN 줄글(카드용, 딱 1줄). enrichment(설계서 §4)가 있으면
-// "어디에(컴포넌트) 무슨 취약점(클래스)이 있어 무엇(impact)이 가능한지" 한 문장으로 압축한다.
-// CVE 번호·메커니즘·심각도 상세는 카드 배지/상세 패널에 있으므로 줄글에선 생략. 없으면 generic 폴백.
+// vulnIncomingScenario — 진입(incoming) VULN 줄글(카드용, 딱 1줄).
+// enrich 단계에서 cve_enrichment에 저장해 둔 문장(rendered.sentence)이 있으면 그대로 재사용하고,
+// 없으면 즉석 조립(CVEScenarioSentence)한다. enrichment 자체가 없으면 generic 폴백.
 func vulnIncomingScenario(in ScenarioInput) string {
 	e := in.CVEEnrichment
 	if e == nil {
 		return fmt.Sprintf("이 Pod 이미지에 원격 악용이 가능한 %s 취약점이 있어, 공격자가 네트워크로 바로 코드를 실행할 수 있습니다.", cveLabel(in))
+	}
+	// 저장된 문장 재사용(재계산 방지). 구버전 캐시 등으로 비어 있으면 즉석 조립.
+	if e.Rendered != nil && e.Rendered.Sentence != "" {
+		return e.Rendered.Sentence
+	}
+	return CVEScenarioSentence(e)
+}
+
+// CVEScenarioSentence — enrichment 필드만으로 침투경로 CVE 문장(카드용 딱 1줄)을 조립한다.
+// "어디에(컴포넌트) 무슨 취약점(클래스)이 있어 무엇(impact)이 가능한지" 한 문장으로 압축.
+// enrich 단계에서 rendered.sentence로 cve_enrichment에 저장되고, 조회 시 재사용된다.
+// (CVE 번호·메커니즘·심각도 상세는 카드 배지/상세 패널에 있으므로 줄글에선 생략.)
+func CVEScenarioSentence(e *CVEEnrichment) string {
+	if e == nil {
+		return ""
 	}
 
 	// 컴포넌트 + 클래스 (short 우선, 폴백 포함 — 메서드명 생성 금지)
@@ -432,12 +476,10 @@ func vulnIncomingScenario(in ScenarioInput) string {
 	}
 
 	// 카드용 딱 1줄: 어디에 무슨 취약점이 있고 무엇이 가능한지 한 문장만.
-	// (CVE 번호·메커니즘·심각도 상세는 줄글에서 생략 — 카드 배지/상세 패널에 있음)
 	return fmt.Sprintf("이 Pod 이미지의 %s에 %s이 있어, %s%s까지 할 수 있습니다.", comp, kind, access, impact)
 }
 
 // impactLabelKO — enrichment의 impact 코드값을 시나리오 줄글용 한국어 라벨로 바꾼다.
-// DeriveImpact가 내는 값(RCE/DoS/Info Disclosure)만 매핑하고, 그 외는 원문 그대로.
 func impactLabelKO(impact string) string {
 	switch impact {
 	case "RCE":
@@ -451,8 +493,7 @@ func impactLabelKO(impact string) string {
 	}
 }
 
-// cveLabel — 괄호 안에 넣는 CVE 식별자. CVSS/KEV는 enrichment.SeverityNote(LLM이 쉬운 문장으로
-// 풀어 쓴 것)로 별도 서술하므로 여기서는 CVE ID만 남긴다(중복·전문용어 방지).
+// cveLabel — 괄호 안에 넣는 CVE 식별자.
 func cveLabel(in ScenarioInput) string {
 	return in.TopCVE
 }

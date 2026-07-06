@@ -1,4 +1,4 @@
-{
+﻿{
   "schema_version": "4.0.0",
   "isms_p_revision": "2023.11",
   "item": {
@@ -96,56 +96,6 @@
       }
     },
     {
-      "rule_id": "R-2.7.1-02",
-      "name": "ConfigMap 평문 비밀값 점검",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "secret_patterns": [
-        {
-          "name": "password",
-          "regex": "(?i)(password|passwd|pwd)\\s*[:=]\\s*[\"']?[\\w@!#$%^&*-]{6,}"
-        },
-        {
-          "name": "aws_access_key",
-          "regex": "AKIA[0-9A-Z]{16}"
-        },
-        {
-          "name": "private_key",
-          "regex": "-----BEGIN [A-Z ]*PRIVATE KEY-----"
-        },
-        {
-          "name": "secret_token",
-          "regex": "(?i)(secret|token|api[_-]?key)\\s*[:=]\\s*[\"']?[\\w\\-\\.]{16,}"
-        },
-        {
-          "name": "jwt",
-          "regex": "eyJ[\\w-]+\\.[\\w-]+\\.[\\w-]+"
-        }
-      ],
-      "compliance_indicators": [
-        {
-          "field": "configmap_has_secrets",
-          "op": "==",
-          "value": false,
-          "description": "Pod가 참조하는 ConfigMap에 평문 비밀값 없음"
-        }
-      ],
-      "remediation": {
-        "source": {
-          "framework": "보안 best-practice",
-          "version": null,
-          "reference": "Secrets management — ConfigMap 평문 금지",
-          "url": null
-        },
-        "action": "ConfigMap에 담긴 비밀값을 Secret 또는 외부 비밀관리(Secrets Manager/External Secrets)로 이전한다."
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      }
-    },
-    {
       "rule_id": "R-2.7.1-04",
       "name": "KMS 키 로테이션 및 상태 점검",
       "judgment_source": "aws_api",
@@ -165,10 +115,19 @@
           "operator": "kms_key_rotation",
           "require_enabled": true,
           "require_rotation": true,
-          "approved_key_specs": ["SYMMETRIC_DEFAULT", "RSA_2048", "RSA_3072", "RSA_4096"]
+          "approved_key_specs": [
+            "SYMMETRIC_DEFAULT",
+            "RSA_2048",
+            "RSA_3072",
+            "RSA_4096"
+          ]
         },
         "compliance_mappings": [
-          { "framework": "ISMS-P", "item": "2.7.1", "match_strength": "direct" }
+          {
+            "framework": "ISMS-P",
+            "item": "2.7.1",
+            "match_strength": "direct"
+          }
         ],
         "automation_coverage": {
           "percentage": 90,
@@ -341,6 +300,42 @@
           "미충족",
           "확인불가"
         ]
+      }
+    },
+    {
+      "rule_id": "R-2.7.1-05",
+      "name": "Secret을 환경변수 대신 파일로 소비",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "risk_scope": "pod",
+      "description": "워크로드 컨테이너가 Secret을 환경변수(env[].valueFrom.secretKeyRef 또는 envFrom[].secretRef)로 주입하지 않고 볼륨 마운트로 소비한다. env 노출은 로그·프로세스 목록·크래시 덤프에 유출되기 쉬워 파일 마운트를 권고.",
+      "compliance_indicators": [
+        {
+          "field": "containers[].env[].valueFrom.secretKeyRef",
+          "op": "==",
+          "value": null,
+          "description": "개별 Secret 키를 env로 주입(secretKeyRef)하지 않음"
+        },
+        {
+          "field": "containers[].envFrom[].secretRef",
+          "op": "==",
+          "value": null,
+          "description": "Secret 전체를 env로 주입(envFrom.secretRef)하지 않음"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v2.0.0",
+          "reference": "§4.4.1 Prefer using secrets as files over secrets as environment variables (Automated)",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "Secret을 env(secretKeyRef/envFrom.secretRef) 대신 볼륨 마운트 또는 Secrets Store CSI Driver로 읽도록 워크로드를 재작성한다."
       }
     }
   ],

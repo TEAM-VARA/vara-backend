@@ -25,7 +25,8 @@ const EnrichmentTTL = 7 * 24 * time.Hour
 // EnrichmentExtractorVersion — 추출 파이프라인 버전. 프롬프트/스키마 변경 시 올려 캐시 무효화.
 // v2: rendered.card(T0 노드 카드 한 줄) 추가 — v1 캐시는 카드가 없어 재추출 필요.
 // v3: 서술 필드 한국어화(약어 풀어쓰기) + severity_note(CVSS/KEV 쉬운 설명 문장) 추가 — v2 캐시 재추출 필요.
-const EnrichmentExtractorVersion = "v3"
+// v4: rendered.sentence(침투경로 CVE 문장) 추가 — v3 캐시 재추출 필요(문장은 기존 필드에서 도출되므로 LLM 재호출 결과는 동일).
+const EnrichmentExtractorVersion = "v4"
 
 // ConfidenceUnconfirmed — L2(config/reachability) 미구현 동안 모든 enrichment의 기본 confidence.
 // 비대칭 원칙(설계서 §2-5): 미확인 ≠ 안전. 강등/dismiss 하지 않는다.
@@ -89,10 +90,13 @@ type CVEEnrichment struct {
 	Rendered *RenderedText `json:"rendered,omitempty"`
 }
 
-// RenderedText — T0 노드 카드용 CVE-intrinsic 한 줄 (신뢰도 배지·pod 상태 제외).
+// RenderedText — T0 노드 카드용 CVE-intrinsic 렌더 결과 (신뢰도 배지·pod 상태 제외).
 type RenderedText struct {
 	Lang string `json:"lang,omitempty"`
 	Card string `json:"card"`
+	// Sentence — 침투경로(공격 시나리오)에 출력하는 CVE 문장 1줄. enrich 단계에서 조립해
+	// cve_enrichment에 저장하고 조회 시 재사용한다(재계산 방지). CVEScenarioSentence로 생성.
+	Sentence string `json:"sentence,omitempty"`
 }
 
 // MechanismSpan — mechanism 조립에 쓰인 advisory 연속 span (검증 증적).

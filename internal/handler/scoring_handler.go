@@ -90,7 +90,7 @@ func (h *ScoringHandler) ComputeRisk(c *gin.Context) {
 	// ── ISMS-P 미준수 가산 ──
 	// FinalScore는 "높을수록 위험"이므로 미준수면 점수를 *더한다*(상3/중2/하1).
 	// company_id·cluster_name 쿼리 파라미터가 있으면 그 pod의 ISMS-P 미준수를 합산해
-	// FinalScore에 반영한다(도구 severity 보유 21개 룰 전부 — service.ismspRiskSeverity).
+	// FinalScore에 반영한다(도구 severity 보유 18개 룰 전부 — service.ismspRiskSeverity).
 	// 없으면 기존 동작 그대로(스킵).
 	var ismspRisk *service.ISMSPRiskBreakdown
 	if h.grc != nil {
@@ -107,7 +107,7 @@ func (h *ScoringHandler) ComputeRisk(c *gin.Context) {
 	// DB 저장 (ISMS-P 가산이 반영된 FinalScore로 저장)
 	if err := h.repo.SaveScoring(
 		ctx, podID, req.ImageName, req.ImageDigest,
-		result, comp.Details, digestCheck,
+		result, comp.Details, digestCheck, ismspRisk.ToDomain(),
 	); err != nil {
 		fmt.Printf("warn: save scoring failed: %v\n", err)
 	}

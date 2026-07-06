@@ -263,6 +263,12 @@ func collectMitigations(fs []ScenarioFinding, netTargets []string) []ScenarioMit
 			MSM:    f.MSM,
 		})
 	}
+	// network 측면이동(9034) finding이 엄격 게이트(대상 원격 RCE 미확인)로 제외됐더라도, 네트워크 도달
+	// 대상이 있으면 NetworkPolicy 하드닝 권고는 유지한다(하드닝은 현재 악용 가능성과 무관). 9034 미방출 시에만.
+	if !seen["MS-TA9034"] && len(netTargets) > 0 {
+		base := mkFinding("MS-TA9034", DirOutgoing, TacticLateral, "", "high", "")
+		out = append(out, networkPolicyMitigations(base, netTargets)...)
+	}
 	return out
 }
 

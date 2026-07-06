@@ -191,6 +191,9 @@ type BreakdownISMSP struct {
 // BreakdownISMSPRule은 가산에 기여한 개별 ISMS-P 룰이다.
 type BreakdownISMSPRule struct {
 	RuleID    string  `json:"rule_id"`
+	Name      string  `json:"name"`      // 사람이 읽는 룰 이름(표시용)
+	ItemID    string  `json:"item_id"`   // ISMS-P 항목 번호(예: 2.5.5)
+	ItemName  string  `json:"item_name"` // ISMS-P 항목명(예: 특수 계정 및 권한 관리)
 	Severity  string  `json:"severity"`  // 상/중/하
 	Weight    float64 `json:"weight"`    // 3/2/1
 	Inherited bool    `json:"inherited"` // 계정/클러스터 공통 결함(상속) 투영분

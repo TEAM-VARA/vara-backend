@@ -99,6 +99,6 @@
   ],
   "evaluation_strategy": {
     "overall_verdict_logic": "any_fail_is_non_compliant",
-    "description": "책임소재는 자기증명(라벨 존재)만으로 판정하지 않는다. R-2.1.3-01은 조직 컨벤션 라벨 키(team/owner/cost-center 등, fields로 조정)로 *커버리지·누락*을 보고 누락 워크로드가 있으면 검토필요(전부 있어도 외부 CMDB/CODEOWNERS 대조 안내를 항상 노출). R-2.1.3-02는 Kyverno/Gatekeeper가 해당 라벨을 배포 시점에 *강제*하는지를 보며, admission 정책 미수집 시 NO_DATA(준수로 거짓 보고 금지). 라벨 값의 정확성은 외부 CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 reconcile해 확정한다."
+    "description": "책임소재는 자기증명(라벨 존재)만으로 판정하지 않는다. R-2.1.3-01은 조직 컨벤션 라벨 키(team/owner/cost-center 등, fields로 조정)로 *커버리지·누락*을 보고 누락 워크로드가 있으면 검토필요(전부 있어도 외부 CMDB/CODEOWNERS 대조 안내를 항상 노출). 라벨 값의 정확성은 외부 CMDB/ITSM·Git CODEOWNERS·배포 파이프라인 팀과 reconcile해 확정한다."
   }
 }

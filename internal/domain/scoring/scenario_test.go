@@ -79,12 +79,18 @@ func TestBuildPodScenario_BlastOutgoing(t *testing.T) {
 		// 휴리스틱이라면 9034(NetworkPolicy 없음)·9006(exec)가 떴겠지만 blast가 있으면 대체된다.
 		NetworkIsolation: "none",
 		CanExec:          true,
+		// network/portforward(9034) 엣지는 엄격 게이트를 통과하도록 대상에 원격 RCE CVE를 부여.
 		ReachEdges: []BlastEdge{
-			{Channel: "network", Reason: "network: same-ns no netpol", TargetName: "db-pod"},
-			{Channel: "network", Reason: "network: ...", TargetName: "cache-pod"},
-			{Channel: "network", Reason: "network: ...", TargetName: "queue-pod"},
-			{Channel: "network", Reason: "network: ...", TargetName: "log-pod"}, // 4번째 → "외 N개"
-			{Channel: "rbac", Reason: "rbac: portforward svc/api", TargetName: "gw-pod"},
+			{Channel: "network", Reason: "network: same-ns no netpol", TargetName: "db-pod",
+				TargetTopCVE: "CVE-2024-1111", TargetCVERemote: true, TargetCVEImpact: "RCE"},
+			{Channel: "network", Reason: "network: ...", TargetName: "cache-pod",
+				TargetTopCVE: "CVE-2024-2222", TargetCVERemote: true, TargetCVEImpact: "RCE"},
+			{Channel: "network", Reason: "network: ...", TargetName: "queue-pod",
+				TargetCVERemote: true, TargetCVEImpact: "RCE"},
+			{Channel: "network", Reason: "network: ...", TargetName: "log-pod", // 4번째 → "외 N개"
+				TargetCVERemote: true, TargetCVEImpact: "RCE"},
+			{Channel: "rbac", Reason: "rbac: portforward svc/api", TargetName: "gw-pod",
+				TargetCVERemote: true, TargetCVEImpact: "RCE"},
 			{Channel: "rbac", Reason: "rbac: exec/attach ns=prod", TargetName: "admin-pod"},
 			{Channel: "host", Reason: "host: shared node ip-10-0-1-5", TargetName: "node-mate"},
 		},
@@ -116,17 +122,17 @@ func TestBuildPodScenario_BlastOutgoing(t *testing.T) {
 		t.Errorf("9006 중복 방출: %d건 (blast + 능력 dedup 실패)", count9006)
 	}
 
-	// 9034: blast 줄글(직접 도달)이어야 하고, 휴리스틱 줄글(NetworkPolicy 없음)이면 안 된다.
+	// 9034: network+CVE 결합 줄글(대상에 원격 코드 실행 취약점)이어야 하고, 휴리스틱 줄글이면 안 된다.
 	net := byMSTA["MS-TA9034"]
-	if !strings.Contains(net.Scenario, "직접 도달") {
-		t.Errorf("9034 blast 줄글 아님: %q", net.Scenario)
+	if !strings.Contains(net.Scenario, "원격 코드 실행") {
+		t.Errorf("9034 network+CVE 결합 줄글 아님: %q", net.Scenario)
 	}
 	if strings.Contains(net.Scenario, "NetworkPolicy가 없어") {
 		t.Errorf("9034가 휴리스틱 줄글로 폴백됨: %q", net.Scenario)
 	}
-	// 대표 근거(첫 엣지 reason)가 caveat에 실린다.
-	if net.Caveat != "network: same-ns no netpol" {
-		t.Errorf("9034 대표 reason 불일치: %q", net.Caveat)
+	// 게이트 통과 근거(대상의 원격 RCE CVE)가 caveat에 실린다.
+	if !strings.Contains(net.Caveat, "CVE-2024-1111") {
+		t.Errorf("9034 대상 RCE CVE 근거 누락: %q", net.Caveat)
 	}
 	// 타겟은 최대 3개만 노출 + "외 N개" 꼬리표 (network 4 + portforward 1 = 5개 → 외 2개).
 	if !strings.Contains(net.Scenario, "db-pod") || !strings.Contains(net.Scenario, "외 2개") {
@@ -139,6 +145,59 @@ func TestBuildPodScenario_BlastOutgoing(t *testing.T) {
 	// 9006(rbac exec)은 도달 대상 이름을 포함한다.
 	if !strings.Contains(byMSTA["MS-TA9006"].Scenario, "admin-pod") {
 		t.Errorf("9006 타겟 누락: %q", byMSTA["MS-TA9006"].Scenario)
+	}
+}
+
+// 엄격 게이트: network 도달만으로는 측면이동(9034)을 내지 않고, 대상 Pod에 원격 RCE CVE가 확인돼야 낸다.
+// 단, 네트워크 도달 자체에 대한 NetworkPolicy 보완 권고는 게이트와 무관하게 유지된다.
+func TestBuildPodScenario_NetworkLateralGatedByRCE(t *testing.T) {
+	// (1) 대상에 원격 RCE CVE 없음(미확인 또는 non-RCE) → 9034 측면이동 없음, NetworkPolicy 권고는 유지.
+	inNoRCE := ScenarioInput{
+		PodName: "p", PodUID: "u", Namespace: "prod", ServiceAccount: "sa",
+		ReachEdges: []BlastEdge{
+			{Channel: "network", Reason: "network: same-ns", TargetName: "db-pod", NetProb: 0.9}, // CVE 미확인
+			{Channel: "network", Reason: "network: same-ns", TargetName: "cache-pod", NetProb: 0.9,
+				TargetTopCVE: "CVE-X", TargetCVERemote: true, TargetCVEImpact: "DoS"}, // 원격이지만 non-RCE
+		},
+	}
+	r := BuildPodScenario(inNoRCE)
+	for _, f := range r.Outgoing {
+		if f.MSTA == "MS-TA9034" {
+			t.Fatalf("원격 RCE 없는 network 도달인데 9034 측면이동이 방출됨: %q", f.Scenario)
+		}
+	}
+	np := 0
+	for _, m := range r.Mitigations {
+		if m.MSTA == "MS-TA9034" && m.Target != "" {
+			np++
+		}
+	}
+	if np != 2 {
+		t.Errorf("게이트로 9034가 빠져도 NetworkPolicy 권고는 유지돼야 함: got %d, want 2 (db/cache)", np)
+	}
+
+	// (2) 대상에 원격 RCE CVE 확인 → 9034 측면이동 방출(결합 줄글 + CVE 근거).
+	inRCE := ScenarioInput{
+		PodName: "p", PodUID: "u", Namespace: "prod", ServiceAccount: "sa",
+		ReachEdges: []BlastEdge{
+			{Channel: "network", Reason: "network: same-ns", TargetName: "victim",
+				TargetTopCVE: "CVE-2025-24813", TargetCVERemote: true, TargetCVEImpact: "RCE"},
+		},
+	}
+	var got ScenarioFinding
+	for _, f := range BuildPodScenario(inRCE).Outgoing {
+		if f.MSTA == "MS-TA9034" {
+			got = f
+		}
+	}
+	if got.MSTA != "MS-TA9034" {
+		t.Fatalf("원격 RCE 대상인데 9034가 방출되지 않음")
+	}
+	if !strings.Contains(got.Scenario, "victim") || !strings.Contains(got.Scenario, "원격 코드 실행") {
+		t.Errorf("9034 결합 줄글 형식 오류: %q", got.Scenario)
+	}
+	if !strings.Contains(got.Caveat, "CVE-2025-24813") {
+		t.Errorf("9034 CVE 근거 누락: %q", got.Caveat)
 	}
 }
 

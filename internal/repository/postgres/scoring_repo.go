@@ -77,6 +77,7 @@ func (r *ScoringRepo) SaveScoring(
 	result scoring.Result,
 	details []scoring.CVEDetail,
 	digestCheck *scoring.DigestCheckDetail,
+	ismspRisk *scoring.ISMSPRisk,
 ) error {
 	resultJSON, _ := json.Marshal(result)
 	detailsJSON, _ := json.Marshal(details)
@@ -84,22 +85,27 @@ func (r *ScoringRepo) SaveScoring(
 	if digestCheck != nil {
 		digestJSON, _ = json.Marshal(digestCheck)
 	}
+	var ismspJSON []byte
+	if ismspRisk != nil {
+		ismspJSON, _ = json.Marshal(ismspRisk)
+	}
 
 	const q = `
 		INSERT INTO risk_scoring_results
-		  (pod_id, image_name, image_digest, result_json, details_json, digest_check_json, computed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		  (pod_id, image_name, image_digest, result_json, details_json, digest_check_json, ismsp_risk_json, computed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (pod_id) DO UPDATE SET
 		  image_name = EXCLUDED.image_name,
 		  image_digest = EXCLUDED.image_digest,
 		  result_json = EXCLUDED.result_json,
 		  details_json = EXCLUDED.details_json,
 		  digest_check_json = EXCLUDED.digest_check_json,
+		  ismsp_risk_json = EXCLUDED.ismsp_risk_json,
 		  computed_at = EXCLUDED.computed_at
 	`
 	_, err := r.pg.Exec(ctx, q,
 		podID, imageName, imageDigest,
-		resultJSON, detailsJSON, digestJSON,
+		resultJSON, detailsJSON, digestJSON, ismspJSON,
 		time.Now(),
 	)
 	return err
@@ -108,17 +114,17 @@ func (r *ScoringRepo) SaveScoring(
 // GetScoring : 저장된 점수 조회
 func (r *ScoringRepo) GetScoring(ctx context.Context, podID string) (*scoring.DetailsResponse, error) {
 	const q = `
-		SELECT image_name, image_digest, result_json, details_json, digest_check_json, computed_at
+		SELECT image_name, image_digest, result_json, details_json, digest_check_json, ismsp_risk_json, computed_at
 		FROM risk_scoring_results
 		WHERE pod_id = $1
 	`
 	var imageName, imageDigest string
-	var resultJSON, detailsJSON, digestJSON []byte
+	var resultJSON, detailsJSON, digestJSON, ismspJSON []byte
 	var computedAt time.Time
 
 	err := r.pg.QueryRow(ctx, q, podID).Scan(
 		&imageName, &imageDigest,
-		&resultJSON, &detailsJSON, &digestJSON,
+		&resultJSON, &detailsJSON, &digestJSON, &ismspJSON,
 		&computedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -140,6 +146,12 @@ func (r *ScoringRepo) GetScoring(ctx context.Context, podID string) (*scoring.De
 		var dc scoring.DigestCheckDetail
 		if err := json.Unmarshal(digestJSON, &dc); err == nil {
 			resp.DigestCheck = &dc
+		}
+	}
+	if len(ismspJSON) > 0 {
+		var ir scoring.ISMSPRisk
+		if err := json.Unmarshal(ismspJSON, &ir); err == nil {
+			resp.ISMSPRisk = &ir
 		}
 	}
 	return resp, nil

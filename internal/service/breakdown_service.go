@@ -208,6 +208,9 @@ func buildISMSPSection(b *ISMSPRiskBreakdown) *scoring.BreakdownISMSP {
 	for _, r := range b.Rules {
 		rules = append(rules, scoring.BreakdownISMSPRule{
 			RuleID:    r.RuleID,
+			Name:      r.Name,
+			ItemID:    r.ItemID,
+			ItemName:  r.ItemName,
 			Severity:  r.Severity,
 			Weight:    r.Weight,
 			Inherited: r.Inherited,
