@@ -42,11 +42,12 @@ type RemediationItem struct {
 
 // 입력(전부 plain data — repo 결합 없음). 서비스가 채워 넣는다.
 type CVEItem struct {
-	ID       string  // CVE-2025-1234
-	Score    float64 // 이 CVE의 global score (0~100)
-	Severity string
-	Fixed    string // 패치 버전(있으면)
-	Package  string // 이 CVE를 포함한 패키지명 (Trivy PkgName, OSV는 빈 값일 수 있음)
+	ID        string  // CVE-2025-1234
+	Score     float64 // 이 CVE의 global score (0~100)
+	Severity  string
+	Fixed     string // 업데이트해야 하는(패치) 버전(있으면)
+	Installed string // 현재 설치된(취약) 버전 (Trivy InstalledVersion)
+	Package   string // 이 CVE를 포함한 패키지명 (Trivy PkgName, OSV는 빈 값일 수 있음)
 }
 
 type PermItem struct {

@@ -1040,6 +1040,27 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 		case "검토필요":
 			if item.NeedsReview > 0 {
 				item.Note = fmt.Sprintf("%d개 룰 검토 필요 (자동 판단 불가, 수동 확인 권장)", item.NeedsReview)
+				// 왜 검토필요인지 — 검토필요 룰들의 실제 사유를 붙인다 (미준수의 '원인'과 동일 패턴)
+				reasons := map[string]bool{}
+				for _, rr := range collectItemRuleResults(item) {
+					if grc.NormalizeVerdict(rr.Verdict) != grc.VerdictNEEDS_REVIEW {
+						continue
+					}
+					msg := rr.Reason
+					if msg == "" {
+						msg = rr.FailMessage
+					}
+					if msg != "" {
+						reasons[msg] = true
+					}
+				}
+				if rl := mapKeys(reasons); len(rl) > 0 {
+					top := rl
+					if len(top) > 3 {
+						top = top[:3]
+					}
+					item.Note += " — 사유: " + strings.Join(top, "; ")
+				}
 			} else if item.NoData > 0 || item.Indeterminate > 0 {
 				item.Note = fmt.Sprintf("데이터 부족 (NO_DATA %d건, 확인불가 %d건) — 수동 확인 권장", item.NoData, item.Indeterminate)
 			} else {
@@ -1068,12 +1089,39 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 				}
 			}
 			if len(indicators) > 0 {
-				item.Note += " — " + strings.Join(indicators, "; ")
+				item.Note += " — 근거: " + strings.Join(indicators, "; ")
 			}
 		case "해당없음":
 			item.Note = fmt.Sprintf("점검 대상 리소스 부재 (%d건) — 해당 환경에 적용되지 않는 항목 (준수 아님)", item.NotApplicable)
 		case "데이터없음":
-			item.Note = "아직 평가되지 않은 항목 — 클러스터 평가 또는 GL 점검 실행 필요"
+			rrs := collectItemRuleResults(item)
+			if len(rrs) == 0 {
+				item.Note = "아직 평가되지 않은 항목 — 클러스터 평가 또는 GL 점검 실행 필요"
+			} else {
+				// 룰은 있으나 전부 판정 불가 — 왜(사유) + K8s 밖 확인처를 함께 안내
+				reasons := map[string]bool{}
+				for _, rr := range rrs {
+					msg := rr.Reason
+					if msg == "" {
+						msg = rr.SkipReason
+					}
+					if msg != "" {
+						reasons[msg] = true
+					}
+				}
+				note := fmt.Sprintf("자동 판정 데이터 없음 — 측정 가능한 K8s 데이터가 없거나 지침/증적 미제공 (룰 %d개)", len(rrs))
+				if rl := mapKeys(reasons); len(rl) > 0 {
+					top := rl
+					if len(top) > 3 {
+						top = top[:3]
+					}
+					note += " — 사유: " + strings.Join(top, "; ")
+				}
+				if h := itemOffClusterHints[item.ISMSPItemID]; h != "" {
+					note += " — 확인처(K8s 밖): " + h
+				}
+				item.Note = note
+			}
 		}
 	}
 	result.NoDataItems = noDataItems
