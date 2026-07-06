@@ -194,7 +194,7 @@ func (s *GRCService) EvaluateClusterFindings(ctx context.Context, req FindingEva
 	var manualRules []Rule
 	for _, rs := range s.rulesetStore.LoadAll() {
 		for _, r := range rs.Rules {
-			if r.IsManual() {
+			if r.IsFindingRule() {
 				manualRules = append(manualRules, r)
 			}
 		}
@@ -513,7 +513,7 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 	manualRuleItemNameMap := map[string]string{} // ruleID → itemName
 	for _, rs := range s.rulesetStore.LoadAll() {
 		for _, r := range rs.Rules {
-			if r.IsManual() {
+			if r.IsFindingRule() {
 				manualRules = append(manualRules, r)
 				manualRuleItemMap[r.RuleID] = rs.Item.ID
 				manualRuleItemNameMap[r.RuleID] = rs.Item.Name
@@ -639,6 +639,8 @@ func (s *GRCService) EvaluateClusterCompliance(ctx context.Context, req ClusterC
 		if s.hasK8sNativeRules(itemID) {
 			if countRLayerFailures(&item) > 0 {
 				item.Verdict = grc.VerdictNOT_MET
+			} else if countRLayerNeedsReview(&item) > 0 {
+				item.Verdict = grc.VerdictNEEDS_REVIEW
 			} else {
 				item.Verdict = grc.VerdictMET
 			}
@@ -968,6 +970,9 @@ func (s *GRCService) GetComplianceOverview(ctx context.Context, companyID, clust
 			if countRLayerFailures(item) > 0 {
 				item.Verdict = "미준수"
 				result.NonCompliantItems++
+			} else if countRLayerNeedsReview(item) > 0 {
+				item.Verdict = "검토필요"
+				result.NeedsReviewItems++
 			} else {
 				item.Verdict = "준수"
 				result.CompliantItems++
@@ -1162,6 +1167,21 @@ func countRLayerFailures(item *grc.ItemComplianceResult) int {
 	n := 0
 	for _, rr := range item.Layers.R {
 		if grc.NormalizeVerdict(rr.Verdict) == grc.VerdictNOT_MET {
+			n++
+		}
+	}
+	return n
+}
+
+// countRLayerNeedsReview: R레이어(K8s 기술룰) 중 NEEDS_REVIEW 개수.
+// 인프라 항목에서 GL/F 레이어 needs_review는 무시하고 R레이어만 항목 verdict에 반영하기 위함.
+func countRLayerNeedsReview(item *grc.ItemComplianceResult) int {
+	if item == nil || item.Layers == nil {
+		return 0
+	}
+	n := 0
+	for _, rr := range item.Layers.R {
+		if grc.NormalizeVerdict(rr.Verdict) == grc.VerdictNEEDS_REVIEW {
 			n++
 		}
 	}
@@ -1666,8 +1686,9 @@ func enrichManualOutput(grr *grc.RuleResult, def *Rule) {
 	}
 
 	isFail := grr.Verdict == grc.VerdictNOT_MET || grr.Verdict == "미준수"
-	if mco.AppliesWhen == "fail" && !isFail {
-		return // potential_finding 출신: R 미충족일 때만 수동점검 컨텍스트 노출
+	isReview := grr.Verdict == grc.VerdictNEEDS_REVIEW || grr.Verdict == "검토필요"
+	if mco.AppliesWhen == "fail" && !isFail && !isReview {
+		return // 미충족 또는 검토필요일 때만 수동점검 컨텍스트 노출
 	}
 
 	// ARI / MCA / AC / offcluster 복사

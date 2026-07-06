@@ -57,6 +57,11 @@ type ScenarioInput struct {
 	CanDeleteEvents     bool
 	IsClusterAdmin      bool
 
+	// SA 토큰 실제 마운트 여부(Pod∧SA automount 실측, agent.IsSATokenMounted).
+	// nil=미측정(기본 마운트 가정). false면 토큰 미마운트 → SA 권한이 있어도
+	// 그 토큰으로 API 인증하는 측면이동(9016)은 성립하지 않는다.
+	SATokenMounted *bool
+
 	// RBAC 근거 권한(verb/resource). 채워지면 해당 finding의 caveat에 부기한다(심사 증적성).
 	// 예: "create deployments, create jobs". 정밀(rbacchain) 경로에서만 채워짐.
 	CreateWorkloadPerms string
@@ -103,18 +108,27 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 	}
 
 	// ───────── 진입 (incoming) ─────────
+	// 외부 초기 침투는 "외부 도달(노출) AND 네트워크 악용(원격 AV:N CVE)"이 함께일 때만 성립하는 결합 게이트다.
+	//   - 노출(9005)은 "외부 도달 가능"(reachability)만 표기한다 — 실제 침투 주장은 원격 악용 취약점이 있어야 한다.
+	//     (단 노출 자체가 무인증 민감 인터페이스면 노출만으로 침투 경로가 되므로 caveat로 고지한다.)
+	//   - 원격 CVE 진입(VULN)은 노출된 경우에만 방출한다 — 비노출 원격 CVE는 외부 도달이 불가하므로 초기 침투가 아니다.
+	//     (그 CVE는 다른 Pod가 이 Pod로 오는 network 측면이동의 '대상 RCE'로 평가된다 — buildOutgoingFromBlast 게이트.)
 	if in.Exposed {
 		via := in.ExposedVia
 		if via == "" {
 			via = "외부에 노출된"
 		}
+		caveat := ""
+		if !(in.TopCVE != "" && in.CVERemote) {
+			caveat = "외부 도달은 가능하나 악용 가능한 원격 취약점은 미확인 (무인증 민감 인터페이스면 노출 자체가 침투 경로)"
+		}
 		fs = append(fs, mkFinding("MS-TA9005", DirIncoming, TacticInitialAccess,
-			fmt.Sprintf("이 Pod이 %s 상태라, 공격자가 클러스터 밖에서 직접 접근해 처음 침투할 수 있습니다.", via),
-			"high", ""))
+			fmt.Sprintf("이 Pod이 %s 상태라, 공격자가 클러스터 밖에서 직접 접근할 수 있습니다.", via),
+			"high", caveat))
 	}
-	if in.TopCVE != "" && in.CVERemote {
+	if in.Exposed && in.TopCVE != "" && in.CVERemote {
 		f := mkFinding("VULN", DirIncoming, TacticInitialAccess,
-			vulnIncomingScenario(in), "heuristic", "CVSS 벡터(AV:N) 기반 추정")
+			vulnIncomingScenario(in), "heuristic", "외부 노출 + 원격(AV:N) 취약점 결합 (CVSS 벡터 기반 추정)")
 		f.CVE = in.TopCVE
 		f.Enrichment = in.CVEEnrichment // 캐시 hit 시 부착(설계서 §4) — nil이면 omitempty
 		fs = append(fs, f)
@@ -213,11 +227,18 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 			fmt.Sprintf("%s에 워크로드 생성 권한이 있어, 공격자가 새 컨테이너를 띄워 임의 코드를 실행할 수 있습니다.", sa),
 			"high", in.CreateWorkloadPerms))
 	}
-	// 9016: SA 토큰이 과대권한이면 측면 이동 통로
-	if (in.IsClusterAdmin || in.CanListSecrets || in.CanCreateWorkload || in.CanExec) && !emitted["MS-TA9016"] {
+	// 9016: SA 토큰이 과대권한이면 측면 이동 통로.
+	// 단, 토큰이 실제 마운트된 경우만(automount 실측). false면 토큰 파일이 없어
+	// 권한이 있어도 그 토큰으로 API 인증 불가 → 이 경로는 성립하지 않음.
+	tokenMounted := in.SATokenMounted == nil || *in.SATokenMounted
+	if tokenMounted && (in.IsClusterAdmin || in.CanListSecrets || in.CanCreateWorkload || in.CanExec) && !emitted["MS-TA9016"] {
+		caveat := "automountServiceAccountToken 기본값(true) 가정"
+		if in.SATokenMounted != nil {
+			caveat = "automountServiceAccountToken 실측: 토큰 마운트됨"
+		}
 		fs = append(fs, mkFinding("MS-TA9016", DirOutgoing, TacticLateral,
 			fmt.Sprintf("%s 토큰이 API 권한을 갖고 마운트돼 있어, 공격자가 그 토큰으로 API 서버에 인증해 다른 자원으로 이동할 수 있습니다.", sa),
-			"heuristic", "automountServiceAccountToken 기본값(true) 가정"))
+			"heuristic", caveat))
 	}
 
 	// ───────── 분류 + 줄글 조립 ─────────

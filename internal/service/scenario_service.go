@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vara/backend/internal/domain/agent"
 	"github.com/vara/backend/internal/domain/scoring"
 	"github.com/vara/backend/internal/repository/postgres"
 )
@@ -146,6 +147,9 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, companyID, cluster, p
 		if names := hostPathVolumeNames(spec.Volumes); len(names) > 0 {
 			in.HostPathVolumes = names
 		}
+		// SA 토큰 실제 마운트 여부(Pod∧SA automount 실측) — 9016 측면이동 게이트.
+		mounted := agent.IsSATokenMounted(spec.AutomountSAToken, spec.SAAutomountSAToken)
+		in.SATokenMounted = &mounted
 	}
 
 	// ── rbacchain perms: 정밀 verb·resource(create workload / write webhook / delete events) ──

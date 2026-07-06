@@ -333,7 +333,18 @@ func evalSGCrossEnvIngress(base grc.RuleResult, snap *ClusterSnapshot, cond map[
 func evalCloudTrailAuditLogging(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
 	trails := snap.Related.CloudTrailTrails
 	if len(trails) == 0 {
-		return sgNoData(base, "CloudTrail 데이터 미수집 — 감사로그 체계 판단 불가", map[string]any{"trail_total": 0})
+		// 트레일 0개는 "미수집"과 "실제 부재"를 구분한다. 같은 aws-reader 루프에서 수집되는
+		// SG/KMS 스냅샷이 있으면 aws-reader가 정상 동작 중(권한 OK)이라는 뜻이므로, 트레일 0은
+		// 감사로그(시스템 로그·접속기록) 미구성 = 미준수(finding)로 판정한다.
+		// AWS 수집물이 전혀 없으면 aws-reader 미동작 추정 → 판정 불가(NO_DATA).
+		awsCollected := len(snap.Related.SecurityGroups) > 0 || len(snap.Related.KmsKeys) > 0
+		if !awsCollected {
+			return sgNoData(base, "CloudTrail 데이터 미수집 — AWS 수집물 부재(aws-reader 미동작 추정)로 판단 불가", map[string]any{"trail_total": 0})
+		}
+		base.Matched = true
+		base.Observation = "CloudTrail 트레일이 계정/리전에 없음 — 감사로그(시스템 로그·접속기록) 미구성"
+		base.Evidence = map[string]any{"trail_total": 0, "aws_collected": true, "data_provided": true}
+		return base
 	}
 	reqMulti := sgBool(cond, "require_multi_region", true)
 	reqValidation := sgBool(cond, "require_log_validation", true)

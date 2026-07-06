@@ -658,17 +658,18 @@ func (r *ClusterReaderRepo) UpsertRBAC(ctx context.Context, req agent.ClusterRBA
 
 // ClusterPodRow is a DB row from cluster_pods.
 type ClusterPodRow struct {
-	Name           string
-	Namespace      string
-	Node           string
-	ServiceAccount string
-	Labels         json.RawMessage
-	Annotations    json.RawMessage
-	Containers     json.RawMessage
-	Volumes        json.RawMessage
-	HostNetwork    bool
-	HostPID        bool
-	HostIPC        bool
+	Name             string
+	Namespace        string
+	Node             string
+	ServiceAccount   string
+	Labels           json.RawMessage
+	Annotations      json.RawMessage
+	Containers       json.RawMessage
+	Volumes          json.RawMessage
+	HostNetwork      bool
+	HostPID          bool
+	HostIPC          bool
+	AutomountSAToken *bool // null=미설정(기본 마운트). 3상태 유지.
 }
 
 // GetLatestSnapshotAt returns the most recent snapshot_at for a cluster.
@@ -709,7 +710,7 @@ func (r *ClusterReaderRepo) ListPods(
 	}
 
 	// Fetch rows
-	q := `SELECT name, namespace, node, service_account, labels, annotations, containers, volumes, COALESCE(host_network, false), COALESCE(host_pid, false), COALESCE(host_ipc, false)
+	q := `SELECT name, namespace, node, service_account, labels, annotations, containers, volumes, COALESCE(host_network, false), COALESCE(host_pid, false), COALESCE(host_ipc, false), automount_sa_token
 		  FROM cluster_pods WHERE cluster_name = $1 AND snapshot_at = $2`
 	args := []any{clusterName, snapshotAt}
 	argIdx := 3
@@ -734,7 +735,7 @@ func (r *ClusterReaderRepo) ListPods(
 		var p ClusterPodRow
 		var node, sa *string
 		if err := rows.Scan(&p.Name, &p.Namespace, &node, &sa,
-			&p.Labels, &p.Annotations, &p.Containers, &p.Volumes, &p.HostNetwork, &p.HostPID, &p.HostIPC); err != nil {
+			&p.Labels, &p.Annotations, &p.Containers, &p.Volumes, &p.HostNetwork, &p.HostPID, &p.HostIPC, &p.AutomountSAToken); err != nil {
 			return nil, 0, fmt.Errorf("scan pod: %w", err)
 		}
 		if node != nil {
@@ -841,26 +842,26 @@ func (r *ClusterReaderRepo) GetPodMasterByName(ctx context.Context, clusterName,
 
 // ClusterRelatedRows holds related K8s resources from DB for assembling PodGraphRequest.
 type ClusterRelatedRows struct {
-	Services             []map[string]any
-	Ingresses            []map[string]any
-	NetworkPolicies      []map[string]any
-	Workloads            []map[string]any
-	Nodes                []map[string]any
-	ClusterRoles         []map[string]any
-	ClusterRoleBindings  []map[string]any
-	Roles                []map[string]any
-	RoleBindings         []map[string]any
-	ServiceAccounts      []map[string]any
-	Secrets              []map[string]any
-	ConfigMaps           []map[string]any
-	Namespaces           []string
-	NamespacesInCluster  []map[string]any // Full namespace objects with metadata (for finding evaluator)
-	EBPFProcessEvents    []map[string]any
-	ImageVulnerabilities []map[string]any
-	SecurityGroups       []map[string]any // AWS Security Groups (account/region-global, 최신 SG 스냅샷)
-	CloudTrailTrails     []map[string]any // AWS CloudTrail trails (account/region-global, 최신 스냅샷)
-	KmsKeys              []map[string]any // AWS KMS keys (account/region-global, 최신 스냅샷)
-	EKSAuthenticationMode string          // EKS access config: authentication_mode (API|CONFIG_MAP|API_AND_CONFIG_MAP), "" if 미수집
+	Services              []map[string]any
+	Ingresses             []map[string]any
+	NetworkPolicies       []map[string]any
+	Workloads             []map[string]any
+	Nodes                 []map[string]any
+	ClusterRoles          []map[string]any
+	ClusterRoleBindings   []map[string]any
+	Roles                 []map[string]any
+	RoleBindings          []map[string]any
+	ServiceAccounts       []map[string]any
+	Secrets               []map[string]any
+	ConfigMaps            []map[string]any
+	Namespaces            []string
+	NamespacesInCluster   []map[string]any // Full namespace objects with metadata (for finding evaluator)
+	EBPFProcessEvents     []map[string]any
+	ImageVulnerabilities  []map[string]any
+	SecurityGroups        []map[string]any // AWS Security Groups (account/region-global, 최신 SG 스냅샷)
+	CloudTrailTrails      []map[string]any // AWS CloudTrail trails (account/region-global, 최신 스냅샷)
+	KmsKeys               []map[string]any // AWS KMS keys (account/region-global, 최신 스냅샷)
+	EKSAuthenticationMode string           // EKS access config: authentication_mode (API|CONFIG_MAP|API_AND_CONFIG_MAP), "" if 미수집
 }
 
 // GetRelatedResources loads all related K8s resources for a cluster/snapshot/namespace.
@@ -1001,7 +1002,7 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	// ── ServiceAccounts (namespace-scoped) ──
 	{
 		rows, err := r.pg.Query(ctx,
-			`SELECT name, namespace, secrets FROM cluster_service_accounts
+			`SELECT name, namespace, secrets, automount_sa_token FROM cluster_service_accounts
 			 WHERE cluster_name=$1 AND namespace=$3
 			   AND snapshot_at = (
 			       SELECT snapshot_at FROM cluster_service_accounts
@@ -1363,7 +1364,7 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	// ── ServiceAccounts (all namespaces) ──
 	{
 		rows, err := r.pg.Query(ctx,
-			`SELECT name, namespace, secrets FROM cluster_service_accounts
+			`SELECT name, namespace, secrets, automount_sa_token FROM cluster_service_accounts
 			 WHERE cluster_name=$1
 			   AND snapshot_at = (
 			       SELECT snapshot_at FROM cluster_service_accounts
@@ -1901,11 +1902,17 @@ func scanServiceAccountRows(rows pgx.Rows) ([]map[string]any, error) {
 	for rows.Next() {
 		var name, ns string
 		var secrets json.RawMessage
-		if err := rows.Scan(&name, &ns, &secrets); err != nil {
+		var automount *bool
+		if err := rows.Scan(&name, &ns, &secrets, &automount); err != nil {
 			return nil, fmt.Errorf("scan service_account: %w", err)
 		}
 		m := map[string]any{
 			"metadata": map[string]any{"name": name, "namespace": ns, "labels": map[string]any{}},
+		}
+		// K8s ServiceAccount의 automountServiceAccountToken은 오브젝트 최상위 필드.
+		// null(미설정)이면 키를 생략 → 평가기에서 nil=기본 마운트로 해석.
+		if automount != nil {
+			m["automountServiceAccountToken"] = *automount
 		}
 		result = append(result, m)
 	}

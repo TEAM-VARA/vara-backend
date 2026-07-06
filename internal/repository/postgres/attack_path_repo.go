@@ -54,17 +54,19 @@ func (r *AttackPathRepo) LatestSnapshotAt(ctx context.Context, cluster string) (
 
 // PodForAttackPath는 공격 경로 평가에 필요한 Pod 정보입니다.
 type PodForAttackPath struct {
-	PodUID         string
-	Name           string
-	Namespace      string
-	ServiceAccount string
-	PodIP          string
-	Labels         map[string]string
-	Containers     []ContainerInfo // 컨테이너의 securityContext
-	HostNetwork    bool
-	HostPID        bool
-	HostIPC        bool
-	Volumes        []VolumeInfo
+	PodUID             string
+	Name               string
+	Namespace          string
+	ServiceAccount     string
+	PodIP              string
+	Labels             map[string]string
+	Containers         []ContainerInfo // 컨테이너의 securityContext
+	HostNetwork        bool
+	HostPID            bool
+	HostIPC            bool
+	Volumes            []VolumeInfo
+	AutomountSAToken   *bool // Pod 레벨 automountServiceAccountToken (null=미설정)
+	SAAutomountSAToken *bool // 연결 SA 레벨 automountServiceAccountToken (null=미설정)
 }
 
 // ContainerInfo는 보안 컨텍스트 평가에 필요한 컨테이너 정보입니다.
@@ -227,17 +229,24 @@ func (r *AttackPathRepo) GetPodForAttackPathByUID(
 	var labelsRaw, containersRaw, volumesRaw []byte
 	err := r.pool.QueryRow(ctx,
 		`SELECT
-			pod_uid, name, namespace,
-			COALESCE(pod_ip, '') AS pod_ip,
-			COALESCE(service_account, '') AS service_account,
-			COALESCE(labels, '{}'::jsonb) AS labels,
-			COALESCE(containers, '[]'::jsonb) AS containers,
-			COALESCE(volumes, '[]'::jsonb) AS volumes
-		 FROM cluster_pods
-		 WHERE cluster_name = $1 AND snapshot_at = $2 AND pod_uid = $3`,
+			p.pod_uid, p.name, p.namespace,
+			COALESCE(p.pod_ip, '') AS pod_ip,
+			COALESCE(p.service_account, '') AS service_account,
+			COALESCE(p.labels, '{}'::jsonb) AS labels,
+			COALESCE(p.containers, '[]'::jsonb) AS containers,
+			COALESCE(p.volumes, '[]'::jsonb) AS volumes,
+			p.automount_sa_token,
+			sa.automount_sa_token
+		 FROM cluster_pods p
+		 LEFT JOIN cluster_service_accounts sa
+		        ON sa.cluster_name = p.cluster_name
+		       AND sa.namespace    = p.namespace
+		       AND sa.name         = COALESCE(NULLIF(p.service_account, ''), 'default')
+		       AND sa.snapshot_at  = (SELECT MAX(snapshot_at) FROM cluster_service_accounts WHERE cluster_name = p.cluster_name)
+		 WHERE p.cluster_name = $1 AND p.snapshot_at = $2 AND p.pod_uid = $3`,
 		clusterName, snapshotAt, podUID,
 	).Scan(&p.PodUID, &p.Name, &p.Namespace, &p.PodIP, &p.ServiceAccount,
-		&labelsRaw, &containersRaw, &volumesRaw)
+		&labelsRaw, &containersRaw, &volumesRaw, &p.AutomountSAToken, &p.SAAutomountSAToken)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

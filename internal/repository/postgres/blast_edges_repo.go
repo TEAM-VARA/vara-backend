@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vara/backend/internal/blastedge"
+	"github.com/vara/backend/internal/domain/agent"
 )
 
 // BlastEdgesRepo — blast_edges 테이블 적재 + 입력 로딩.
@@ -30,7 +31,8 @@ func NewBlastEdgesRepo(pool *pgxpool.Pool) *BlastEdgesRepo {
 //
 // v1 단순화:
 //   - HostPath = false (privileged-only 탈출 신호; 민감경로 hostPath는 추후)
-//   - HasSAToken = true (automount 기본 true 가정; automount=false 탐지는 추후)
+//   - HasSAToken = Pod∧SA의 automountServiceAccountToken 실측(agent.IsSATokenMounted).
+//     null=미설정=기본 마운트(true). 하나라도 false면 토큰 미마운트 → 탈취 엣지 없음.
 func (r *BlastEdgesRepo) LoadPods(ctx context.Context, cluster string) (map[string]blastedge.PodFact, time.Time, error) {
 	var snap *time.Time
 	if err := r.pool.QueryRow(ctx,
@@ -47,12 +49,19 @@ func (r *BlastEdgesRepo) LoadPods(ctx context.Context, cluster string) (map[stri
 		       COALESCE(p.node, ''), COALESCE(p.phase, ''),
 		       COALESCE(p.service_account, ''),
 		       COALESCE(p.containers, '[]'::jsonb),
-		       COALESCE(f.final_score, 0)
+		       COALESCE(f.final_score, 0),
+		       p.automount_sa_token,
+		       sa.automount_sa_token
 		FROM cluster_pods p
 		LEFT JOIN final_scores f
 		       ON f.cluster_name = p.cluster_name
 		      AND f.pod_uid      = p.pod_uid
 		      AND f.snapshot_at  = (SELECT MAX(snapshot_at) FROM final_scores WHERE cluster_name = p.cluster_name)
+		LEFT JOIN cluster_service_accounts sa
+		       ON sa.cluster_name = p.cluster_name
+		      AND sa.namespace    = p.namespace
+		      AND sa.name         = COALESCE(NULLIF(p.service_account, ''), 'default')
+		      AND sa.snapshot_at  = (SELECT MAX(snapshot_at) FROM cluster_service_accounts WHERE cluster_name = p.cluster_name)
 		WHERE p.cluster_name = $1 AND p.snapshot_at = $2`,
 		cluster, *snap,
 	)
@@ -66,7 +75,8 @@ func (r *BlastEdgesRepo) LoadPods(ctx context.Context, cluster string) (map[stri
 		var uid, name, ns, node, phase, sa string
 		var containersRaw []byte
 		var finalScore float64
-		if err := rows.Scan(&uid, &name, &ns, &node, &phase, &sa, &containersRaw, &finalScore); err != nil {
+		var podAM, saAM *bool
+		if err := rows.Scan(&uid, &name, &ns, &node, &phase, &sa, &containersRaw, &finalScore, &podAM, &saAM); err != nil {
 			return nil, time.Time{}, fmt.Errorf("blast: scan pod: %w", err)
 		}
 
@@ -99,8 +109,8 @@ func (r *BlastEdgesRepo) LoadPods(ctx context.Context, cluster string) (map[stri
 			SANamespace: ns,
 			SAName:      saName,
 			Privileged:  privileged,
-			HostPath:    false, // v1: privileged-only
-			HasSAToken:  true,  // v1: automount 기본 true 가정
+			HostPath:    false,                               // v1: privileged-only
+			HasSAToken:  agent.IsSATokenMounted(podAM, saAM), // Pod∧SA automount 실측 (null=기본 마운트)
 			Risk:        risk,
 		}
 	}

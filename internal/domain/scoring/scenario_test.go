@@ -298,6 +298,54 @@ func TestBuildPodScenario_NetworkPolicyFallbackReachablePods(t *testing.T) {
 	}
 }
 
+// 초기 침투 결합 게이트: 외부 침투는 "노출 AND 원격(AV:N) CVE"가 함께여야 성립한다.
+//   - 노출만: 9005는 '외부 도달 가능'으로만 표기(침투 단정 X), VULN 진입 없음.
+//   - 비노출 원격 CVE: 초기 침투 없음(외부 도달 불가 — 측면이동 대상 RCE로만 평가).
+func TestBuildPodScenario_EntryGatedByExposureAndCVE(t *testing.T) {
+	// (1) 노출 + 원격 CVE → 초기 침투 방출(노출 도달 9005 + 악용 VULN).
+	both := BuildPodScenario(ScenarioInput{
+		PodName: "p", ServiceAccount: "sa", NetworkIsolation: "deny_all",
+		Exposed: true, ExposedVia: "Service(LoadBalancer)로 외부 노출된",
+		TopCVE: "CVE-2025-24813", CVERemote: true,
+	})
+	var has9005, hasVULN bool
+	for _, f := range both.Incoming {
+		if f.MSTA == "MS-TA9005" {
+			has9005 = true
+		}
+		if f.Bucket == "VULN" {
+			hasVULN = true
+		}
+	}
+	if !has9005 || !hasVULN {
+		t.Fatalf("노출+원격CVE인데 초기 침투(9005 도달 + VULN 악용) 누락: %+v", both.Incoming)
+	}
+
+	// (2) 노출만(원격 CVE 없음) → 9005는 '외부 도달 가능'으로만, VULN 진입 없음.
+	expOnly := BuildPodScenario(ScenarioInput{
+		PodName: "p", ServiceAccount: "sa", NetworkIsolation: "deny_all",
+		Exposed: true, ExposedVia: "Service(LoadBalancer)로 외부 노출된",
+	})
+	if len(expOnly.Incoming) != 1 || expOnly.Incoming[0].MSTA != "MS-TA9005" {
+		t.Fatalf("노출만인데 incoming이 9005 단독이 아님: %+v", expOnly.Incoming)
+	}
+	if strings.Contains(expOnly.Incoming[0].Scenario, "침투") {
+		t.Errorf("노출만인데 9005가 '침투'로 단정: %q", expOnly.Incoming[0].Scenario)
+	}
+	if !strings.Contains(expOnly.Incoming[0].Caveat, "미확인") {
+		t.Errorf("노출만 9005 caveat(악용 미확인) 누락: %q", expOnly.Incoming[0].Caveat)
+	}
+
+	// (3) 원격 CVE만(비노출) → 초기 침투 없음(외부 도달 불가).
+	cveOnly := BuildPodScenario(ScenarioInput{
+		PodName: "p", ServiceAccount: "sa", NetworkIsolation: "deny_all",
+		TopCVE: "CVE-2025-24813", CVERemote: true,
+	})
+	if len(cveOnly.Incoming) != 0 {
+		t.Errorf("비노출 원격 CVE인데 초기 침투 방출됨: %+v", cveOnly.Incoming)
+	}
+}
+
 // 신호 없는 pod: 폴백 메시지
 func TestBuildPodScenario_Empty(t *testing.T) {
 	r := BuildPodScenario(ScenarioInput{PodName: "clean", NetworkIsolation: "deny_all"})

@@ -176,71 +176,10 @@
           "확인불가"
         ]
       }
-    },
-    {
-      "rule_id": "R-2.6.3-01",
-      "name": "워크로드 생성 권한 최소화 (pods/워크로드 create)",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "dangerous_verb_combinations": [
-        {
-          "name": "workload_create",
-          "verbs": [
-            "create"
-          ],
-          "resources": [
-            "pods",
-            "deployments",
-            "daemonsets",
-            "statefulsets",
-            "replicasets",
-            "replicationcontrollers",
-            "jobs",
-            "cronjobs"
-          ],
-          "risk": "임의 워크로드(Pod 등) 무단 배포·기동 — 응용프로그램 접근권한 우회"
-        }
-      ],
-      "compliance_indicators": [
-        {
-          "field": "has_pod_create_permission",
-          "op": "==",
-          "value": false,
-          "description": "Pod/워크로드 직접 create 권한 미보유 (응용프로그램 접근권한 최소화)"
-        }
-      ],
-      "remediation": {
-        "source": {
-          "framework": "CIS Amazon EKS Benchmark",
-          "version": "v1.7.0+",
-          "reference": "§4 RBAC — Minimize access to create pods",
-          "url": "https://www.cisecurity.org/benchmark/kubernetes"
-        },
-        "action": "pods/워크로드 직접 create 권한을 최소화하고 배포는 컨트롤러·파이프라인 경유로 제한한다."
-      },
-      "exception_check": {
-        "annotation": "rbac-exception/justification",
-        "system_namespaces": [
-          "kube-system",
-          "kube-node-lease"
-        ]
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required"
-      },
-      "source_reference": {
-        "framework": "CIS Amazon EKS Benchmark",
-        "control": "4.1.4",
-        "basis": "Minimize access to create pods — 워크로드 생성 권한 최소화"
-      },
-      "manual_check_output": {
-        "applies_when": "fail"
-      }
     }
   ],
   "evaluation_strategy": {
     "overall_verdict_logic": "any_fail_is_non_compliant",
-    "description": "GL(문서) 룰 + k8s_api 룰(R-2.6.3-01 워크로드 생성 권한 최소화)이 모두 PASS여야 항목 충족"
+    "description": "GL(문서) 룰이 모두 PASS여야 항목 충족 (기술 자동점검 룰 없음 — 워크로드 생성 권한 룰 R-2.6.3-01은 K8s 인프라 RBAC 특성상 2.5.5 특수 권한으로 이관, R-2.5.5-08)"
   }
 }

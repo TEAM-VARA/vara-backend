@@ -33,7 +33,7 @@ func TestAttachISMSReductions(t *testing.T) {
 		{RuleID: "R-2.10.8-04", Severity: "상", Weight: 3},   // → cve:image
 		{RuleID: "R-2.5.5-01", Severity: "상", Weight: 3},    // → rbac:sa
 		{RuleID: "R-2.5.5-02", Severity: "상", Weight: 3},    // → rbac:sa
-		{RuleID: "R-2.6.3-01", Severity: "중", Weight: 2},    // → rbac:sa (워크로드 create 권한, 합 8)
+		{RuleID: "R-2.5.5-08", Severity: "중", Weight: 2},    // → rbac:sa (워크로드 create 권한, 합 8)
 		{RuleID: "R-2.6.1-01", Severity: "상", Weight: 3},    // → mount:pod
 		{RuleID: "R-2.6.1-02", Severity: "중", Weight: 2},    // → net:isolation
 		{RuleID: "R-2.6.7-01", Severity: "중", Weight: 2},    // → net:isolation (합 4)

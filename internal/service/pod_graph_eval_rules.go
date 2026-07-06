@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/vara/backend/internal/domain/agent"
 	"github.com/vara/backend/internal/domain/grc"
 )
 
@@ -86,6 +87,71 @@ func evalDefaultServiceAccount(_ Rule, req PodGraphRequest, base PodRuleResult) 
 		base.MatchedIndicators = []string{fmt.Sprintf("SA=%s (default 아님)", saName)}
 	}
 	return base
+}
+
+// R-2.5.1-POD-05: ServiceAccount 토큰 자동 마운트 최소화 (CIS EKS 4.1.6)
+// 켜짐(마운트)=토큰 불필요 노출 → 권고(NEEDS_REVIEW). 앱이 K8s API를 실제 쓰는지
+// 스냅샷만으로 알 수 없어 NOT_MET로 단정하지 않는다(과탐 방지, B유형 CIS Manual).
+// 명시적 차단(automountServiceAccountToken=false)이면 MET. Pod∧SA 공통 판정(agent.IsSATokenMounted).
+func evalAutomountSAToken(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
+	base.Severity = "medium"
+	podNS := jsonStr(req.Pod, "metadata", "namespace")
+	podName := jsonStr(req.Pod, "metadata", "name")
+	saName := jsonStr(req.Pod, "spec", "serviceAccountName")
+	if saName == "" {
+		saName = "default"
+	}
+
+	podAM := toBoolPtr(jsonMap(req.Pod, "spec")["automountServiceAccountToken"])
+
+	// 연결된 SA의 automount 조회 (Pod∧SA 판정용 — Pod가 SA를 override).
+	var saAM *bool
+	for _, sa := range req.RelatedResources.ServiceAccounts {
+		if jsonStr(sa, "metadata", "name") != saName {
+			continue
+		}
+		if saNS := jsonStr(sa, "metadata", "namespace"); saNS != "" && saNS != podNS {
+			continue
+		}
+		saAM = toBoolPtr(sa["automountServiceAccountToken"])
+		break
+	}
+
+	if !agent.IsSATokenMounted(podAM, saAM) {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("SA '%s' 토큰 마운트 명시적 차단 (automountServiceAccountToken=false)", saName)}
+		return base
+	}
+
+	base.Verdict = grc.VerdictNEEDS_REVIEW
+	base.Reason = "SA 토큰이 자동 마운트됨(automountServiceAccountToken≠false) — Pod가 K8s API를 실제 사용하지 않으면 토큰 마운트를 끄도록 권고. 토큰 필요 여부(앱의 in-cluster API 사용) 맥락 확인 필요"
+	base.MatchedIndicators = []string{
+		fmt.Sprintf("Pod '%s/%s' SA='%s' 토큰 자동 마운트 (Pod automount=%s, SA automount=%s)",
+			podNS, podName, saName, boolPtrLabel(podAM), boolPtrLabel(saAM)),
+	}
+	return base
+}
+
+// toBoolPtr는 map 값에서 *bool을 뽑는다. 어셈블러가 *bool을, 원본 JSON이 bool을
+// 넣을 수 있어 둘 다 처리. 미설정/부재는 nil(기본 마운트)로 본다.
+func toBoolPtr(v any) *bool {
+	switch b := v.(type) {
+	case *bool:
+		return b
+	case bool:
+		return &b
+	}
+	return nil
+}
+
+func boolPtrLabel(b *bool) string {
+	if b == nil {
+		return "미설정"
+	}
+	if *b {
+		return "true"
+	}
+	return "false"
 }
 
 // R-2.5.1-POD-03: 팀 간 ServiceAccount 공유
@@ -567,33 +633,6 @@ func evalRevisionHistoryLimit(_ Rule, req PodGraphRequest, base PodRuleResult) P
 // 2.10.2 클라우드 보안
 // ─────────────────────────────────────────────
 
-// R-2.10.2-POD-08: Namespace Pod Security Admission 라벨 부재
-func evalNamespacePSA(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "high"
-	ns := req.RelatedResources.Namespace
-	nsName := jsonStr(ns, "metadata", "name")
-	nsLabels := jsonMap(ns, "metadata", "labels")
-
-	enforce := strVal(nsLabels["pod-security.kubernetes.io/enforce"])
-	allowed := map[string]bool{"restricted": true, "baseline": true}
-
-	if !allowed[enforce] {
-		base.Verdict = "미준수"
-		base.Violations = []grc.Violation{{
-			Field:       "metadata.labels.pod-security.kubernetes.io/enforce",
-			Expected:    "in [restricted, baseline]",
-			Actual:      enforce,
-			Description: fmt.Sprintf("namespace '%s'에 PSA enforce 라벨 부재 (보안 컨텍스트 강제 정책 없음)", nsName),
-			Severity:    "high",
-			K8sSource:   grc.K8sSource{Namespace: nsName, ResourceKind: "Namespace", ResourceName: nsName},
-		}}
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{fmt.Sprintf("PSA enforce=%s", enforce)}
-	}
-	return base
-}
-
 // ─────────────────────────────────────────────
 // 2.10.3 공개서버 보안
 // ─────────────────────────────────────────────
@@ -786,51 +825,6 @@ func evalExternalIngressTLS(_ Rule, req PodGraphRequest, base PodRuleResult) Pod
 		}
 	}
 
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = matched
-	}
-	return base
-}
-
-// R-2.10.5-POD-03: ExternalName Service 평문 endpoint
-func evalExternalNamePlaintext(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "high"
-	var violations []grc.Violation
-	var matched []string
-	found := false
-
-	for _, svc := range req.RelatedResources.Services {
-		if jsonStr(svc, "spec", "type") != "ExternalName" {
-			continue
-		}
-		found = true
-		svcName := jsonStr(svc, "metadata", "name")
-		svcNS := jsonStr(svc, "metadata", "namespace")
-		externalName := jsonStr(svc, "spec", "externalName")
-		if strings.HasPrefix(externalName, "http://") {
-			violations = append(violations, grc.Violation{
-				Field:       "spec.externalName",
-				Expected:    "not start with http://",
-				Actual:      externalName,
-				Description: fmt.Sprintf("ExternalName Service '%s'의 endpoint가 http:// 평문", svcName),
-				Severity:    "high",
-				K8sSource:   grc.K8sSource{Namespace: svcNS, ResourceKind: "Service", ResourceName: svcName},
-			})
-		} else {
-			matched = append(matched, fmt.Sprintf("ExternalName '%s': 평문 아님", svcName))
-		}
-	}
-
-	if !found {
-		// 위험 종속형: ExternalName Service가 없으면 평문 endpoint 위험도 없음 → 실제 준수.
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"ExternalName Service 없음 — 평문 endpoint 위험 없음"}
-		return base
-	}
 	if len(violations) > 0 {
 		base.Verdict = "미준수"
 		base.Violations = violations
