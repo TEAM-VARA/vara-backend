@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/vara/backend/internal/domain/agent"
 	"github.com/vara/backend/internal/domain/grc"
 )
 
@@ -86,6 +87,71 @@ func evalDefaultServiceAccount(_ Rule, req PodGraphRequest, base PodRuleResult) 
 		base.MatchedIndicators = []string{fmt.Sprintf("SA=%s (default 아님)", saName)}
 	}
 	return base
+}
+
+// R-2.5.1-POD-05: ServiceAccount 토큰 자동 마운트 최소화 (CIS EKS 4.1.6)
+// 켜짐(마운트)=토큰 불필요 노출 → 권고(NEEDS_REVIEW). 앱이 K8s API를 실제 쓰는지
+// 스냅샷만으로 알 수 없어 NOT_MET로 단정하지 않는다(과탐 방지, B유형 CIS Manual).
+// 명시적 차단(automountServiceAccountToken=false)이면 MET. Pod∧SA 공통 판정(agent.IsSATokenMounted).
+func evalAutomountSAToken(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
+	base.Severity = "medium"
+	podNS := jsonStr(req.Pod, "metadata", "namespace")
+	podName := jsonStr(req.Pod, "metadata", "name")
+	saName := jsonStr(req.Pod, "spec", "serviceAccountName")
+	if saName == "" {
+		saName = "default"
+	}
+
+	podAM := toBoolPtr(jsonMap(req.Pod, "spec")["automountServiceAccountToken"])
+
+	// 연결된 SA의 automount 조회 (Pod∧SA 판정용 — Pod가 SA를 override).
+	var saAM *bool
+	for _, sa := range req.RelatedResources.ServiceAccounts {
+		if jsonStr(sa, "metadata", "name") != saName {
+			continue
+		}
+		if saNS := jsonStr(sa, "metadata", "namespace"); saNS != "" && saNS != podNS {
+			continue
+		}
+		saAM = toBoolPtr(sa["automountServiceAccountToken"])
+		break
+	}
+
+	if !agent.IsSATokenMounted(podAM, saAM) {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("SA '%s' 토큰 마운트 명시적 차단 (automountServiceAccountToken=false)", saName)}
+		return base
+	}
+
+	base.Verdict = grc.VerdictNEEDS_REVIEW
+	base.Reason = "SA 토큰이 자동 마운트됨(automountServiceAccountToken≠false) — Pod가 K8s API를 실제 사용하지 않으면 토큰 마운트를 끄도록 권고. 토큰 필요 여부(앱의 in-cluster API 사용) 맥락 확인 필요"
+	base.MatchedIndicators = []string{
+		fmt.Sprintf("Pod '%s/%s' SA='%s' 토큰 자동 마운트 (Pod automount=%s, SA automount=%s)",
+			podNS, podName, saName, boolPtrLabel(podAM), boolPtrLabel(saAM)),
+	}
+	return base
+}
+
+// toBoolPtr는 map 값에서 *bool을 뽑는다. 어셈블러가 *bool을, 원본 JSON이 bool을
+// 넣을 수 있어 둘 다 처리. 미설정/부재는 nil(기본 마운트)로 본다.
+func toBoolPtr(v any) *bool {
+	switch b := v.(type) {
+	case *bool:
+		return b
+	case bool:
+		return &b
+	}
+	return nil
+}
+
+func boolPtrLabel(b *bool) string {
+	if b == nil {
+		return "미설정"
+	}
+	if *b {
+		return "true"
+	}
+	return "false"
 }
 
 // R-2.5.1-POD-03: 팀 간 ServiceAccount 공유

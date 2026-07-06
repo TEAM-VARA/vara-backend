@@ -57,6 +57,11 @@ type ScenarioInput struct {
 	CanDeleteEvents     bool
 	IsClusterAdmin      bool
 
+	// SA 토큰 실제 마운트 여부(Pod∧SA automount 실측, agent.IsSATokenMounted).
+	// nil=미측정(기본 마운트 가정). false면 토큰 미마운트 → SA 권한이 있어도
+	// 그 토큰으로 API 인증하는 측면이동(9016)은 성립하지 않는다.
+	SATokenMounted *bool
+
 	// RBAC 근거 권한(verb/resource). 채워지면 해당 finding의 caveat에 부기한다(심사 증적성).
 	// 예: "create deployments, create jobs". 정밀(rbacchain) 경로에서만 채워짐.
 	CreateWorkloadPerms string
@@ -222,11 +227,18 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 			fmt.Sprintf("%s에 워크로드 생성 권한이 있어, 공격자가 새 컨테이너를 띄워 임의 코드를 실행할 수 있습니다.", sa),
 			"high", in.CreateWorkloadPerms))
 	}
-	// 9016: SA 토큰이 과대권한이면 측면 이동 통로
-	if (in.IsClusterAdmin || in.CanListSecrets || in.CanCreateWorkload || in.CanExec) && !emitted["MS-TA9016"] {
+	// 9016: SA 토큰이 과대권한이면 측면 이동 통로.
+	// 단, 토큰이 실제 마운트된 경우만(automount 실측). false면 토큰 파일이 없어
+	// 권한이 있어도 그 토큰으로 API 인증 불가 → 이 경로는 성립하지 않음.
+	tokenMounted := in.SATokenMounted == nil || *in.SATokenMounted
+	if tokenMounted && (in.IsClusterAdmin || in.CanListSecrets || in.CanCreateWorkload || in.CanExec) && !emitted["MS-TA9016"] {
+		caveat := "automountServiceAccountToken 기본값(true) 가정"
+		if in.SATokenMounted != nil {
+			caveat = "automountServiceAccountToken 실측: 토큰 마운트됨"
+		}
 		fs = append(fs, mkFinding("MS-TA9016", DirOutgoing, TacticLateral,
 			fmt.Sprintf("%s 토큰이 API 권한을 갖고 마운트돼 있어, 공격자가 그 토큰으로 API 서버에 인증해 다른 자원으로 이동할 수 있습니다.", sa),
-			"heuristic", "automountServiceAccountToken 기본값(true) 가정"))
+			"heuristic", caveat))
 	}
 
 	// ───────── 분류 + 줄글 조립 ─────────

@@ -75,12 +75,13 @@ func AssembleClusterPodGraph(
 			"annotations": annotations,
 		},
 		"spec": map[string]any{
-			"serviceAccountName": pod.ServiceAccount,
-			"containers":         containers,
-			"volumes":            volumes,
-			"hostNetwork":        pod.HostNetwork,
-			"hostPID":            pod.HostPID,
-			"hostIPC":            pod.HostIPC,
+			"serviceAccountName":           pod.ServiceAccount,
+			"containers":                   containers,
+			"volumes":                      volumes,
+			"hostNetwork":                  pod.HostNetwork,
+			"hostPID":                      pod.HostPID,
+			"hostIPC":                      pod.HostIPC,
+			"automountServiceAccountToken": pod.AutomountSAToken, // *bool: nil=미설정(기본 마운트), 3상태 유지
 		},
 	}
 

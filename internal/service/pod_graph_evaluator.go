@@ -24,19 +24,19 @@ type PodGraphRequest struct {
 
 // PodRelatedResources holds K8s resources adjacent to the target Pod.
 type PodRelatedResources struct {
-	Namespace           map[string]any   `json:"namespace"`
-	Services            []map[string]any `json:"services"`
-	Ingresses           []map[string]any `json:"ingresses"`
-	NetworkPolicies     []map[string]any `json:"network_policies"`
-	ConfigMaps          []map[string]any `json:"config_maps"`
-	ClusterRoleBindings []map[string]any `json:"cluster_role_bindings"`
-	RoleBindings        []map[string]any `json:"role_bindings"`
-	ClusterRoles        []map[string]any `json:"cluster_roles"`
-	Roles               []map[string]any `json:"roles"`
-	ServiceAccounts     []map[string]any `json:"service_accounts"`
-	Workloads           []map[string]any `json:"workloads"`
-	Secrets             []map[string]any `json:"secrets"`
-	Nodes               []map[string]any `json:"nodes"`
+	Namespace            map[string]any   `json:"namespace"`
+	Services             []map[string]any `json:"services"`
+	Ingresses            []map[string]any `json:"ingresses"`
+	NetworkPolicies      []map[string]any `json:"network_policies"`
+	ConfigMaps           []map[string]any `json:"config_maps"`
+	ClusterRoleBindings  []map[string]any `json:"cluster_role_bindings"`
+	RoleBindings         []map[string]any `json:"role_bindings"`
+	ClusterRoles         []map[string]any `json:"cluster_roles"`
+	Roles                []map[string]any `json:"roles"`
+	ServiceAccounts      []map[string]any `json:"service_accounts"`
+	Workloads            []map[string]any `json:"workloads"`
+	Secrets              []map[string]any `json:"secrets"`
+	Nodes                []map[string]any `json:"nodes"`
 	EBPFProcessEvents    []map[string]any `json:"ebpf_process_events"`
 	NamespacesInCluster  []map[string]any `json:"namespaces_in_cluster"`
 	EKSCluster           map[string]any   `json:"eks_cluster"`
@@ -77,20 +77,20 @@ type PodGraphResult struct {
 
 // PodRuleResult holds the verdict for a single Pod-graph rule.
 type PodRuleResult struct {
-	RuleID            string              `json:"rule_id"`
-	Name              string              `json:"name"`
-	ISMSPItem         string              `json:"isms_p_item"`
-	ISMSPItemName     string              `json:"isms_p_item_name"`
-	Severity          string              `json:"severity,omitempty"`
-	Verdict           string              `json:"verdict"` // MET | NOT_MET | NO_DATA | skip
-	Violations        []grc.Violation     `json:"violations,omitempty"`
-	MatchedIndicators []string            `json:"matched_indicators,omitempty"`
-	FailMessage       string              `json:"fail_message,omitempty"`
-	SkipReason        string              `json:"skip_reason,omitempty"`
-	Remediation       string              `json:"remediation,omitempty"`
-	Reason            string              `json:"reason,omitempty"`
-	MissingInputs     json.RawMessage     `json:"missing_inputs,omitempty"`
-	Layer             string              `json:"layer,omitempty"`
+	RuleID            string          `json:"rule_id"`
+	Name              string          `json:"name"`
+	ISMSPItem         string          `json:"isms_p_item"`
+	ISMSPItemName     string          `json:"isms_p_item_name"`
+	Severity          string          `json:"severity,omitempty"`
+	Verdict           string          `json:"verdict"` // MET | NOT_MET | NO_DATA | skip
+	Violations        []grc.Violation `json:"violations,omitempty"`
+	MatchedIndicators []string        `json:"matched_indicators,omitempty"`
+	FailMessage       string          `json:"fail_message,omitempty"`
+	SkipReason        string          `json:"skip_reason,omitempty"`
+	Remediation       string          `json:"remediation,omitempty"`
+	Reason            string          `json:"reason,omitempty"`
+	MissingInputs     json.RawMessage `json:"missing_inputs,omitempty"`
+	Layer             string          `json:"layer,omitempty"`
 }
 
 // ─────────────────────────────────────────────
@@ -342,6 +342,7 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	// 2.5.1 사용자 계정 관리
 	"R-2.5.1-01": {"Pod이 default ServiceAccount를 사용 중", "Pod에 전용 ServiceAccount를 생성하여 할당하고 automountServiceAccountToken을 필요한 경우에만 활성화하세요"},
 	"R-2.5.1-03": {"여러 팀/네임스페이스에서 동일 ServiceAccount를 공유하여 사용 중", "팀별·용도별 전용 ServiceAccount를 분리하여 사용하세요"},
+	"R-2.5.1-05": {"ServiceAccount 토큰이 자동 마운트됨 — 불필요 시 토큰 노출 위험", "Pod가 K8s API를 사용하지 않으면 automountServiceAccountToken: false로 토큰 마운트를 차단하세요(Pod 또는 SA 레벨)"},
 	// 2.5.2 사용자 식별
 	"R-2.5.2-01": {"예측 가능한 ServiceAccount 이름 사용(default, admin 등)", "ServiceAccount 이름에 팀/용도를 포함하여 고유하게 지정하세요"},
 	"R-2.5.2-02": {"일반적(generic) ServiceAccount 이름 패턴 사용", "admin, default, system 등 일반적인 이름 대신 app-name-sa 형식의 용도별 고유 이름을 사용하세요"},
@@ -444,7 +445,7 @@ func checkIndicatorDataAvailability(indicators []Indicator) (evaluable int, noDa
 // ruleset JSON with judgment_source=k8s_api but missing here are excluded from
 // pod evaluation up-front (P1-8: "알 수 없는 Pod 룰" skip 노이즈 제거).
 var implementedPodRules = map[string]bool{
-	"R-2.5.1-01": true, "R-2.5.1-03": true,
+	"R-2.5.1-01": true, "R-2.5.1-03": true, "R-2.5.1-05": true, // -05: automount SA 토큰(CIS EKS 4.1.6, 권고)
 	"R-2.5.2-01": true, "R-2.5.2-02": true,
 	"R-2.5.5-01": true, "R-2.5.5-02": true, "R-2.5.5-07": true, "R-2.5.5-08": true, // -08: 워크로드 create 권한(CIS EKS 4.1.4, 2.6.3→2.5.5 이관)
 	"R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true, // R-2.6.1-01(hostNS)은 2.10.2-01로 이관
@@ -452,7 +453,7 @@ var implementedPodRules = map[string]bool{
 	"R-2.6.7-01": true,
 	"R-2.7.1-01": true, "R-2.7.1-05": true, // R-2.7.1-05: CIS EKS 4.4.1 Secret-as-env
 	"R-2.8.3-02": true, "R-2.8.3-03": true,
-	"R-2.9.1-02": true,
+	"R-2.9.1-02":  true,
 	"R-2.10.2-01": true, "R-2.10.2-11": true, // -01: hostNS 격리(2.6.1→2.10.2 이관); -11: CIS EKS 4.5.2 default ns
 	"R-2.10.3-01": true,
 	"R-2.10.5-01": true,
@@ -593,6 +594,8 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		result = evalDefaultServiceAccount(rule, req, base)
 	case "R-2.5.1-POD-03", "R-2.5.1-03":
 		result = evalCrossTeamSASharing(rule, req, base)
+	case "R-2.5.1-POD-05", "R-2.5.1-05": // CIS EKS 4.1.6: SA 토큰 자동 마운트 최소화(권고)
+		result = evalAutomountSAToken(rule, req, base)
 	// 2.5.2 사용자 식별
 	case "R-2.5.2-POD-01", "R-2.5.2-01":
 		result = evalPredictableSAName(rule, req, base)
@@ -977,7 +980,6 @@ func evalHostNamespace(rule Rule, req PodGraphRequest, base PodRuleResult) PodRu
 // R-2.6.1-POD-02: NetworkPolicy 적용 점검
 // ─────────────────────────────────────────────
 
-
 // evalPrivilegedContainer (R-2.10.2-09) — privileged 컨테이너 미허용.
 // CIS Amazon EKS Benchmark v2.0.0 §4.2.1. 데이터: cluster_pods.containers[].privileged
 // (컬렉터가 securityContext를 평탄화해 컨테이너 최상위 flat bool로 저장). 미설정 → false(안전).
@@ -1022,11 +1024,13 @@ func evalPrivilegedContainer(_ Rule, req PodGraphRequest, base PodRuleResult) Po
 	}
 	return base
 }
+
 // evalSecretAsEnv (R-2.7.1-05) — Secret을 환경변수 대신 파일로 소비.
 // CIS Amazon EKS Benchmark v2.0.0 §4.4.1. env[].valueFrom.secretKeyRef 와
 // envFrom[].secretRef 둘 다 탐지(하나라도 빠지면 반쪽). init/ephemeral 컨테이너도 순회.
 // ⚠ env/envFrom 원본이 수집돼야 실판정. 어떤 컨테이너에도 env·envFrom 키가 없으면
-//   "미수집"으로 보고 NO_DATA(거짓 준수 방지). cluster-reader가 env 수집 시 실판정 전환.
+//
+//	"미수집"으로 보고 NO_DATA(거짓 준수 방지). cluster-reader가 env 수집 시 실판정 전환.
 func evalSecretAsEnv(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
 	base.Severity = "medium"
 	podName := jsonStr(req.Pod, "metadata", "name")

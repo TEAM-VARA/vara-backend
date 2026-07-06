@@ -153,6 +153,65 @@
       }
     },
     {
+      "rule_id": "R-2.5.1-05",
+      "name": "ServiceAccount 토큰 자동 마운트 최소화",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "sa_token_mounted",
+          "op": "==",
+          "value": false,
+          "description": "SA 토큰이 마운트되지 않음(automountServiceAccountToken=false) — 불필요한 토큰 노출 차단"
+        }
+      ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v2.0.0",
+          "reference": "§4.1.6 — Ensure that Service Account Tokens are only mounted where necessary (Manual)",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "Pod가 K8s API를 사용하지 않으면 Pod 또는 ServiceAccount에 automountServiceAccountToken: false를 설정해 토큰 마운트를 차단한다."
+      },
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "verdict_states": [
+          "준수",
+          "검토필요"
+        ]
+      },
+      "source_reference": {
+        "framework": "CIS Amazon EKS Benchmark",
+        "control": "4.1.6",
+        "basis": "SA 토큰 자동 마운트 최소화 — 마운트 시 맥락 확인 권고(과탐 방지, NOT_MET 아님)"
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "additional_review_items": [
+          "해당 Pod의 앱이 in-cluster K8s API를 실제 사용하는지(토큰 필요 여부)",
+          "토큰이 필요 없으면 automountServiceAccountToken:false 적용 계획"
+        ],
+        "alternative_controls": [
+          "필요한 Pod만 projected token(단명 토큰, audience 제한) 사용",
+          "SA 레벨 automountServiceAccountToken:false + 필요한 Pod만 명시적 opt-in"
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.5.1",
+            "match_strength": "indirect"
+          },
+          {
+            "framework": "CIS Amazon EKS Benchmark",
+            "item": "4.1.6",
+            "match_strength": "direct"
+          }
+        ]
+      }
+    },
+    {
       "rule_id": "R-2.5.1-GL01",
       "name": "계정·권한 생애주기 절차 수립",
       "judgment_source": "text_extraction",
