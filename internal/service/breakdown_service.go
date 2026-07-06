@@ -90,14 +90,18 @@ func (s *BreakdownService) GetBreakdown(ctx context.Context, clusterName, podUID
 		formula = fmt.Sprintf("%s = %.2f", baseExpr, f.FinalScore)
 	}
 
+	// 원점수(clamp 전, ISMS-P 가산 포함)와 상한 여부 — FE ⓘ 툴팁용.
+	rawFinal := rawBase + ismspAddend
 	bd := &scoring.ScoreBreakdown{
-		PodUID:     f.PodUID,
-		PodName:    scoring.NormalizePodName(f.PodName),
-		FinalScore: f.FinalScore,
-		RiskLevel:  f.RiskLevel,
-		RiskLabel:  riskLabelKR(f.RiskLevel),
-		ISMSP:      ismspSection,
-		Formula:    formula,
+		PodUID:        f.PodUID,
+		PodName:       scoring.NormalizePodName(f.PodName),
+		FinalScore:    f.FinalScore,
+		RiskLevel:     f.RiskLevel,
+		RiskLabel:     riskLabelKR(f.RiskLevel),
+		RawFinalScore: rawFinal,
+		Capped:        rawFinal > f.FinalScore+0.01,
+		ISMSP:         ismspSection,
+		Formula:       formula,
 	}
 
 	// 2. Global section
@@ -191,10 +195,25 @@ func (s *BreakdownService) GetBreakdown(ctx context.Context, clusterName, podUID
 		RawScore:    f.ToxicMultiplier,
 		Description: descToxic,
 	}
+	// 룰 카탈로그 rule_id → 설명(왜 위험한지). 매칭된 룰마다 factor 로 붙여 FE 가 카드로 렌더한다.
+	toxicDesc := make(map[string]string, len(scoring.AllToxicRules))
+	for _, cr := range scoring.AllToxicRules {
+		toxicDesc[cr.RuleID] = cr.Description
+	}
 	var ruleNames []string
 	if tox, err := s.toxicRepo.GetByPodUID(ctx, clusterName, podUID); err == nil && tox != nil {
 		for _, r := range tox.MatchedRules {
 			ruleNames = append(ruleNames, r.Name)
+			desc := toxicDesc[r.RuleID]
+			if desc == "" {
+				desc = r.Reason
+			}
+			bd.Toxic.Factors = append(bd.Toxic.Factors, scoring.BreakdownFactor{
+				Name:           r.Name,
+				Value:          fmt.Sprintf("×%.2f", r.Multiplier),
+				Description:    desc,
+				Interpretation: r.Reason,
+			})
 		}
 	}
 	bd.Toxic.Interpretation = interpretToxic(f.ToxicMultiplier, ruleNames)
