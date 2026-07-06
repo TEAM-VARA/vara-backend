@@ -162,6 +162,11 @@ type ScoreBreakdown struct {
 	RiskLevel  string  `json:"risk_level"`
 	RiskLabel  string  `json:"risk_label"`
 
+	// 상한(100) 처리 표기. Capped=true면 FinalScore가 100으로 잘린 것이고,
+	// RawFinalScore는 clamp 전 원점수(ISMS-P 가산 포함). FE가 ⓘ 툴팁으로 표기한다.
+	RawFinalScore float64 `json:"raw_final_score,omitempty"`
+	Capped        bool    `json:"capped,omitempty"`
+
 	Global BreakdownSection `json:"global"`
 	Local  BreakdownSection `json:"local"`
 	Toxic  BreakdownSection `json:"toxic"`
