@@ -1,4 +1,4 @@
-{
+﻿{
   "schema_version": "4.0.0",
   "isms_p_revision": "2023.11",
   "item": {
@@ -9,71 +9,6 @@
   },
   "legal_references": [],
   "rules": [
-    {
-      "rule_id": "R-2.10.2-08",
-      "name": "Namespace Pod Security Admission 라벨 부재",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "psa_levels": [
-        "privileged",
-        "baseline",
-        "restricted"
-      ],
-      "compliance_indicators": [
-        {
-          "field": "namespace.metadata.labels.pod-security.kubernetes.io/enforce",
-          "op": "in",
-          "value": [
-            "baseline",
-            "restricted"
-          ],
-          "description": "PSA enforce 라벨이 baseline 또는 restricted로 설정됨"
-        },
-        {
-          "field": "namespace.metadata.labels.pod-security.kubernetes.io/audit",
-          "op": "in",
-          "value": [
-            "baseline",
-            "restricted"
-          ],
-          "description": "PSA audit 라벨이 baseline 또는 restricted로 설정됨"
-        }
-      ],
-      "remediation": {
-        "source": {
-          "framework": "Kubernetes Pod Security Standards",
-          "version": null,
-          "reference": "Pod Security Admission(baseline↑) — CIS EKS §5 대응",
-          "url": "https://kubernetes.io/docs/concepts/security/pod-security-standards/"
-        },
-        "action": "네임스페이스에 pod-security.kubernetes.io/enforce(및 audit)=baseline 이상 라벨을 설정해 Pod Security Admission을 적용한다."
-      },
-      "exception_check": {
-        "annotation": "psa-exception/justification",
-        "system_namespaces": [
-          "kube-system",
-          "kube-node-lease",
-          "kube-public"
-        ]
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      },
-      "verdict_policy": {
-        "pass": "충족",
-        "fail": "미충족",
-        "no_uncertain_fallback": true,
-        "_decision": "네임스페이스 PSA enforce 라벨(baseline↑) 부재 시 확인불가 없이 미충족 확정."
-      },
-      "status": "blocked_by_schema",
-      "blocking_reason": "cluster_namespaces에 labels 컬럼 부재 — namespace label collector/스키마 보강 전까지 PSA enforce/audit 라벨 평가 불가",
-      "pending_dependency": [
-        "cluster_namespaces.labels(jsonb) 컬럼 추가",
-        "namespace label collector 연동"
-      ]
-    },
     {
       "rule_id": "R-2.10.2-01",
       "name": "호스트 네임스페이스 격리(hostNetwork/PID/IPC) 점검",
@@ -122,6 +57,35 @@
         "min_pass_ratio": 1.0
       },
       "description": "Pod가 호스트 네임스페이스(hostNetwork/hostPID/hostIPC)를 공유하지 않도록 하여 컨테이너-호스트 격리(호스트 탈출 방지)를 보장한다. (2.6.1 네트워크 접근 → 2.10.2 클라우드 보안/Pod Security로 이관)"
+    },
+    {
+      "rule_id": "R-2.10.2-09",
+      "name": "privileged 컨테이너 미허용",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "description": "워크로드 컨테이너가 privileged: true로 실행되지 않는다 (호스트 커널·디바이스 전체 접근 차단). 미설정은 false(안전)로 취급.",
+      "compliance_indicators": [
+        {
+          "field": "containers[].privileged",
+          "op": "!=",
+          "value": true,
+          "description": "privileged=true 컨테이너 없음 (미설정=false)"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v2.0.0",
+          "reference": "§4.2.1 Minimize the admission of privileged containers (Automated)",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "해당 워크로드에서 privileged: true를 제거하고, 필요한 개별 Linux capability만 add한다."
+      }
     },
     {
       "rule_id": "R-2.10.2-GL01",
@@ -235,6 +199,36 @@
           "미충족",
           "확인불가"
         ]
+      }
+    },
+    {
+      "rule_id": "R-2.10.2-11",
+      "name": "default 네임스페이스 미사용",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "risk_scope": "pod",
+      "description": "사용자 워크로드가 default 네임스페이스에 배포되지 않는다. default ns는 격리·NetworkPolicy·PSA 등 정책 적용이 약해 지양. (kube-system 등 시스템 ns 및 플랫폼 에이전트는 예외)",
+      "compliance_indicators": [
+        {
+          "field": "pod.namespace",
+          "op": "!=",
+          "value": "default",
+          "description": "사용자 워크로드가 default 네임스페이스에 있지 않음"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v2.0.0",
+          "reference": "§4.5.2 The default namespace should not be used (Automated)",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "워크로드를 목적별 전용 네임스페이스로 이전하고 default 네임스페이스에는 워크로드를 두지 않는다."
       }
     }
   ],

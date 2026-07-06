@@ -12,10 +12,10 @@ func TestISMSPRiskAddend(t *testing.T) {
 	b := &ISMSPRiskBreakdown{Rules: []ISMSPRiskRuleHit{}}
 	seen := map[string]bool{}
 
-	accumulateISMSPRisk(b, seen, "R-2.6.1-01", "미준수", false)  // 상 +3 (hostNetwork)
+	accumulateISMSPRisk(b, seen, "R-2.10.2-01", "미준수", false) // 상 +3 (hostNetwork)
 	accumulateISMSPRisk(b, seen, "R-2.6.1-02", "미준수", false)  // 중 +2 (NetworkPolicy)
 	accumulateISMSPRisk(b, seen, "R-2.6.7-01", "미준수", false)  // 중 +2 (egress)
-	accumulateISMSPRisk(b, seen, "R-2.6.1-01", "미준수", false)  // 중복 → rule-once 무시
+	accumulateISMSPRisk(b, seen, "R-2.10.2-01", "미준수", false) // 중복 → rule-once 무시
 	accumulateISMSPRisk(b, seen, "R-2.5.5-01", "준수", false)    // 준수 → 무시
 	accumulateISMSPRisk(b, seen, "R-2.10.5-01", "미준수", false) // severity맵에 없음 → 무시
 
@@ -41,14 +41,14 @@ func TestISMSPRiskAddend_NormalizePODVariant(t *testing.T) {
 	b := &ISMSPRiskBreakdown{Rules: []ISMSPRiskRuleHit{}}
 	seen := map[string]bool{}
 
-	accumulateISMSPRisk(b, seen, "R-2.6.1-POD-01", "미준수", false) // → R-2.6.1-01 상 +3
-	accumulateISMSPRisk(b, seen, "R-2.6.1-01", "미준수", true)      // 정규화 후 동일 → rule-once 무시
+	accumulateISMSPRisk(b, seen, "R-2.10.2-POD-01", "미준수", false) // → R-2.10.2-01 상 +3
+	accumulateISMSPRisk(b, seen, "R-2.10.2-01", "미준수", true)     // 정규화 후 동일 → rule-once 무시
 
 	if b.Addend != 3 || len(b.Rules) != 1 {
 		t.Fatalf("addend=%v rules=%d, want 3/1", b.Addend, len(b.Rules))
 	}
-	if b.Rules[0].RuleID != "R-2.6.1-01" {
-		t.Fatalf("ruleID=%q, want R-2.6.1-01", b.Rules[0].RuleID)
+	if b.Rules[0].RuleID != "R-2.10.2-01" {
+		t.Fatalf("ruleID=%q, want R-2.10.2-01", b.Rules[0].RuleID)
 	}
 }
 

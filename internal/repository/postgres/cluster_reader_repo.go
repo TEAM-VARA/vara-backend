@@ -665,6 +665,8 @@ type ClusterPodRow struct {
 	Containers     json.RawMessage
 	Volumes        json.RawMessage
 	HostNetwork    bool
+	HostPID        bool
+	HostIPC        bool
 }
 
 // GetLatestSnapshotAt returns the most recent snapshot_at for a cluster.
@@ -705,7 +707,7 @@ func (r *ClusterReaderRepo) ListPods(
 	}
 
 	// Fetch rows
-	q := `SELECT name, namespace, node, service_account, labels, annotations, containers, volumes, COALESCE(host_network, false)
+	q := `SELECT name, namespace, node, service_account, labels, annotations, containers, volumes, COALESCE(host_network, false), COALESCE(host_pid, false), COALESCE(host_ipc, false)
 		  FROM cluster_pods WHERE cluster_name = $1 AND snapshot_at = $2`
 	args := []any{clusterName, snapshotAt}
 	argIdx := 3
@@ -730,7 +732,7 @@ func (r *ClusterReaderRepo) ListPods(
 		var p ClusterPodRow
 		var node, sa *string
 		if err := rows.Scan(&p.Name, &p.Namespace, &node, &sa,
-			&p.Labels, &p.Annotations, &p.Containers, &p.Volumes, &p.HostNetwork); err != nil {
+			&p.Labels, &p.Annotations, &p.Containers, &p.Volumes, &p.HostNetwork, &p.HostPID, &p.HostIPC); err != nil {
 			return nil, 0, fmt.Errorf("scan pod: %w", err)
 		}
 		if node != nil {
@@ -856,6 +858,7 @@ type ClusterRelatedRows struct {
 	SecurityGroups       []map[string]any // AWS Security Groups (account/region-global, 최신 SG 스냅샷)
 	CloudTrailTrails     []map[string]any // AWS CloudTrail trails (account/region-global, 최신 스냅샷)
 	KmsKeys              []map[string]any // AWS KMS keys (account/region-global, 최신 스냅샷)
+	EKSAuthenticationMode string          // EKS access config: authentication_mode (API|CONFIG_MAP|API_AND_CONFIG_MAP), "" if 미수집
 }
 
 // GetRelatedResources loads all related K8s resources for a cluster/snapshot/namespace.
@@ -891,7 +894,7 @@ func (r *ClusterReaderRepo) GetRelatedResources(
 	// ── Ingresses (namespace-scoped) ──
 	{
 		rows, err := r.pg.Query(ctx,
-			`SELECT name, namespace, ingress_class, rules, tls
+			`SELECT name, namespace, ingress_class, rules, tls, annotations
 			 FROM cluster_ingresses
 			 WHERE cluster_name=$1 AND namespace=$3
 			   AND snapshot_at = (
@@ -1194,7 +1197,7 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 	// ── Ingresses (all namespaces) ──
 	{
 		rows, err := r.pg.Query(ctx,
-			`SELECT name, namespace, ingress_class, rules, tls
+			`SELECT name, namespace, ingress_class, rules, tls, annotations
 			 FROM cluster_ingresses
 			 WHERE cluster_name=$1
 			   AND snapshot_at = (
@@ -1279,6 +1282,19 @@ func (r *ClusterReaderRepo) GetClusterWideResources(
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	// ── EKS access config (authentication_mode) — CIS 4.1.7 / R-2.5.5-07 ──
+	{
+		var mode *string
+		if err := r.pg.QueryRow(ctx,
+			`SELECT authentication_mode FROM cluster_aws_config
+			 WHERE cluster_name=$1
+			 ORDER BY snapshot_at DESC LIMIT 1`,
+			clusterName).Scan(&mode); err == nil && mode != nil {
+			res.EKSAuthenticationMode = *mode
+		}
+		// no rows / IAM 권한 없음 → "" 유지 → 룰이 NO_DATA 처리
 	}
 
 	// ── Workloads (all namespaces, nearest snapshot) ──
@@ -1559,11 +1575,21 @@ func scanIngressRows(rows pgx.Rows) ([]map[string]any, error) {
 	for rows.Next() {
 		var name, ns string
 		var ingressClass *string
-		var rules, tls json.RawMessage
-		if err := rows.Scan(&name, &ns, &ingressClass, &rules, &tls); err != nil {
+		var rules, tls, annRaw json.RawMessage
+		if err := rows.Scan(&name, &ns, &ingressClass, &rules, &tls, &annRaw); err != nil {
 			return nil, fmt.Errorf("scan ingress: %w", err)
 		}
 		annotations := map[string]any{}
+		annotationsCollected := false
+		if annRaw != nil {
+			annotationsCollected = true
+			var am map[string]any
+			if json.Unmarshal(annRaw, &am) == nil {
+				for k, v := range am {
+					annotations[k] = v
+				}
+			}
+		}
 		if ingressClass != nil {
 			annotations["kubernetes.io/ingress.class"] = *ingressClass
 		}
@@ -1579,8 +1605,9 @@ func scanIngressRows(rows pgx.Rows) ([]map[string]any, error) {
 			spec["tls"] = t
 		}
 		m := map[string]any{
-			"metadata": map[string]any{"name": name, "namespace": ns, "annotations": annotations},
-			"spec":     spec,
+			"metadata":               map[string]any{"name": name, "namespace": ns, "annotations": annotations},
+			"spec":                   spec,
+			"_annotations_collected": annotationsCollected,
 		}
 		result = append(result, m)
 	}

@@ -242,6 +242,16 @@ func NewRulesetStore(basePath string) *RulesetStore {
 	}
 }
 
+// stripBOM removes a leading UTF-8 BOM (EF BB BF) if present; no-op otherwise.
+// 일부 출시 isms_p_*.json이 BOM과 함께 저장돼 있는데 Go encoding/json은 BOM을
+// "invalid character 'ï'"로 거부하므로, 파싱 전에 모든 로드 경로에서 제거한다.
+func stripBOM(data []byte) []byte {
+	if len(data) >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
+		return data[3:]
+	}
+	return data
+}
+
 // Load loads a ruleset by ISMS-P item ID (e.g. "2.5.5").
 func (s *RulesetStore) Load(itemID string) (*Ruleset, error) {
 	s.mu.RLock()
@@ -271,7 +281,7 @@ func (s *RulesetStore) Load(itemID string) (*Ruleset, error) {
 
 found:
 	var rs Ruleset
-	if err := json.Unmarshal(data, &rs); err != nil {
+	if err := json.Unmarshal(stripBOM(data), &rs); err != nil {
 		return nil, fmt.Errorf("failed to parse ruleset %s: %w", itemID, err)
 	}
 
@@ -320,7 +330,7 @@ func (s *RulesetStore) LoadAll() []*Ruleset {
 				continue
 			}
 			var rs Ruleset
-			if err := json.Unmarshal(data, &rs); err != nil || rs.Item.ID == "" {
+			if err := json.Unmarshal(stripBOM(data), &rs); err != nil || rs.Item.ID == "" {
 				continue
 			}
 			if existing, ok := seen[rs.Item.ID]; ok {
@@ -365,7 +375,7 @@ func (s *RulesetStore) GetRaw(itemID string) (json.RawMessage, error) {
 		for _, p := range s.searchPaths(filename) {
 			data, err := os.ReadFile(p)
 			if err == nil {
-				return json.RawMessage(data), nil
+				return json.RawMessage(stripBOM(data)), nil
 			}
 		}
 	}

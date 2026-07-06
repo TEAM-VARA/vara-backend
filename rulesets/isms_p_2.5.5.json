@@ -248,7 +248,8 @@
             "pods/attach",
             "pods/portforward"
           ],
-          "risk": "컨테이너 내부 임의 명령 실행"
+          "risk": "컨테이너 내부 임의 명령 실행",
+          "cis": "4.1.8"
         },
         {
           "name": "secret_read_cluster_wide",
@@ -319,7 +320,8 @@
           "resources": [
             "nodes/proxy"
           ],
-          "risk": "kubelet API 직접 접근"
+          "risk": "kubelet API 직접 접근",
+          "cis": "4.1.10"
         },
         {
           "name": "sa_token_request",
@@ -329,7 +331,33 @@
           "resources": [
             "serviceaccounts/token"
           ],
-          "risk": "임의 ServiceAccount 토큰 발급"
+          "risk": "임의 ServiceAccount 토큰 발급",
+          "cis": "4.1.12"
+        },
+        {
+          "name": "pv_create",
+          "verbs": [
+            "create"
+          ],
+          "resources": [
+            "persistentvolumes"
+          ],
+          "risk": "PV로 hostPath 마운트 → 노드 파일시스템 접근·탈출",
+          "cis": "4.1.9"
+        },
+        {
+          "name": "webhook_config",
+          "verbs": [
+            "create",
+            "update",
+            "patch"
+          ],
+          "resources": [
+            "validatingwebhookconfigurations",
+            "mutatingwebhookconfigurations"
+          ],
+          "risk": "admission webhook 조작 → 정책 우회·요청 가로채기",
+          "cis": "4.1.11"
         }
       ],
       "compliance_indicators": [
@@ -344,7 +372,7 @@
         "source": {
           "framework": "CIS Amazon EKS Benchmark",
           "version": "v1.7.0+",
-          "reference": "§4 RBAC — 위험 verb 최소화",
+          "reference": "§4.1 RBAC — 위험 verb 최소화 (4.1.8 pods/exec·4.1.9 pv·4.1.10 nodes/proxy·4.1.11 webhook·4.1.12 sa/token)",
           "url": "https://www.cisecurity.org/benchmark/kubernetes"
         },
         "action": "위험 verb 조합(bind/escalate/impersonate, create pods+secrets get 등)을 가진 Role을 분리·축소한다."
@@ -366,6 +394,33 @@
         "offcluster_satisfaction_conditions": [
           "최고권한(cluster-admin 등) 부여하는 것이 승인된 바 있는지, 별도 식별·감사 대상으로 관리되는지"
         ]
+      }
+    },
+    {
+      "rule_id": "R-2.5.5-07",
+      "name": "EKS 접근 표준화(access entries/API) 점검",
+      "judgment_source": "aws_api",
+      "extraction_method": "api",
+      "compliance_indicators": [
+        {
+          "field": "authentication_mode",
+          "op": "==",
+          "value": "API",
+          "description": "EKS 접근을 access entries(API)로 표준화 (aws-auth ConfigMap 미의존)"
+        }
+      ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v2.0.0",
+          "reference": "§4.1.7 access entries / §5.5.1 — IAM 접근 표준화",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "EKS authentication_mode를 API로 전환하고 IAM principal 접근을 access entries로 관리한다. 구식 aws-auth ConfigMap 의존을 제거한다. (API_AND_CONFIG_MAP은 전환 중 상태로 잔존 ConfigMap 정리 필요)"
+      },
+      "judgment_logic": {
+        "type": "structured_match",
+        "method": "eks_authentication_mode"
       }
     }
   ],

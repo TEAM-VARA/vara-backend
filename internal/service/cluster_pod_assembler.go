@@ -79,6 +79,8 @@ func AssembleClusterPodGraph(
 			"containers":         containers,
 			"volumes":            volumes,
 			"hostNetwork":        pod.HostNetwork,
+			"hostPID":            pod.HostPID,
+			"hostIPC":            pod.HostIPC,
 		},
 	}
 
@@ -107,7 +109,8 @@ func AssembleClusterPodGraph(
 
 	// Build EKS cluster info
 	eksCluster := map[string]any{
-		"name": clusterName,
+		"name":                clusterName,
+		"authentication_mode": related.EKSAuthenticationMode,
 	}
 
 	return PodGraphRequest{

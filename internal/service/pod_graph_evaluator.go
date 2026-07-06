@@ -349,6 +349,7 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	// 2.5.5 특수 계정 및 권한 관리
 	"R-2.5.5-01": {"ServiceAccount에 과도한 권한(cluster-admin, wildcard 등) 부여됨", "최소 권한 원칙에 따라 RBAC Role/ClusterRole을 세분화하고 불필요한 권한을 제거하세요"},
 	"R-2.5.5-02": {"위험한 verb 조합(escalate, bind, impersonate 등) 감지", "escalate, bind, impersonate 등 위험 verb를 제거하고 필요 최소한의 권한만 부여하세요"},
+	"R-2.5.5-07": {"EKS 접근이 access entries(API)로 표준화되지 않음 (aws-auth ConfigMap 의존)", "authentication_mode를 API로 전환하고 access entries로 IAM 접근을 표준화하세요"},
 	// 2.6.1 네트워크 접근
 	"R-2.6.1-01": {"Pod이 hostNetwork, hostPID 또는 hostIPC를 사용 중", "Pod spec에서 hostNetwork, hostPID, hostIPC를 false로 설정하세요"},
 	"R-2.6.1-02": {"Pod에 적용되는 NetworkPolicy 없음", "Pod에 적용되는 Ingress/Egress NetworkPolicy를 생성하여 네트워크 접근을 통제하세요"},
@@ -361,6 +362,7 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	// 2.7.1 암호정책 적용
 	"R-2.7.1-01": {"Secret이 etcd에 암호화되지 않은 상태로 저장될 수 있음", "etcd 저장 시 Secret 암호화(EncryptionConfiguration)를 활성화하세요"},
 	"R-2.7.1-04": {"KMS 키가 비활성 상태이거나 자동 로테이션 미설정 또는 비승인 알고리즘 사용", "KMS 키를 활성 상태로 유지하고 자동 키 로테이션을 활성화하며 승인된 알고리즘(AES-256/RSA-2048 이상)을 사용하세요"},
+	"R-2.7.1-05": {"Secret을 환경변수(secretKeyRef/envFrom)로 노출", "Secret을 env 대신 볼륨 마운트 또는 Secrets Store CSI Driver로 소비하세요"},
 	// 2.8.3 시험과 운영 환경 분리
 	"R-2.8.3-02": {"하나의 네임스페이스에 서로 다른 환경의 워크로드가 혼합 배치됨", "production과 staging/development 워크로드를 별도 네임스페이스로 분리하세요"},
 	"R-2.8.3-03": {"다른 환경의 Secret을 교차 참조하고 있음", "환경별 Secret을 분리하여 교차 환경 참조를 제거하세요"},
@@ -368,6 +370,7 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	"R-2.9.1-02": {"revisionHistoryLimit이 미설정이거나 부적절한 값", "Deployment의 revisionHistoryLimit을 적정 수준(5~10)으로 설정하여 롤백 이력을 관리하세요"},
 	// 2.10.2 클라우드 보안
 	"R-2.10.2-08": {"Namespace에 Pod Security Admission(PSA) 라벨 미설정", "Namespace에 pod-security.kubernetes.io/enforce 라벨을 추가하여 Pod 보안 기준을 적용하세요"},
+	"R-2.10.2-11": {"Pod이 default 네임스페이스에 배포됨", "워크로드를 목적별 전용 네임스페이스로 이전하세요"},
 	// 2.10.3 공개서버 보안
 	"R-2.10.3-01": {"LoadBalancer Service에 sourceRanges 미설정으로 모든 IP에서 접근 가능", "LoadBalancer Service에 spec.loadBalancerSourceRanges를 설정하여 접근 IP를 제한하세요"},
 	"R-2.10.3-02": {"Ingress에 WAF(Web Application Firewall) annotation 미설정", "Ingress에 WAF annotation을 추가하여 웹 공격으로부터 보호하세요"},
@@ -446,15 +449,15 @@ func checkIndicatorDataAvailability(indicators []Indicator) (evaluable int, noDa
 var implementedPodRules = map[string]bool{
 	"R-2.5.1-01": true, "R-2.5.1-03": true,
 	"R-2.5.2-01": true, "R-2.5.2-02": true,
-	"R-2.5.5-01": true, "R-2.5.5-02": true,
+	"R-2.5.5-01": true, "R-2.5.5-02": true, "R-2.5.5-07": true,
 	"R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true, // R-2.6.1-01(hostNS)은 2.10.2-01로 이관
 	"R-2.6.2-01": true,
 	"R-2.6.3-01": true,
 	"R-2.6.7-01": true,
-	"R-2.7.1-01": true,
+	"R-2.7.1-01": true, "R-2.7.1-05": true, // R-2.7.1-05: CIS EKS 4.4.1 Secret-as-env
 	"R-2.8.3-02": true, "R-2.8.3-03": true,
 	"R-2.9.1-02": true,
-	"R-2.10.2-01": true, "R-2.10.2-08": true, // R-2.10.2-01: hostNS 격리(2.6.1→2.10.2 이관)
+	"R-2.10.2-01": true, "R-2.10.2-08": true, "R-2.10.2-11": true, // -01: hostNS 격리(2.6.1→2.10.2 이관); -11: CIS EKS 4.5.2 default ns
 	"R-2.10.3-01": true,
 	"R-2.10.5-01": true, "R-2.10.5-03": true,
 	"R-2.10.8-01": true, "R-2.10.8-02": true, "R-2.10.8-03": true,
@@ -618,6 +621,9 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	// 2.6.2 정보시스템 접근 (Ingress 인증 — 2.6.3에서 이동)
 	case "R-2.6.2-POD-01", "R-2.6.2-01":
 		result = evalIngressAuth(rule, req, base)
+	// 2.5.5 특수 계정 및 권한 관리 (EKS access entries — CIS 4.1.7/5.5.1)
+	case "R-2.5.5-POD-07", "R-2.5.5-07":
+		result = evalEksAccessMode(rule, req, base)
 	// 2.6.3 응용프로그램 접근
 	case "R-2.6.3-POD-01", "R-2.6.3-01":
 		result = evalWorkloadCreatePrivilege(rule, req, base)
@@ -627,6 +633,8 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	// 2.7.1 암호정책 적용
 	case "R-2.7.1-POD-01", "R-2.7.1-01":
 		result = evalSecretEncryption(rule, req, base)
+	case "R-2.7.1-POD-05", "R-2.7.1-05": // CIS EKS 4.4.1: Secret을 env 대신 파일로
+		result = evalSecretAsEnv(rule, req, base)
 	// 2.8.3 시험과 운영 환경 분리
 	case "R-2.8.3-POD-02", "R-2.8.3-02":
 		result = evalNSEnvMixing(rule, req, base)
@@ -638,6 +646,10 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	// 2.10.2 클라우드 보안
 	case "R-2.10.2-POD-08", "R-2.10.2-08":
 		result = evalNamespacePSA(rule, req, base)
+	case "R-2.10.2-POD-09", "R-2.10.2-09":
+		result = evalPrivilegedContainer(rule, req, base)
+	case "R-2.10.2-POD-11", "R-2.10.2-11": // CIS EKS 4.5.2: default 네임스페이스 미사용
+		result = evalDefaultNamespace(rule, req, base)
 	// 2.10.3 공개서버 보안
 	case "R-2.10.3-POD-01", "R-2.10.3-01":
 		result = evalLBSourceRange(rule, req, base)
@@ -975,6 +987,173 @@ func evalHostNamespace(rule Rule, req PodGraphRequest, base PodRuleResult) PodRu
 // R-2.6.1-POD-02: NetworkPolicy 적용 점검
 // ─────────────────────────────────────────────
 
+
+// evalPrivilegedContainer (R-2.10.2-09) — privileged 컨테이너 미허용.
+// CIS Amazon EKS Benchmark v2.0.0 §4.2.1. 데이터: cluster_pods.containers[].privileged
+// (컬렉터가 securityContext를 평탄화해 컨테이너 최상위 flat bool로 저장). 미설정 → false(안전).
+func evalPrivilegedContainer(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
+	base.Severity = "high"
+	podName := jsonStr(req.Pod, "metadata", "name")
+	podNS := jsonStr(req.Pod, "metadata", "namespace")
+
+	var conts []any
+	conts = append(conts, jsonSlice(req.Pod, "spec", "containers")...)
+	conts = append(conts, jsonSlice(req.Pod, "spec", "initContainers")...)
+	conts = append(conts, jsonSlice(req.Pod, "spec", "ephemeralContainers")...)
+
+	var violations []grc.Violation
+	var matched []string
+	for _, c := range conts {
+		cm := toMap(c)
+		if cm == nil {
+			continue
+		}
+		cName := strVal(cm["name"])
+		if priv, _ := cm["privileged"].(bool); priv {
+			violations = append(violations, grc.Violation{
+				Field:       "containers[].privileged",
+				Expected:    "!= true",
+				Actual:      true,
+				Description: fmt.Sprintf("Pod '%s/%s' 컨테이너 '%s'이 privileged=true로 실행 (호스트 커널·디바이스 전체 접근)", podNS, podName, cName),
+				Severity:    "high",
+				K8sSource:   grc.K8sSource{Namespace: podNS, ResourceKind: "Pod", ResourceName: podName, ContainerName: cName},
+			})
+		} else {
+			matched = append(matched, fmt.Sprintf("컨테이너 '%s': privileged 아님", cName))
+		}
+	}
+
+	if len(violations) > 0 {
+		base.Verdict = "미준수"
+		base.Violations = violations
+	} else {
+		base.Verdict = "준수"
+		base.MatchedIndicators = matched
+	}
+	return base
+}
+// evalSecretAsEnv (R-2.7.1-05) — Secret을 환경변수 대신 파일로 소비.
+// CIS Amazon EKS Benchmark v2.0.0 §4.4.1. env[].valueFrom.secretKeyRef 와
+// envFrom[].secretRef 둘 다 탐지(하나라도 빠지면 반쪽). init/ephemeral 컨테이너도 순회.
+// ⚠ env/envFrom 원본이 수집돼야 실판정. 어떤 컨테이너에도 env·envFrom 키가 없으면
+//   "미수집"으로 보고 NO_DATA(거짓 준수 방지). cluster-reader가 env 수집 시 실판정 전환.
+func evalSecretAsEnv(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
+	base.Severity = "medium"
+	podName := jsonStr(req.Pod, "metadata", "name")
+	podNS := jsonStr(req.Pod, "metadata", "namespace")
+
+	var conts []any
+	conts = append(conts, jsonSlice(req.Pod, "spec", "containers")...)
+	conts = append(conts, jsonSlice(req.Pod, "spec", "initContainers")...)
+	conts = append(conts, jsonSlice(req.Pod, "spec", "ephemeralContainers")...)
+
+	envCollected := false
+	var violations []grc.Violation
+	for _, c := range conts {
+		cm := toMap(c)
+		if cm == nil {
+			continue
+		}
+		cName := strVal(cm["name"])
+		if _, ok := cm["env"]; ok {
+			envCollected = true
+		}
+		if _, ok := cm["envFrom"]; ok {
+			envCollected = true
+		}
+		// 패턴 1: env[].valueFrom.secretKeyRef
+		for _, ev := range toSlice(cm["env"]) {
+			evm := toMap(ev)
+			if evm == nil {
+				continue
+			}
+			vf := toMap(evm["valueFrom"])
+			if vf == nil {
+				continue
+			}
+			if skr := toMap(vf["secretKeyRef"]); skr != nil {
+				sname := strVal(skr["name"])
+				violations = append(violations, grc.Violation{
+					Field:       "env[].valueFrom.secretKeyRef",
+					Expected:    "secret을 env로 노출하지 않음",
+					Actual:      sname,
+					Description: fmt.Sprintf("Pod '%s/%s' 컨테이너 '%s'이 Secret '%s'을 env(secretKeyRef)로 노출", podNS, podName, cName, sname),
+					Severity:    "medium",
+					K8sSource:   grc.K8sSource{Namespace: podNS, ResourceKind: "Pod", ResourceName: podName, ContainerName: cName},
+				})
+			}
+		}
+		// 패턴 2: envFrom[].secretRef (secret 통째로)
+		for _, ef := range toSlice(cm["envFrom"]) {
+			efm := toMap(ef)
+			if efm == nil {
+				continue
+			}
+			if sr := toMap(efm["secretRef"]); sr != nil {
+				sname := strVal(sr["name"])
+				violations = append(violations, grc.Violation{
+					Field:       "envFrom[].secretRef",
+					Expected:    "secret을 env로 노출하지 않음",
+					Actual:      sname,
+					Description: fmt.Sprintf("Pod '%s/%s' 컨테이너 '%s'이 Secret '%s'을 env(envFrom)로 통째 노출", podNS, podName, cName, sname),
+					Severity:    "medium",
+					K8sSource:   grc.K8sSource{Namespace: podNS, ResourceKind: "Pod", ResourceName: podName, ContainerName: cName},
+				})
+			}
+		}
+	}
+
+	// 미수집 가드: env/envFrom 키가 어떤 컨테이너에도 없으면 수집 안 된 것 → NO_DATA(거짓 준수 방지).
+	if !envCollected && len(violations) == 0 {
+		base.Verdict = grc.VerdictNO_DATA
+		base.Reason = "컨테이너 env/envFrom 미수집 — Secret의 env 노출 여부 판정 불가 (cluster-reader가 env·envFrom 수집 시 실판정)"
+		base.MatchedIndicators = []string{base.Reason}
+		if mj, err := json.Marshal([]string{"pod.spec.containers[].env", "pod.spec.containers[].envFrom"}); err == nil {
+			base.MissingInputs = mj
+		}
+		return base
+	}
+
+	if len(violations) > 0 {
+		base.Verdict = "미준수"
+		base.Violations = violations
+	} else {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{"Secret을 env로 노출하는 컨테이너 없음 (파일 마운트/미사용)"}
+	}
+	return base
+}
+
+// evalDefaultNamespace (R-2.10.2-11) — default 네임스페이스 미사용.
+// CIS Amazon EKS Benchmark v2.0.0 §4.5.2. 데이터: pod.metadata.namespace(이미 수집).
+// 플랫폼 에이전트(vara-*)는 과탐 방지를 위해 예외(사용자 워크로드로 한정).
+func evalDefaultNamespace(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
+	base.Severity = "medium"
+	podName := jsonStr(req.Pod, "metadata", "name")
+	podNS := jsonStr(req.Pod, "metadata", "namespace")
+
+	if podNS != "default" {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("네임스페이스 '%s' — default 아님", podNS)}
+		return base
+	}
+	if strings.HasPrefix(podName, "vara-") {
+		base.Verdict = "준수"
+		base.MatchedIndicators = []string{fmt.Sprintf("플랫폼 에이전트 '%s' — default ns 예외", podName)}
+		return base
+	}
+	base.Verdict = "미준수"
+	base.Violations = []grc.Violation{{
+		Field:       "pod.namespace",
+		Expected:    "!= default",
+		Actual:      "default",
+		Description: fmt.Sprintf("Pod '%s'이 default 네임스페이스에 배포됨 — 격리·정책(NetworkPolicy/PSA) 적용이 약함", podName),
+		Severity:    "medium",
+		K8sSource:   grc.K8sSource{Namespace: "default", ResourceKind: "Pod", ResourceName: podName},
+	}}
+	return base
+}
+
 func evalNetworkPolicy(rule Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
 	podNS := jsonStr(req.Pod, "metadata", "namespace")
 	podLabels := jsonMap(req.Pod, "metadata", "labels")
@@ -1067,8 +1246,26 @@ func evalIngressAuth(rule Rule, req PodGraphRequest, base PodRuleResult) PodRule
 	podNS := jsonStr(req.Pod, "metadata", "namespace")
 
 	if len(req.RelatedResources.Ingresses) == 0 {
-		base.Verdict = "준수"
+		base.Verdict = grc.VerdictNA
 		base.MatchedIndicators = []string{"Ingress 미사용 — 해당 없음"}
+		return base
+	}
+
+	// 미수집 가드: annotations 컬럼이 어떤 Ingress에도 적재 안 됐으면 판정 불가 → NO_DATA.
+	annCollected := false
+	for _, ing := range req.RelatedResources.Ingresses {
+		if c, ok := ing["_annotations_collected"].(bool); ok && c {
+			annCollected = true
+			break
+		}
+	}
+	if !annCollected {
+		base.Verdict = grc.VerdictNO_DATA
+		base.Reason = "Ingress annotations 미수집 — 인증 설정 여부 판정 불가"
+		base.MatchedIndicators = []string{base.Reason}
+		if mj, err := json.Marshal([]string{"ingress.metadata.annotations"}); err == nil {
+			base.MissingInputs = mj
+		}
 		return base
 	}
 
@@ -1082,7 +1279,7 @@ func evalIngressAuth(rule Rule, req PodGraphRequest, base PodRuleResult) PodRule
 		}
 	}
 
-	var violations []grc.Violation
+	var noAuth []grc.Violation
 	var matched []string
 
 	for _, ing := range req.RelatedResources.Ingresses {
@@ -1099,11 +1296,11 @@ func evalIngressAuth(rule Rule, req PodGraphRequest, base PodRuleResult) PodRule
 		}
 
 		if !hasAuth {
-			violations = append(violations, grc.Violation{
+			noAuth = append(noAuth, grc.Violation{
 				Field:       "all_ingresses_have_auth",
 				Expected:    "== true",
 				Actual:      false,
-				Description: fmt.Sprintf("Ingress '%s'에 인증 annotation 없음 — 비인가자 직접 접근 가능", ingName),
+				Description: fmt.Sprintf("Ingress '%s'에 인증 annotation 미탐지 — Bastion/VPN/SSM/OIDC 등 대체 접근수단 여부 수동 확인 필요", ingName),
 				Severity:    "high",
 				K8sSource: grc.K8sSource{
 					Namespace:    podNS,
@@ -1114,12 +1311,78 @@ func evalIngressAuth(rule Rule, req PodGraphRequest, base PodRuleResult) PodRule
 		}
 	}
 
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
+	// 팀 정책(결정): annotation 외 인증(OIDC 프록시·Bastion/VPN/SSM) 가능성 → 미탐지는 NOT_MET 단정 대신 NEEDS_REVIEW(권고).
+	if len(noAuth) > 0 {
+		base.Verdict = grc.VerdictNEEDS_REVIEW
+		base.Violations = noAuth
+		base.Reason = "Ingress 인증 annotation 미탐지 — 대체 접근수단(Bastion/VPN/SSM/OIDC) 적용 여부 수동 검토 필요"
 	} else {
-		base.Verdict = "준수"
+		base.Verdict = grc.VerdictMET
 		base.MatchedIndicators = matched
+	}
+	return base
+}
+
+// evalEksAccessMode (R-2.5.5-07) — EKS 접근을 access entries(API)로 표준화했는지.
+// CIS Amazon EKS Benchmark v2.0.0 §4.1.7 / §5.5.1. 데이터: cluster_aws_config.authentication_mode.
+// API=표준화(준수) / CONFIG_MAP=구식 aws-auth(미준수) / API_AND_CONFIG_MAP=전환중(검토) / 미수집=NO_DATA.
+func evalEksAccessMode(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
+	base.Severity = "high"
+	mode := strVal(req.RelatedResources.EKSCluster["authentication_mode"])
+
+	// aws_auth_present 보강: aws-reader가 이 값을 수집하지 않아 NULL이므로, 수집된
+	// cluster_configmaps에서 kube-system/aws-auth ConfigMap 존재 여부로 구식 aws-auth
+	// 사용을 교차 확인한다(핸드오프 지침: "필요 시 configmap 존재로 룰이 채움").
+	awsAuthPresent := false
+	for _, cm := range req.RelatedResources.ConfigMaps {
+		if jsonStr(cm, "metadata", "namespace") == "kube-system" && jsonStr(cm, "metadata", "name") == "aws-auth" {
+			awsAuthPresent = true
+			break
+		}
+	}
+
+	switch mode {
+	case "API":
+		if awsAuthPresent {
+			base.Verdict = grc.VerdictNEEDS_REVIEW
+			base.Reason = "authentication_mode=API지만 kube-system/aws-auth ConfigMap이 잔존 — 미사용 aws-auth 정리 권고"
+			base.MatchedIndicators = []string{base.Reason}
+		} else {
+			base.Verdict = grc.VerdictMET
+			base.MatchedIndicators = []string{"authentication_mode=API — access entries 전용, aws-auth ConfigMap 없음"}
+		}
+	case "CONFIG_MAP":
+		desc := "EKS 접근이 구식 aws-auth ConfigMap 방식 — access entries(API)로 표준화 필요"
+		if awsAuthPresent {
+			desc += " (kube-system/aws-auth ConfigMap 확인됨)"
+		}
+		base.Verdict = grc.VerdictNOT_MET
+		base.Violations = []grc.Violation{{
+			Field:       "authentication_mode",
+			Expected:    "API",
+			Actual:      "CONFIG_MAP",
+			Description: desc,
+			Severity:    "high",
+			K8sSource:   grc.K8sSource{ResourceKind: "EKSCluster", ResourceName: req.ClusterName},
+		}}
+	case "API_AND_CONFIG_MAP":
+		base.Verdict = grc.VerdictNEEDS_REVIEW
+		base.Reason = "authentication_mode=API_AND_CONFIG_MAP — access entries 전환 중. aws-auth ConfigMap 잔존 정리 후 API 전용 권고"
+		base.MatchedIndicators = []string{base.Reason}
+	default:
+		// authentication_mode 미수집 → aws-auth ConfigMap 존재로 대체 판정.
+		if awsAuthPresent {
+			base.Verdict = grc.VerdictNEEDS_REVIEW
+			base.Reason = "authentication_mode 미수집이나 kube-system/aws-auth ConfigMap 존재 — 구식 aws-auth 방식 가능성, API 전환 확인 필요"
+			base.MatchedIndicators = []string{base.Reason}
+		} else {
+			base.Verdict = grc.VerdictNO_DATA
+			base.Reason = "authentication_mode 미수집 + aws-auth ConfigMap 미탐지 — 판정 불가"
+			base.MatchedIndicators = []string{base.Reason}
+			if mj, err := json.Marshal([]string{"cluster_aws_config.authentication_mode"}); err == nil {
+				base.MissingInputs = mj
+			}
+		}
 	}
 	return base
 }
@@ -1151,16 +1414,21 @@ func evalDangerousVerbCombos(rule Rule, req PodGraphRequest, base PodRuleResult)
 		Verbs     []string
 		Resources []string
 		Risk      string
+		CIS       string // CIS EKS Benchmark 조항 (추적성) — 빈 문자열이면 일반 RBAC 위험
 	}
 
+	// 위험 (resource, verb) 조합. CIS EKS 4.1.8~4.1.12를 R-2.5.5-02가 흡수한다.
+	// 와일드카드(*)는 R-2.5.5-01(wildcard 권한)이 담당하므로 여기선 명시 지정만 매칭한다.
 	combos := []dangerousCombo{
-		{Name: "pod_exec_attach", Verbs: []string{"create", "get"}, Resources: []string{"pods/exec", "pods/attach", "pods/portforward"}, Risk: "컨테이너 내부 임의 명령 실행"},
+		{Name: "pod_exec_attach", Verbs: []string{"create", "get"}, Resources: []string{"pods/exec", "pods/attach", "pods/portforward"}, Risk: "컨테이너 내부 임의 명령 실행", CIS: "4.1.8"},
 		{Name: "secret_write", Verbs: []string{"create", "update", "patch", "delete"}, Resources: []string{"secrets"}, Risk: "비밀정보 변조·삭제"},
 		{Name: "rbac_escalate", Verbs: []string{"escalate"}, Resources: []string{"clusterroles", "roles"}, Risk: "RBAC 권한 자체 상승"},
 		{Name: "rbac_bind", Verbs: []string{"bind"}, Resources: []string{"clusterroles", "roles"}, Risk: "임의 권한 바인딩"},
 		{Name: "impersonate", Verbs: []string{"impersonate"}, Resources: []string{"users", "groups", "serviceaccounts"}, Risk: "다른 계정 가장"},
-		{Name: "node_proxy", Verbs: []string{"get", "create"}, Resources: []string{"nodes/proxy"}, Risk: "kubelet API 직접 접근"},
-		{Name: "sa_token_request", Verbs: []string{"create"}, Resources: []string{"serviceaccounts/token"}, Risk: "임의 SA 토큰 발급"},
+		{Name: "node_proxy", Verbs: []string{"get", "create"}, Resources: []string{"nodes/proxy"}, Risk: "kubelet API 우회 → 노드 내 모든 Pod exec/로그", CIS: "4.1.10"},
+		{Name: "sa_token_request", Verbs: []string{"create"}, Resources: []string{"serviceaccounts/token"}, Risk: "임의 SA 토큰 발급 → 권한상승·가장", CIS: "4.1.12"},
+		{Name: "pv_create", Verbs: []string{"create"}, Resources: []string{"persistentvolumes"}, Risk: "PV로 hostPath 마운트 → 노드 파일시스템 접근·탈출", CIS: "4.1.9"},
+		{Name: "webhook_config", Verbs: []string{"create", "update", "patch"}, Resources: []string{"validatingwebhookconfigurations", "mutatingwebhookconfigurations"}, Risk: "admission webhook 조작 → 정책 우회·요청 가로채기", CIS: "4.1.11"},
 	}
 
 	var violations []grc.Violation
@@ -1241,26 +1509,34 @@ func evalDangerousVerbCombos(rule Rule, req PodGraphRequest, base PodRuleResult)
 	// Check each dangerous combo
 	for _, combo := range combos {
 		for _, rr := range allRBACRules {
+			// 와일드카드(*)는 R-2.5.5-01이 담당 → 명시 지정만 매칭(한 Role이 01·02 중복 위반 방지).
+			if containsStr(rr.Verbs, "*") || containsStr(rr.Resources, "*") {
+				continue
+			}
 			hasVerb := false
 			hasResource := false
 			for _, cv := range combo.Verbs {
-				if containsStr(rr.Verbs, cv) || containsStr(rr.Verbs, "*") {
+				if containsStr(rr.Verbs, cv) {
 					hasVerb = true
 					break
 				}
 			}
 			for _, cr := range combo.Resources {
-				if containsStr(rr.Resources, cr) || containsStr(rr.Resources, "*") {
+				if containsStr(rr.Resources, cr) {
 					hasResource = true
 					break
 				}
 			}
 			if hasVerb && hasResource {
+				cisTag := ""
+				if combo.CIS != "" {
+					cisTag = fmt.Sprintf(" [CIS %s]", combo.CIS)
+				}
 				violations = append(violations, grc.Violation{
 					Field:       "has_dangerous_verb_combo",
 					Expected:    "== false",
 					Actual:      true,
-					Description: fmt.Sprintf("%s '%s'에 위험 조합 '%s' — %s", rr.RoleKind, rr.RoleName, combo.Name, combo.Risk),
+					Description: fmt.Sprintf("%s '%s'에 위험 조합 '%s'%s — %s", rr.RoleKind, rr.RoleName, combo.Name, cisTag, combo.Risk),
 					Severity:    "critical",
 					K8sSource: grc.K8sSource{
 						Namespace:    podNS,
@@ -1734,8 +2010,11 @@ func extractPodSecretRefs(pod map[string]any) []string {
 		}
 	}
 
-	// containers[].envFrom[].secretRef.name + containers[].env[].valueFrom.secretKeyRef.name
+	// containers[] (+ init/ephemeral) envFrom[].secretRef / env[].valueFrom.secretKeyRef
+	// 에이전트가 init·ephemeral을 container_type으로 containers[]에 평탄화하지만 표준 spec 형태도 방어.
 	containers := jsonSlice(spec, "containers")
+	containers = append(containers, jsonSlice(spec, "initContainers")...)
+	containers = append(containers, jsonSlice(spec, "ephemeralContainers")...)
 	for _, c := range containers {
 		cm := toMap(c)
 		if cm == nil {

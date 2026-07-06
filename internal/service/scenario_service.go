@@ -108,13 +108,20 @@ func (s *ScenarioService) BuildForPod(ctx context.Context, companyID, cluster, p
 		if be, berr := s.blastRepo.GetOutgoingBySource(ctx, cluster, podUID); berr == nil {
 			outEdges = be
 			for _, e := range be {
-				in.ReachEdges = append(in.ReachEdges, scoring.BlastEdge{
-					Channel:    e.WinChannel,
-					Reason:     e.Reason,
-					TargetName: e.TargetName,
-					RBACProb:   e.PRBAC,
-					NetProb:    e.PNet,
-				})
+				be2 := scoring.BlastEdge{
+					Channel:      e.WinChannel,
+					Reason:       e.Reason,
+					TargetName:   e.TargetName,
+					TargetPodUID: e.TargetPodUID,
+					RBACProb:     e.PRBAC,
+					NetProb:      e.PNet,
+				}
+				// network 도달 측면이동(9034)은 대상 Pod에 원격 RCE CVE가 확인돼야 인정된다(엄격 게이트).
+				// 9034로 매핑되는 엣지(network 채널 또는 rbac-portforward)에 대해서만 대상 CVE를 조회한다.
+				if e.WinChannel == "network" || strings.Contains(e.Reason, "portforward") {
+					s.fillTargetCVE(ctx, cluster, &be2)
+				}
+				in.ReachEdges = append(in.ReachEdges, be2)
 			}
 		}
 	}
@@ -217,6 +224,31 @@ func (s *ScenarioService) enrichCVE(ctx context.Context, in *scoring.ScenarioInp
 	if s.enrich != nil {
 		if e, eerr := s.enrich.GetOrEnrich(ctx, cveID); eerr == nil && e != nil {
 			in.CVEEnrichment = e
+		}
+	}
+}
+
+// fillTargetCVE — network 측면이동 대상 Pod의 대표 CVE를 조회해 원격 RCE 여부(엄격 게이트 판정용)를 채운다.
+// 대상에 원격(AV:N) + RCE(impact) CVE가 확인돼야 network 도달이 실제 측면이동으로 인정된다.
+// best-effort: 대상 final_scores 미계산/CVE 없음이면 비워 둔다(→ 게이트에서 제외). impact는 enrichment(CWE 도출)에서
+// 오는데 lazy 캐시라 첫 조회 시 비어 있을 수 있고(→ 미확인으로 제외), 이후 조회부터 채워진다.
+func (s *ScenarioService) fillTargetCVE(ctx context.Context, cluster string, e *scoring.BlastEdge) {
+	if e.TargetPodUID == "" || s.finalScore == nil {
+		return
+	}
+	fin, err := s.finalScore.GetByPodUID(ctx, cluster, e.TargetPodUID)
+	if err != nil || fin == nil || fin.UsedTopCVE == "" {
+		return
+	}
+	e.TargetTopCVE = fin.UsedTopCVE
+	if s.globalRepo != nil {
+		if g, gerr := s.globalRepo.GetByCVEID(ctx, fin.UsedTopCVE); gerr == nil && g != nil {
+			e.TargetCVERemote, _, _, _ = parseCVSSVector(g.CVSSVector)
+		}
+	}
+	if s.enrich != nil {
+		if enr, eerr := s.enrich.GetOrEnrich(ctx, fin.UsedTopCVE); eerr == nil && enr != nil {
+			e.TargetCVEImpact = enr.Impact
 		}
 	}
 }
