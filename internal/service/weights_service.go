@@ -148,9 +148,12 @@ const weightsRecommendSystemPrompt = `너는 컨테이너 보안 플랫폼(VARA)
 - toxic_critical, toxic_high, toxic_medium
 
 규칙:
-- 현재값 + 클러스터 통계 + (있으면) 운영자 우선순위를 함께 고려해 보수적으로 제안한다.
-- 노출 파드 비중이 높으면 final_weight_exposure를, KEV가 많으면 global_weight_ssvc를 올리는 식으로 통계에 근거한다.
-- 합 제약을 지키고 급격한 변화는 피한다.
+- 운영자 우선순위가 주어지면 최우선으로 반영한다. 특정 신호를 "최우선/우선"으로 지목하면 그 신호의 가중치를 해당 그룹에서 가장 크게(dominant) 잡는다 — 소폭 상향이 아니라 최상위로.
+  * 악용/KEV/익스플로잇/실제 공격 최우선 → global_weight_ssvc를 CVSS·EPSS보다 크게(0.45~0.55), global_weight_cvss는 그보다 낮춘다.
+  * 외부 노출 최우선 → final_weight_exposure를 final_weight_global보다 크게.
+  * 표준 심각도(CVSS) 최우선 → global_weight_cvss를 최상위로.
+- 운영자 우선순위가 없을 때만 클러스터 통계에 근거해 보수적으로 제안한다(노출 파드가 많으면 final_weight_exposure, KEV가 많으면 global_weight_ssvc).
+- 합 제약(Final=1.0, Global=1.0)을 지킨다. 운영자 우선순위가 명확하면 급격한 변화를 허용한다.
 반드시 아래 JSON만 출력(다른 텍스트 금지):
 {"final_weight_global":0.0,"final_weight_exposure":0.0,"global_weight_cvss":0.0,"global_weight_epss":0.0,"global_weight_ssvc":0.0,"toxic_critical":1.0,"toxic_high":1.0,"toxic_medium":1.0,"confidence":0.0,"rationale":"한국어 근거 2~4문장"}`
 
@@ -224,6 +227,7 @@ func (s *WeightsService) Recommend(ctx context.Context, profile string) (*scorin
 		CutCaution:   current.CutCaution,
 	}
 	normalizeWeights(&rec)
+	enforceProfileDominance(profile, &rec) // 운영자 우선순위가 명확하면 해당 신호를 dominant로 강제(프리셋 의도 보장)
 	if err := validateWeights(rec); err != nil {
 		return nil, fmt.Errorf("AI 추천값이 제약을 만족하지 못했습니다: %w", err)
 	}
@@ -244,6 +248,25 @@ func (s *WeightsService) Recommend(ctx context.Context, profile string) (*scorin
 		Profile:     profile,
 		Note:        "추천값입니다. 적용하려면 PUT /api/v1/scoring/weights로 전송하세요. Global 가중치 변경은 이미지 Global 재계산 후 반영됩니다.",
 	}, nil
+}
+
+// enforceProfileDominance는 운영자 우선순위가 명확할 때(프로파일 키워드) 해당 신호를 그룹 내
+// 최상위 가중치로 강제한다. LLM이 보수적으로 소폭만 올려도 프리셋 의도가 확실히 반영되도록 보장한다.
+// 악용/KEV/익스플로잇 우선 → global_weight_ssvc를 Global 그룹 최상위(0.45)로, 나머지는 기존 비율로 배분.
+func enforceProfileDominance(profile string, w *scoring.Weights) {
+	p := strings.ToLower(profile)
+	exploit := strings.Contains(profile, "악용") || strings.Contains(profile, "KEV") ||
+		strings.Contains(profile, "익스플로잇") || strings.Contains(p, "exploit")
+	if exploit && w.GlobalSSVC < 0.45 {
+		w.GlobalSSVC = 0.45
+		rest := w.GlobalCVSS + w.GlobalEPSS
+		if rest > 0 {
+			w.GlobalCVSS = round4(0.55 * w.GlobalCVSS / rest)
+			w.GlobalEPSS = round4(0.55 - w.GlobalCVSS)
+		} else {
+			w.GlobalCVSS, w.GlobalEPSS = 0.30, 0.25
+		}
+	}
 }
 
 // normalizeWeights는 합 제약(Final=1.0, Global=1.0)으로 정규화하고 toxic을 1.0 이상으로 클램프합니다.
