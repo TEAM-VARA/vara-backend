@@ -103,18 +103,27 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 	}
 
 	// ───────── 진입 (incoming) ─────────
+	// 외부 초기 침투는 "외부 도달(노출) AND 네트워크 악용(원격 AV:N CVE)"이 함께일 때만 성립하는 결합 게이트다.
+	//   - 노출(9005)은 "외부 도달 가능"(reachability)만 표기한다 — 실제 침투 주장은 원격 악용 취약점이 있어야 한다.
+	//     (단 노출 자체가 무인증 민감 인터페이스면 노출만으로 침투 경로가 되므로 caveat로 고지한다.)
+	//   - 원격 CVE 진입(VULN)은 노출된 경우에만 방출한다 — 비노출 원격 CVE는 외부 도달이 불가하므로 초기 침투가 아니다.
+	//     (그 CVE는 다른 Pod가 이 Pod로 오는 network 측면이동의 '대상 RCE'로 평가된다 — buildOutgoingFromBlast 게이트.)
 	if in.Exposed {
 		via := in.ExposedVia
 		if via == "" {
 			via = "외부에 노출된"
 		}
+		caveat := ""
+		if !(in.TopCVE != "" && in.CVERemote) {
+			caveat = "외부 도달은 가능하나 악용 가능한 원격 취약점은 미확인 (무인증 민감 인터페이스면 노출 자체가 침투 경로)"
+		}
 		fs = append(fs, mkFinding("MS-TA9005", DirIncoming, TacticInitialAccess,
-			fmt.Sprintf("이 Pod이 %s 상태라, 공격자가 클러스터 밖에서 직접 접근해 처음 침투할 수 있습니다.", via),
-			"high", ""))
+			fmt.Sprintf("이 Pod이 %s 상태라, 공격자가 클러스터 밖에서 직접 접근할 수 있습니다.", via),
+			"high", caveat))
 	}
-	if in.TopCVE != "" && in.CVERemote {
+	if in.Exposed && in.TopCVE != "" && in.CVERemote {
 		f := mkFinding("VULN", DirIncoming, TacticInitialAccess,
-			vulnIncomingScenario(in), "heuristic", "CVSS 벡터(AV:N) 기반 추정")
+			vulnIncomingScenario(in), "heuristic", "외부 노출 + 원격(AV:N) 취약점 결합 (CVSS 벡터 기반 추정)")
 		f.CVE = in.TopCVE
 		f.Enrichment = in.CVEEnrichment // 캐시 hit 시 부착(설계서 §4) — nil이면 omitempty
 		fs = append(fs, f)

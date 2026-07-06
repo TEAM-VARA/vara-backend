@@ -567,33 +567,6 @@ func evalRevisionHistoryLimit(_ Rule, req PodGraphRequest, base PodRuleResult) P
 // 2.10.2 클라우드 보안
 // ─────────────────────────────────────────────
 
-// R-2.10.2-POD-08: Namespace Pod Security Admission 라벨 부재
-func evalNamespacePSA(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "high"
-	ns := req.RelatedResources.Namespace
-	nsName := jsonStr(ns, "metadata", "name")
-	nsLabels := jsonMap(ns, "metadata", "labels")
-
-	enforce := strVal(nsLabels["pod-security.kubernetes.io/enforce"])
-	allowed := map[string]bool{"restricted": true, "baseline": true}
-
-	if !allowed[enforce] {
-		base.Verdict = "미준수"
-		base.Violations = []grc.Violation{{
-			Field:       "metadata.labels.pod-security.kubernetes.io/enforce",
-			Expected:    "in [restricted, baseline]",
-			Actual:      enforce,
-			Description: fmt.Sprintf("namespace '%s'에 PSA enforce 라벨 부재 (보안 컨텍스트 강제 정책 없음)", nsName),
-			Severity:    "high",
-			K8sSource:   grc.K8sSource{Namespace: nsName, ResourceKind: "Namespace", ResourceName: nsName},
-		}}
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{fmt.Sprintf("PSA enforce=%s", enforce)}
-	}
-	return base
-}
-
 // ─────────────────────────────────────────────
 // 2.10.3 공개서버 보안
 // ─────────────────────────────────────────────
@@ -786,51 +759,6 @@ func evalExternalIngressTLS(_ Rule, req PodGraphRequest, base PodRuleResult) Pod
 		}
 	}
 
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else {
-		base.Verdict = "준수"
-		base.MatchedIndicators = matched
-	}
-	return base
-}
-
-// R-2.10.5-POD-03: ExternalName Service 평문 endpoint
-func evalExternalNamePlaintext(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "high"
-	var violations []grc.Violation
-	var matched []string
-	found := false
-
-	for _, svc := range req.RelatedResources.Services {
-		if jsonStr(svc, "spec", "type") != "ExternalName" {
-			continue
-		}
-		found = true
-		svcName := jsonStr(svc, "metadata", "name")
-		svcNS := jsonStr(svc, "metadata", "namespace")
-		externalName := jsonStr(svc, "spec", "externalName")
-		if strings.HasPrefix(externalName, "http://") {
-			violations = append(violations, grc.Violation{
-				Field:       "spec.externalName",
-				Expected:    "not start with http://",
-				Actual:      externalName,
-				Description: fmt.Sprintf("ExternalName Service '%s'의 endpoint가 http:// 평문", svcName),
-				Severity:    "high",
-				K8sSource:   grc.K8sSource{Namespace: svcNS, ResourceKind: "Service", ResourceName: svcName},
-			})
-		} else {
-			matched = append(matched, fmt.Sprintf("ExternalName '%s': 평문 아님", svcName))
-		}
-	}
-
-	if !found {
-		// 위험 종속형: ExternalName Service가 없으면 평문 endpoint 위험도 없음 → 실제 준수.
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"ExternalName Service 없음 — 평문 endpoint 위험 없음"}
-		return base
-	}
 	if len(violations) > 0 {
 		base.Verdict = "미준수"
 		base.Violations = violations

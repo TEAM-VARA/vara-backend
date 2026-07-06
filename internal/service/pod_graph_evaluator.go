@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"regexp"
 	"strings"
 
 	"github.com/vara/backend/internal/domain/grc"
@@ -369,7 +368,6 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	// 2.9.1 변경관리
 	"R-2.9.1-02": {"revisionHistoryLimit이 미설정이거나 부적절한 값", "Deployment의 revisionHistoryLimit을 적정 수준(5~10)으로 설정하여 롤백 이력을 관리하세요"},
 	// 2.10.2 클라우드 보안
-	"R-2.10.2-08": {"Namespace에 Pod Security Admission(PSA) 라벨 미설정", "Namespace에 pod-security.kubernetes.io/enforce 라벨을 추가하여 Pod 보안 기준을 적용하세요"},
 	"R-2.10.2-11": {"Pod이 default 네임스페이스에 배포됨", "워크로드를 목적별 전용 네임스페이스로 이전하세요"},
 	// 2.10.3 공개서버 보안
 	"R-2.10.3-01": {"LoadBalancer Service에 sourceRanges 미설정으로 모든 IP에서 접근 가능", "LoadBalancer Service에 spec.loadBalancerSourceRanges를 설정하여 접근 IP를 제한하세요"},
@@ -377,7 +375,6 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	"R-2.10.3-04": {"Ingress에 Rate Limit 설정 미적용", "Ingress에 rate-limiting annotation을 추가하여 요청 빈도를 제한하세요"},
 	// 2.10.5 정보전송 보안
 	"R-2.10.5-01": {"외부 노출 Ingress에 TLS 미설정으로 평문 통신 위험", "외부 노출 Ingress에 TLS 인증서를 설정하여 전송 구간 암호화를 보장하세요"},
-	"R-2.10.5-03": {"ExternalName Service가 평문(HTTP) 프로토콜 사용", "ExternalName Service의 대상을 HTTPS 엔드포인트로 변경하세요"},
 	// 2.10.8 패치관리
 	"R-2.10.8-01": {"Node의 kubelet 버전이 오래되어 보안 패치 적용이 필요함", "Node의 kubelet을 최신 안정 버전으로 업데이트하세요"},
 	"R-2.10.8-02": {"컨테이너 이미지에 변경 가능한 태그(latest 등) 사용", "이미지 태그에 고정 버전(예: v1.2.3)을 사용하여 배포 일관성을 보장하세요"},
@@ -449,17 +446,16 @@ func checkIndicatorDataAvailability(indicators []Indicator) (evaluable int, noDa
 var implementedPodRules = map[string]bool{
 	"R-2.5.1-01": true, "R-2.5.1-03": true,
 	"R-2.5.2-01": true, "R-2.5.2-02": true,
-	"R-2.5.5-01": true, "R-2.5.5-02": true, "R-2.5.5-07": true,
+	"R-2.5.5-01": true, "R-2.5.5-02": true, "R-2.5.5-07": true, "R-2.5.5-08": true, // -08: 워크로드 create 권한(CIS EKS 4.1.4, 2.6.3→2.5.5 이관)
 	"R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true, // R-2.6.1-01(hostNS)은 2.10.2-01로 이관
 	"R-2.6.2-01": true,
-	"R-2.6.3-01": true,
 	"R-2.6.7-01": true,
 	"R-2.7.1-01": true, "R-2.7.1-05": true, // R-2.7.1-05: CIS EKS 4.4.1 Secret-as-env
 	"R-2.8.3-02": true, "R-2.8.3-03": true,
 	"R-2.9.1-02": true,
-	"R-2.10.2-01": true, "R-2.10.2-08": true, "R-2.10.2-11": true, // -01: hostNS 격리(2.6.1→2.10.2 이관); -11: CIS EKS 4.5.2 default ns
+	"R-2.10.2-01": true, "R-2.10.2-11": true, // -01: hostNS 격리(2.6.1→2.10.2 이관); -11: CIS EKS 4.5.2 default ns
 	"R-2.10.3-01": true,
-	"R-2.10.5-01": true, "R-2.10.5-03": true,
+	"R-2.10.5-01": true,
 	"R-2.10.8-01": true, "R-2.10.8-02": true, "R-2.10.8-03": true,
 	"R-2.11.3-01": true, "R-2.11.3-03": true,
 }
@@ -480,12 +476,10 @@ var ruleOffClusterHints = map[string]string{
 	"R-1.2.1-01":  "자산관리대장/CMDB의 K8s 자산 등재·분류등급·중요도 산정 현황",
 	"R-1.2.2-01":  "정보서비스 흐름도·외부 연계 시스템 목록(외부 의존성 등록 여부)",
 	"R-1.2.2-02":  "정보서비스 흐름도(Ingress 진입 경로 반영 여부)",
-	"R-2.1.3-02":  "CMDB의 자산별 보안등급 분류",
 	"R-2.5.1-02":  "사내 CMDB/IAM의 SA-소유팀 매핑, SA 발급 신청·승인 기록",
 	"R-2.8.3-01":  "별도 클러스터/VPC 환경 분리 현황, namespace 네이밍 컨벤션, 배포 파이프라인의 환경 정의",
 	"R-2.8.3-03":  "별도 클러스터/VPC 환경 분리 현황, namespace 네이밍 컨벤션(환경 식별 수단)",
 	"R-2.9.1-01":  "ITSM 변경관리 신청·승인 결재 기록, 배포 파이프라인 이력",
-	"R-2.10.2-08": "EKS 콘솔의 namespace Pod Security 설정, CSPM/클라우드 보안 점검 보고서",
 	"R-2.10.8-01": "EKS 콘솔/노드그룹의 kubelet 버전·지원 종료일(EOL) 현황",
 	"R-2.11.3-01": "K8s Audit Log(CloudWatch Logs), Falco/Tetragon 등 런타임 탐지 도구, SIEM 보관 로그",
 }
@@ -624,8 +618,8 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	// 2.5.5 특수 계정 및 권한 관리 (EKS access entries — CIS 4.1.7/5.5.1)
 	case "R-2.5.5-POD-07", "R-2.5.5-07":
 		result = evalEksAccessMode(rule, req, base)
-	// 2.6.3 응용프로그램 접근
-	case "R-2.6.3-POD-01", "R-2.6.3-01":
+	// 2.5.5 특수 권한 — 워크로드 생성 권한 (CIS EKS 4.1.4, 2.6.3→2.5.5 이관)
+	case "R-2.5.5-POD-08", "R-2.5.5-08":
 		result = evalWorkloadCreatePrivilege(rule, req, base)
 	// 2.6.7 인터넷 접속 통제
 	case "R-2.6.7-POD-01", "R-2.6.7-01":
@@ -644,8 +638,6 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	case "R-2.9.1-POD-02", "R-2.9.1-02":
 		result = evalRevisionHistoryLimit(rule, req, base)
 	// 2.10.2 클라우드 보안
-	case "R-2.10.2-POD-08", "R-2.10.2-08":
-		result = evalNamespacePSA(rule, req, base)
 	case "R-2.10.2-POD-09", "R-2.10.2-09":
 		result = evalPrivilegedContainer(rule, req, base)
 	case "R-2.10.2-POD-11", "R-2.10.2-11": // CIS EKS 4.5.2: default 네임스페이스 미사용
@@ -660,8 +652,6 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	// 2.10.5 정보전송 보안
 	case "R-2.10.5-POD-01", "R-2.10.5-01":
 		result = evalExternalIngressTLS(rule, req, base)
-	case "R-2.10.5-POD-03", "R-2.10.5-03":
-		result = evalExternalNamePlaintext(rule, req, base)
 	// 2.10.8 패치관리
 	case "R-2.10.8-POD-01", "R-2.10.8-01":
 		result = evalNodeKubeletVersion(rule, req, base)
@@ -1560,12 +1550,12 @@ func evalDangerousVerbCombos(rule Rule, req PodGraphRequest, base PodRuleResult)
 }
 
 // ─────────────────────────────────────────────
-// R-2.6.3-01: 워크로드 생성 권한 최소화 (pods/워크로드 create)
+// R-2.5.5-08: 워크로드 생성 권한 최소화 (pods/워크로드 create) — 2.6.3→2.5.5 이관
 //
-// ISMS-P 2.6.3 응용프로그램 접근 — 사용자별 업무·정보 중요도에 따라 응용프로그램
-// 접근권한을 제한해야 한다. Pod 및 Pod를 생성하는 워크로드 컨트롤러를 직접
+// ISMS-P 2.5.5 특수 계정 및 권한 관리 — 특수 목적 권한은 최소한으로 부여하고
+// 별도 식별·통제해야 한다. Pod 및 Pod를 생성하는 워크로드 컨트롤러를 직접
 // create 할 수 있는 ServiceAccount는 임의의 응용프로그램(컨테이너)을 무단으로
-// 배포·기동할 수 있어 접근권한 최소화 원칙에 위배된다. CIS EKS 4.1.4 대응.
+// 배포·기동할 수 있어 특수 권한 최소화 원칙에 위배된다. CIS EKS 4.1.4 대응.
 //
 // 참고: evalDangerousVerbCombos와 동일하게 점검 대상 verb/resource는 Go에
 // 고정한다(룰셋 JSON의 dangerous_verb_combinations는 문서·표시용이며 Rule
@@ -1777,84 +1767,6 @@ func evalSecretEncryption(rule Rule, req PodGraphRequest, base PodRuleResult) Po
 }
 
 // ─────────────────────────────────────────────
-// R-2.7.1-POD-02: ConfigMap 평문 비밀값 점검
-// ─────────────────────────────────────────────
-
-func evalConfigMapSecrets(rule Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	podNS := jsonStr(req.Pod, "metadata", "namespace")
-
-	// Get ConfigMap names referenced by the Pod
-	cmNames := extractPodConfigMapRefs(req.Pod)
-	if len(cmNames) == 0 {
-		// 위험 종속형: ConfigMap이 없으면 평문 시크릿 위험도 정의상 없음 → 실제 준수.
-		// ("해당 없음" 문구 금지 — allIndicatorsNA가 검토필요로 재분류함)
-		base.Verdict = "준수"
-		base.MatchedIndicators = []string{"Pod가 참조하는 ConfigMap 없음 — 평문 시크릿 위험 없음"}
-		return base
-	}
-
-	// Compile secret patterns from rule
-	patterns := rule.SecretPatterns
-	if len(patterns) == 0 {
-		patterns = defaultSecretPatterns()
-	}
-
-	compiledPatterns := make(map[string]*regexp.Regexp)
-	for _, sp := range patterns {
-		re, err := regexp.Compile(sp.Regex)
-		if err != nil {
-			log.Printf("[pod-graph] invalid secret pattern '%s': %v", sp.Name, err)
-			continue
-		}
-		compiledPatterns[sp.Name] = re
-	}
-
-	var violations []grc.Violation
-	var matched []string
-
-	for _, cm := range req.RelatedResources.ConfigMaps {
-		cmName := jsonStr(cm, "metadata", "name")
-
-		// Only check ConfigMaps referenced by the pod
-		if !containsStr(cmNames, cmName) {
-			continue
-		}
-
-		data := jsonMap(cm, "data")
-		for key, val := range data {
-			valStr := strVal(val)
-			for patternName, re := range compiledPatterns {
-				if re.MatchString(valStr) {
-					violations = append(violations, grc.Violation{
-						Field:       "configmap_has_secrets",
-						Expected:    "== false",
-						Actual:      true,
-						Description: fmt.Sprintf("ConfigMap '%s' 키 '%s'에 %s 패턴 매칭 — Secret 오브젝트로 이관 필요", cmName, key, patternName),
-						Severity:    "high",
-						K8sSource: grc.K8sSource{
-							Namespace:    podNS,
-							ResourceKind: "ConfigMap",
-							ResourceName: cmName,
-						},
-					})
-					break // one match per key is enough
-				}
-			}
-		}
-	}
-
-	if len(violations) > 0 {
-		base.Verdict = "미준수"
-		base.Violations = violations
-	} else {
-		base.Verdict = "준수"
-		matched = append(matched, fmt.Sprintf("점검 ConfigMap: %s — 평문 비밀값 없음", strings.Join(cmNames, ", ")))
-		base.MatchedIndicators = matched
-	}
-	return base
-}
-
-// ─────────────────────────────────────────────
 // JSON Navigation Helpers
 // ─────────────────────────────────────────────
 
@@ -2057,70 +1969,6 @@ func extractPodSecretRefs(pod map[string]any) []string {
 	}
 
 	return names
-}
-
-// extractPodConfigMapRefs extracts all ConfigMap names referenced by a Pod.
-func extractPodConfigMapRefs(pod map[string]any) []string {
-	seen := map[string]bool{}
-	var names []string
-
-	spec := jsonMap(pod, "spec")
-	if spec == nil {
-		return nil
-	}
-
-	// volumes[].configMap.name
-	volumes := jsonSlice(spec, "volumes")
-	for _, v := range volumes {
-		vm := toMap(v)
-		if vm == nil {
-			continue
-		}
-		configMap := toMap(vm["configMap"])
-		if configMap != nil {
-			name := strVal(configMap["name"])
-			if name != "" && !seen[name] {
-				seen[name] = true
-				names = append(names, name)
-			}
-		}
-	}
-
-	// containers[].envFrom[].configMapRef.name
-	containers := jsonSlice(spec, "containers")
-	for _, c := range containers {
-		cm := toMap(c)
-		if cm == nil {
-			continue
-		}
-		envFrom := toSlice(cm["envFrom"])
-		for _, ef := range envFrom {
-			efm := toMap(ef)
-			if efm == nil {
-				continue
-			}
-			configMapRef := toMap(efm["configMapRef"])
-			if configMapRef != nil {
-				name := strVal(configMapRef["name"])
-				if name != "" && !seen[name] {
-					seen[name] = true
-					names = append(names, name)
-				}
-			}
-		}
-	}
-
-	return names
-}
-
-func defaultSecretPatterns() []SecretPattern {
-	return []SecretPattern{
-		{Name: "password", Regex: `(?i)(password|passwd|pwd)\s*[:=]\s*["']?[\w@!#$%^&*-]{6,}`},
-		{Name: "aws_access_key", Regex: `AKIA[0-9A-Z]{16}`},
-		{Name: "private_key", Regex: `-----BEGIN [A-Z ]*PRIVATE KEY-----`},
-		{Name: "secret_token", Regex: `(?i)(secret|token|api[_-]?key)\s*[:=]\s*["']?[\w\-.]{16,}`},
-		{Name: "jwt", Regex: `eyJ[\w-]+\.[\w-]+\.[\w-]+`},
-	}
 }
 
 // ─────────────────────────────────────────────

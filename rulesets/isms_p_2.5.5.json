@@ -421,11 +421,92 @@
       "judgment_logic": {
         "type": "structured_match",
         "method": "eks_authentication_mode"
+      },
+      "manual_check_output": {
+        "applies_when": "fail",
+        "additional_review_items": [
+          "authentication_mode를 API 전용으로 전환할 계획·일정",
+          "kube-system/aws-auth ConfigMap 잔존 시 정리 계획",
+          "access entries로 IAM principal 매핑 이전 완료 여부"
+        ],
+        "alternative_controls": [
+          "access entries(API) 기반 IAM 접근 표준화",
+          "aws-auth ConfigMap 제거 후 API 전용 운영"
+        ],
+        "compliance_mappings": [
+          {
+            "framework": "ISMS-P",
+            "item": "2.5.5",
+            "match_strength": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "R-2.5.5-08",
+      "name": "워크로드 생성 권한 최소화 (pods/워크로드 create)",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "dangerous_verb_combinations": [
+        {
+          "name": "workload_create",
+          "verbs": [
+            "create"
+          ],
+          "resources": [
+            "pods",
+            "deployments",
+            "daemonsets",
+            "statefulsets",
+            "replicasets",
+            "replicationcontrollers",
+            "jobs",
+            "cronjobs"
+          ],
+          "risk": "임의 워크로드(Pod 등) 무단 배포·기동 — 특수 권한(워크로드 create) 오남용",
+          "cis": "4.1.4"
+        }
+      ],
+      "compliance_indicators": [
+        {
+          "field": "has_pod_create_permission",
+          "op": "==",
+          "value": false,
+          "description": "Pod/워크로드 직접 create 권한 미보유 (특수 권한 최소화)"
+        }
+      ],
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v1.7.0+",
+          "reference": "§4.1.4 RBAC — Minimize access to create pods",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "pods/워크로드 직접 create 권한을 최소화하고 배포는 컨트롤러·파이프라인 경유로 제한한다."
+      },
+      "exception_check": {
+        "annotation": "rbac-exception/justification",
+        "system_namespaces": [
+          "kube-system",
+          "kube-node-lease"
+        ]
+      },
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required"
+      },
+      "source_reference": {
+        "framework": "CIS Amazon EKS Benchmark",
+        "control": "4.1.4",
+        "basis": "Minimize access to create pods — 워크로드 생성 권한 최소화 (2.6.3→2.5.5 이관)"
+      },
+      "manual_check_output": {
+        "applies_when": "fail"
       }
     }
   ],
   "evaluation_strategy": {
     "overall_verdict_logic": "all_rules_pass_required",
-    "description": "text_extraction 6개 + k8s_api 2개 R-룰 모두 PASS여야 항목 충족"
+    "description": "text_extraction 6개 + k8s_api 3개(R-2.5.5-01·02·08) + aws_api 1개(R-2.5.5-07) 모두 PASS여야 항목 충족"
   }
 }

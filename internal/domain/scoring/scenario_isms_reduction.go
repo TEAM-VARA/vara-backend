@@ -18,7 +18,7 @@ package scoring
 //	cve:image   (그룹) ← R-2.10.8-04   Trivy HIGH+ CVE 현황
 //	rbac:sa:<sa>(그룹) ← R-2.5.5-01    cluster-admin·와일드카드·클러스터 Secret 접근
 //	                    R-2.5.5-02    위험 RBAC verb 조합(exec/attach, secret r/w, escalate/bind/impersonate, nodes/proxy, sa/token)
-//	                    R-2.6.3-01    워크로드 생성 권한(pods/deployments/… create) — RBAC 권한 룰
+//	                    R-2.5.5-08    워크로드 생성 권한(pods/deployments/… create) — RBAC 권한 룰(2.6.3→2.5.5 이관)
 //	mount:pod   (그룹) ← R-2.10.2-01    hostNetwork/hostPID/hostIPC
 //	net:isolation(항목)← R-2.6.1-02/03/04, R-2.6.7-01  default-deny/CNI/cross-ns/egress NetworkPolicy
 //	sg:inbound-open   ← R-2.6.1-SG01   SG 인바운드 0.0.0.0/0 전체개방
@@ -58,7 +58,7 @@ func ismsBucket(ruleID string) string {
 	switch ruleID {
 	case "R-2.10.8-04":
 		return bucketCVEImage
-	case "R-2.5.5-01", "R-2.5.5-02", "R-2.6.3-01":
+	case "R-2.5.5-01", "R-2.5.5-02", "R-2.5.5-08":
 		return bucketRBACSA
 	case "R-2.10.2-01":
 		return bucketMountPod

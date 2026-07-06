@@ -135,6 +135,17 @@ type Rule struct {
 // IsManual returns true if this rule requires manual judgment (F-finding).
 func (r *Rule) IsManual() bool { return r.ExtractionMethod == "manual" }
 
+// IsFindingRule reports whether the rule should be evaluated by the finding
+// (ClusterSnapshot) engine. manual 룰뿐 아니라, aws_api 계정스코프 룰(SG/CloudTrail/KMS)은
+// extraction_method="api"라 IsManual()엔 안 걸리지만 manual_meta.condition.operator로
+// dispatch되므로 여기서 포함한다. (이게 없으면 SG/CloudTrail/KMS가 평가 자체가 안 됨)
+func (r *Rule) IsFindingRule() bool {
+	if r.IsManual() {
+		return true
+	}
+	return r.JudgmentSource == "aws_api" && r.ManualMeta != nil && len(r.ManualMeta.Condition) > 0
+}
+
 // RiskScopeOf returns the rule's risk_scope, inferring a default from rule_id when
 // unset: SG/aws_api rules → account, others → pod (pod_chain은 명시 태깅 필요).
 func (r *Rule) RiskScopeOf() string {
