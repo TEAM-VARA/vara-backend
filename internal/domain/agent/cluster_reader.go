@@ -62,6 +62,7 @@ type ClusterPod struct {
 	HostNetwork    bool                     `json:"host_network"`
 	HostPID		   bool                     `json:"host_pid"`
 	HostIPC        bool                     `json:"host_ipc"`
+	AutomountSAToken *bool `json:"automount_sa_token"`
 	StartedAt 	   *time.Time 				`json:"started_at,omitempty"`
 	Labels         map[string]string        `json:"labels"`
 	Annotations    map[string]string        `json:"annotations"`
@@ -204,6 +205,7 @@ type RBACServiceAccount struct {
 	Namespace string   `json:"namespace" binding:"required"`
 	UID       string   `json:"uid" binding:"required"`
 	Secrets   []string `json:"secrets"`
+	AutomountSAToken *bool `json:"automount_sa_token"`
 }
 
 type RBACClusterRole struct {

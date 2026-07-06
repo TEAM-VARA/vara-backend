@@ -116,9 +116,9 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 			cluster_name, snapshot_at, pod_uid, name, namespace,
 			node, pod_ip, phase, restart_count, service_account,
 			labels, annotations, containers, volumes,
-			host_network, started_at, host_pid, host_ipc
+			host_network, started_at, host_pid, host_ipc, automount_sa_token
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
 		)
 		ON CONFLICT (cluster_name, snapshot_at, pod_uid) DO UPDATE SET
 			phase             = EXCLUDED.phase,
@@ -129,7 +129,8 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 			host_network      = EXCLUDED.host_network,
 			started_at        = EXCLUDED.started_at,
 			host_pid          = EXCLUDED.host_pid,
-			host_ipc          = EXCLUDED.host_ipc
+			host_ipc          = EXCLUDED.host_ipc,
+			automount_sa_token = EXCLUDED.automount_sa_token
 	`
 
 	saved := 0
@@ -143,7 +144,7 @@ func (r *ClusterReaderRepo) UpsertPods(ctx context.Context, req agent.ClusterPod
 			req.Cluster, req.SnapshotAt, p.UID, p.Name, p.Namespace,
 			p.Node, p.PodIP, p.Phase, p.RestartCount, p.ServiceAccount,
 			labelsJSON, annotationsJSON, containersJSON, volumesJSON,
-			p.HostNetwork, p.StartedAt, p.HostPID, p.HostIPC,
+			p.HostNetwork, p.StartedAt, p.HostPID, p.HostIPC, p.AutomountSAToken,
 		)
 		if err != nil {
 			return 0, 0, fmt.Errorf("upsert pod %s: %w", p.Name, err)
@@ -521,10 +522,11 @@ func (r *ClusterReaderRepo) UpsertRBAC(ctx context.Context, req agent.ClusterRBA
 	// 1. ServiceAccounts
 	const saQ = `
 		INSERT INTO cluster_service_accounts (
-			cluster_name, snapshot_at, sa_uid, name, namespace, secrets
-		) VALUES ($1, $2, $3, $4, $5, $6)
+			cluster_name, snapshot_at, sa_uid, name, namespace, secrets, automount_sa_token
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (cluster_name, snapshot_at, sa_uid) DO UPDATE SET
-			secrets = EXCLUDED.secrets
+			secrets = EXCLUDED.secrets,
+			automount_sa_token = EXCLUDED.automount_sa_token
 	`
 	for _, sa := range req.ServiceAccounts {
 		secrets := sa.Secrets
@@ -533,7 +535,7 @@ func (r *ClusterReaderRepo) UpsertRBAC(ctx context.Context, req agent.ClusterRBA
 		}
 		secretsJSON, _ := json.Marshal(secrets)
 		_, err := tx.Exec(ctx, saQ,
-			req.Cluster, req.SnapshotAt, sa.UID, sa.Name, sa.Namespace, secretsJSON)
+			req.Cluster, req.SnapshotAt, sa.UID, sa.Name, sa.Namespace, secretsJSON, sa.AutomountSAToken)
 		if err != nil {
 			return 0, 0, 0, 0, 0, fmt.Errorf("upsert sa %s: %w", sa.Name, err)
 		}
