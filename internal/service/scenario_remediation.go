@@ -83,7 +83,8 @@ func (s *ScenarioService) buildRemediation(ctx context.Context, companyID, clust
 				}
 				in.CVEs = append(in.CVEs, scoring.CVEItem{
 					ID: row.CVEID, Score: score, Severity: strings.ToLower(row.Severity), Fixed: row.FixedVersion,
-					Package: row.PkgName,
+					Installed: row.InstalledVersion,
+					Package:   row.PkgName,
 				})
 			}
 		}

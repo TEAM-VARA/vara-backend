@@ -34,9 +34,8 @@ func TestAttachISMSReductions(t *testing.T) {
 		{RuleID: "R-2.5.5-01", Severity: "상", Weight: 3},    // → rbac:sa
 		{RuleID: "R-2.5.5-02", Severity: "상", Weight: 3},    // → rbac:sa
 		{RuleID: "R-2.5.5-08", Severity: "중", Weight: 2},    // → rbac:sa (워크로드 create 권한, 합 8)
-		{RuleID: "R-2.6.1-01", Severity: "상", Weight: 3},    // → mount:pod
+		{RuleID: "R-2.10.2-01", Severity: "상", Weight: 3},   // → mount:pod
 		{RuleID: "R-2.6.1-02", Severity: "중", Weight: 2},    // → net:isolation
-		{RuleID: "R-2.6.7-01", Severity: "중", Weight: 2},    // → net:isolation (합 4)
 		{RuleID: "R-2.6.1-SG01", Severity: "상", Weight: 3},  // → sg:inbound-open (신규)
 		{RuleID: "R-2.6.6-01", Severity: "상", Weight: 3},    // → sg:remote-port (신규)
 		{RuleID: "R-2.10.3-SG01", Severity: "상", Weight: 3}, // → sg:sensitive-port (신규)
@@ -71,8 +70,8 @@ func TestAttachISMSReductions(t *testing.T) {
 	}
 
 	// ── net:isolation 항목 fallback 생성(베이스에 없었음) ──
-	if it := item["net:isolation"]; it.ISMSReduction == nil || !rrApprox(it.ISMSReduction.Delta, 4) {
-		t.Errorf("net:isolation ISMS Δ=%v (want 4 = 2.6.1-02+2.6.7-01 = 2+2)", ismsDelta(it))
+	if it := item["net:isolation"]; it.ISMSReduction == nil || !rrApprox(it.ISMSReduction.Delta, 2) {
+		t.Errorf("net:isolation ISMS Δ=%v (want 2 = 2.6.1-02 = 2)", ismsDelta(it))
 	} else if it.RiskReduction.Delta != 0 {
 		t.Errorf("net:isolation native Δ=%v (want 0 — 점수 영향 없음)", it.RiskReduction.Delta)
 	}

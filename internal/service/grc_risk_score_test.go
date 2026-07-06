@@ -14,7 +14,7 @@ func TestISMSPRiskAddend(t *testing.T) {
 
 	accumulateISMSPRisk(b, seen, "R-2.10.2-01", "미준수", false) // 상 +3 (hostNetwork)
 	accumulateISMSPRisk(b, seen, "R-2.6.1-02", "미준수", false)  // 중 +2 (NetworkPolicy)
-	accumulateISMSPRisk(b, seen, "R-2.6.7-01", "미준수", false)  // 중 +2 (egress)
+	accumulateISMSPRisk(b, seen, "R-2.6.1-03", "미준수", false)  // 중 +2 (CNI NetworkPolicy)
 	accumulateISMSPRisk(b, seen, "R-2.10.2-01", "미준수", false) // 중복 → rule-once 무시
 	accumulateISMSPRisk(b, seen, "R-2.5.5-01", "준수", false)    // 준수 → 무시
 	accumulateISMSPRisk(b, seen, "R-2.10.5-01", "미준수", false) // severity맵에 없음 → 무시

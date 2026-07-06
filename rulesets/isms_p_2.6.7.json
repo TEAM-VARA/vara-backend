@@ -21,82 +21,6 @@
   ],
   "rules": [
     {
-      "rule_id": "R-2.6.7-01",
-      "name": "egress NetworkPolicy 미적용",
-      "judgment_source": "k8s_api",
-      "extraction_method": "api",
-      "compliance_indicators": [
-        {
-          "field": "has_egress_policy",
-          "op": "==",
-          "value": true,
-          "description": "Pod에 매칭되는 Egress NetworkPolicy 존재 — 아웃바운드 트래픽 통제 적용"
-        },
-        {
-          "field": "egress_default_deny_exists",
-          "op": "==",
-          "value": true,
-          "description": "namespace에 Egress default-deny NetworkPolicy 존재"
-        }
-      ],
-      "remediation": {
-        "source": {
-          "framework": "CIS Amazon EKS Benchmark",
-          "version": "v1.7.0+",
-          "reference": "§5 Policies — egress NetworkPolicy / 대체통제(NAT·프록시·Cilium FQDN)",
-          "url": "https://www.cisecurity.org/benchmark/kubernetes"
-        },
-        "action": "네임스페이스에 egress default-deny NetworkPolicy를 두고 허용 도메인/대역만 화이트리스트한다."
-      },
-      "exception_check": {
-        "annotation": "security-exception/egress-justification",
-        "system_namespaces": [
-          "kube-system",
-          "kube-node-lease",
-          "amazon-cloudwatch"
-        ]
-      },
-      "judgment_logic": {
-        "type": "structured_match",
-        "aggregation": "all_compliance_required",
-        "min_pass_ratio": 1.0
-      },
-      "verdict_policy": {
-        "pass": "충족",
-        "fail": "미충족",
-        "alternative_control_satisfies": true,
-        "no_uncertain_fallback": true,
-        "_decision": "egress default-deny NetworkPolicy 미탐지 AND 대체통제(NAT·프록시·Cilium FQDN) 미탐지 시 미충족 확정."
-      },
-      "manual_check_output": {
-        "applies_when": "always",
-        "absorbed_from": "F-2.6.7-01",
-        "alternative_controls": [
-          "VPC NAT Gateway 화이트리스트",
-          "프록시 서버(Squid 등)",
-          "Cilium FQDN policy",
-          "AWS Network Firewall"
-        ],
-        "kisa_defect_case_refs": [
-          {
-            "case_number": null,
-            "description": "운영 서버에서 외부 인터넷 자유 접속",
-            "match": "direct"
-          }
-        ],
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.6.7",
-            "match_strength": "direct"
-          }
-        ],
-        "offcluster_satisfaction_conditions": [
-          "K8s 외 VPC NAT Gateway 화이트리스트 / 프록시(Squid 등) / Cilium FQDN policy / AWS Network Firewall로 아웃바운드 통제되고 있다면 결함이 아닙니다."
-        ]
-      }
-    },
-    {
       "rule_id": "R-2.6.7-SG01",
       "name": "Security Group egress 전체 개방 (아웃바운드 인터넷 통제)",
       "judgment_source": "aws_api",
@@ -284,6 +208,6 @@
   ],
   "evaluation_strategy": {
     "overall_verdict_logic": "any_fail_is_non_compliant",
-    "description": "namespace Egress default-deny 존재 + Pod에 매칭되는 Egress NetworkPolicy 적용 시 PASS"
+    "description": "Security Group egress 전체 개방(0.0.0.0/0) 미존재 시 PASS. NetworkPolicy 판정은 2.6.1로 단일화 — 2.6.7은 SG egress(아웃바운드) 관점으로만 점검(egress NetworkPolicy 룰은 중복이라 삭제)."
   }
 }

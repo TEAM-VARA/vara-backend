@@ -378,47 +378,6 @@ func evalCrossNSTraffic(_ Rule, req PodGraphRequest, base PodRuleResult) PodRule
 // ─────────────────────────────────────────────
 // 2.6.7 인터넷 접속 통제
 // ─────────────────────────────────────────────
-
-// R-2.6.7-POD-01: egress NetworkPolicy 미적용
-func evalEgressPolicy(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
-	base.Severity = "medium"
-	podNS := jsonStr(req.Pod, "metadata", "namespace")
-	podName := jsonStr(req.Pod, "metadata", "name")
-	podLabels := jsonMap(req.Pod, "metadata", "labels")
-
-	for _, np := range req.RelatedResources.NetworkPolicies {
-		npSpec := jsonMap(np, "spec")
-		policyTypes := toStringSlice(npSpec["policyTypes"])
-		if !containsStr(policyTypes, "Egress") {
-			continue
-		}
-		egressRules := jsonSlice(npSpec, "egress")
-		if len(egressRules) == 0 {
-			// deny-all egress — still counts as "egress policy applied"
-		}
-		podSelector := jsonMap(np, "spec", "podSelector")
-		selectorLabels := jsonMap(podSelector, "matchLabels")
-		isEmptySelector := len(selectorLabels) == 0 && len(jsonSlice(podSelector, "matchExpressions")) == 0
-		if isEmptySelector || labelsMatch(podLabels, selectorLabels) {
-			base.Verdict = "준수"
-			base.MatchedIndicators = []string{fmt.Sprintf("egress NetworkPolicy '%s' 적용", jsonStr(np, "metadata", "name"))}
-			return base
-		}
-	}
-
-	base.Verdict = "미준수"
-	base.Violations = []grc.Violation{{
-		Field:       "egress_policy_applied",
-		Expected:    "== true",
-		Actual:      false,
-		Description: fmt.Sprintf("Pod '%s'에 egress NetworkPolicy 미적용 (인터넷 자유 접속)", podName),
-		Severity:    "medium",
-		K8sSource:   grc.K8sSource{Namespace: podNS, ResourceKind: "Pod", ResourceName: podName},
-	}}
-	return base
-}
-
-// ─────────────────────────────────────────────
 // 2.7.1 암호정책 적용 (추가 룰)
 // ─────────────────────────────────────────────
 

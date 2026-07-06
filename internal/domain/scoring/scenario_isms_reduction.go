@@ -20,7 +20,7 @@ package scoring
 //	                    R-2.5.5-02    위험 RBAC verb 조합(exec/attach, secret r/w, escalate/bind/impersonate, nodes/proxy, sa/token)
 //	                    R-2.5.5-08    워크로드 생성 권한(pods/deployments/… create) — RBAC 권한 룰(2.6.3→2.5.5 이관)
 //	mount:pod   (그룹) ← R-2.10.2-01    hostNetwork/hostPID/hostIPC
-//	net:isolation(항목)← R-2.6.1-02/03/04, R-2.6.7-01  default-deny/CNI/cross-ns/egress NetworkPolicy
+//	net:isolation(항목)← R-2.6.1-02/03/04  default-deny/CNI/cross-ns NetworkPolicy (2.6.7 egress 룰은 2.6.1 중복이라 삭제)
 //	sg:inbound-open   ← R-2.6.1-SG01   SG 인바운드 0.0.0.0/0 전체개방
 //	sg:remote-port    ← R-2.6.6-01     SG 원격 관리 포트(SSH 22/RDP 3389) 0.0.0.0/0 개방
 //	sg:sensitive-port ← R-2.10.3-SG01  SG 민감·관리 포트 외부노출(공개서버 강화)
@@ -62,7 +62,7 @@ func ismsBucket(ruleID string) string {
 		return bucketRBACSA
 	case "R-2.10.2-01":
 		return bucketMountPod
-	case "R-2.6.1-02", "R-2.6.1-03", "R-2.6.1-04", "R-2.6.7-01":
+	case "R-2.6.1-02", "R-2.6.1-03", "R-2.6.1-04":
 		return bucketNetIsolation
 	case "R-2.6.1-SG01":
 		return bucketSGInbound

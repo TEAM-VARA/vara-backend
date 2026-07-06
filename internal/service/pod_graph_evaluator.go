@@ -358,7 +358,6 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	// 2.6.2 정보시스템 접근 (Ingress 인증 — 2.6.3에서 이동)
 	"R-2.6.2-01": {"Ingress에 인증 설정(auth-url, auth-type 등) 부재", "Ingress에 인증 annotation(nginx.ingress.kubernetes.io/auth-url 등)을 추가하세요"},
 	// 2.6.7 인터넷 접속 통제
-	"R-2.6.7-01": {"Pod에 Egress NetworkPolicy 미적용", "Pod에 Egress NetworkPolicy를 적용하여 외부 인터넷 접속을 통제하세요"},
 	// 2.7.1 암호정책 적용
 	"R-2.7.1-01": {"Secret이 etcd에 암호화되지 않은 상태로 저장될 수 있음", "etcd 저장 시 Secret 암호화(EncryptionConfiguration)를 활성화하세요"},
 	"R-2.7.1-04": {"KMS 키가 비활성 상태이거나 자동 로테이션 미설정 또는 비승인 알고리즘 사용", "KMS 키를 활성 상태로 유지하고 자동 키 로테이션을 활성화하며 승인된 알고리즘(AES-256/RSA-2048 이상)을 사용하세요"},
@@ -450,7 +449,6 @@ var implementedPodRules = map[string]bool{
 	"R-2.5.5-01": true, "R-2.5.5-02": true, "R-2.5.5-07": true, "R-2.5.5-08": true, // -08: 워크로드 create 권한(CIS EKS 4.1.4, 2.6.3→2.5.5 이관)
 	"R-2.6.1-02": true, "R-2.6.1-03": true, "R-2.6.1-04": true, // R-2.6.1-01(hostNS)은 2.10.2-01로 이관
 	"R-2.6.2-01": true,
-	"R-2.6.7-01": true,
 	"R-2.7.1-01": true, "R-2.7.1-05": true, // R-2.7.1-05: CIS EKS 4.4.1 Secret-as-env
 	"R-2.8.3-02": true, "R-2.8.3-03": true,
 	"R-2.9.1-02":  true,
@@ -624,9 +622,6 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 	// 2.5.5 특수 권한 — 워크로드 생성 권한 (CIS EKS 4.1.4, 2.6.3→2.5.5 이관)
 	case "R-2.5.5-POD-08", "R-2.5.5-08":
 		result = evalWorkloadCreatePrivilege(rule, req, base)
-	// 2.6.7 인터넷 접속 통제
-	case "R-2.6.7-POD-01", "R-2.6.7-01":
-		result = evalEgressPolicy(rule, req, base)
 	// 2.7.1 암호정책 적용
 	case "R-2.7.1-POD-01", "R-2.7.1-01":
 		result = evalSecretEncryption(rule, req, base)
