@@ -1482,11 +1482,13 @@ func (s *GRCService) GetISMSPItemViolations(ctx context.Context, companyID, clus
 type PodViolatedISMSPItem struct {
 	ISMSPItemID   string          `json:"isms_p_item_id"`
 	ISMSPItemName string          `json:"isms_p_item_name"`
-	TotalRules    int             `json:"total_rules"`
-	Passed        int             `json:"passed"`
-	Failed        int             `json:"failed"`
-	Skipped       int             `json:"skipped"`
-	FailedRules   []PodRuleResult `json:"failed_rules"`
+	TotalRules       int             `json:"total_rules"`
+	Passed           int             `json:"passed"`
+	Failed           int             `json:"failed"`
+	Skipped          int             `json:"skipped"`
+	NeedsReview      int             `json:"needs_review"`
+	FailedRules      []PodRuleResult `json:"failed_rules"`
+	NeedsReviewRules []PodRuleResult `json:"needs_review_rules,omitempty"`
 }
 
 // PodViolationsResult is the response for GET /compliance/pods/:pod_name/violations.
@@ -1496,8 +1498,10 @@ type PodViolationsResult struct {
 	ClusterName        string                 `json:"cluster_name"`
 	OverallVerdict     string                 `json:"overall_verdict"`
 	EvaluatedAt        string                 `json:"evaluated_at"`
-	TotalViolatedItems int                    `json:"total_violated_items"`
-	ViolatedItems      []PodViolatedISMSPItem `json:"violated_items"`
+	TotalViolatedItems    int                    `json:"total_violated_items"`
+	ViolatedItems         []PodViolatedISMSPItem `json:"violated_items"`
+	TotalNeedsReviewItems int                    `json:"total_needs_review_items"`
+	NeedsReviewItems      []PodViolatedISMSPItem `json:"needs_review_items"`
 }
 
 // GetPodViolations returns ISMS-P items that a specific pod violates.
@@ -1525,11 +1529,12 @@ func (s *GRCService) GetPodViolations(ctx context.Context, companyID, clusterNam
 		// 평가 결과가 없는 파드(미평가 또는 위반 없음)는 에러가 아니라 빈 결과로 응답한다.
 		// (FE가 파드 클릭 시 404 콘솔 에러를 내지 않도록 — 위반 0건과 동일하게 취급)
 		return &PodViolationsResult{
-			PodName:        podName,
-			Namespace:      namespace,
-			ClusterName:    cluster,
-			OverallVerdict: "평가없음",
-			ViolatedItems:  []PodViolatedISMSPItem{},
+			PodName:          podName,
+			Namespace:        namespace,
+			ClusterName:      cluster,
+			OverallVerdict:   "평가없음",
+			ViolatedItems:    []PodViolatedISMSPItem{},
+			NeedsReviewItems: []PodViolatedISMSPItem{},
 		}, nil
 	}
 
@@ -1547,12 +1552,14 @@ func (s *GRCService) GetPodViolations(ctx context.Context, companyID, clusterNam
 
 	// 4. Group by ISMS-P item
 	type itemAccum struct {
-		name    string
-		passed  int
-		failed  int
-		skipped int
-		total   int
-		fails   []PodRuleResult
+		name        string
+		passed      int
+		failed      int
+		skipped     int
+		needsReview int
+		total       int
+		fails       []PodRuleResult
+		reviews     []PodRuleResult
 	}
 	itemMap := map[string]*itemAccum{}
 	for _, rr := range ruleResults {
@@ -1568,34 +1575,49 @@ func (s *GRCService) GetPodViolations(ctx context.Context, companyID, clusterNam
 		case grc.VerdictNOT_MET:
 			acc.failed++
 			acc.fails = append(acc.fails, rr)
-		default: // skip / NA / NO_DATA / NEEDS_REVIEW — 위반 집계 제외
+		case grc.VerdictNEEDS_REVIEW:
+			acc.needsReview++
+			acc.reviews = append(acc.reviews, rr)
+		default: // skip / NA / NO_DATA
 			acc.skipped++
 		}
 	}
 
-	// 5. Build result (only items with failures)
+	// 5. Build result. 위반(미준수) 항목 + 검토필요 항목을 분리해 둘 다 노출한다.
+	//    - 미준수 룰이 하나라도 있으면 violated_items (그 안에 검토필요 룰도 needs_review_rules로 부기)
+	//    - 미준수는 없고 검토필요만 있으면 needs_review_items
 	result := &PodViolationsResult{
-		PodName:        evalItem.PodName,
-		Namespace:      evalItem.Namespace,
-		ClusterName:    evalItem.ClusterName,
-		OverallVerdict: evalItem.OverallVerdict,
-		EvaluatedAt:    evalItem.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		PodName:          evalItem.PodName,
+		Namespace:        evalItem.Namespace,
+		ClusterName:      evalItem.ClusterName,
+		OverallVerdict:   evalItem.OverallVerdict,
+		EvaluatedAt:      evalItem.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		ViolatedItems:    []PodViolatedISMSPItem{},
+		NeedsReviewItems: []PodViolatedISMSPItem{},
 	}
 	for itemID, acc := range itemMap {
-		if acc.failed == 0 {
+		if acc.failed == 0 && acc.needsReview == 0 {
 			continue
 		}
-		result.ViolatedItems = append(result.ViolatedItems, PodViolatedISMSPItem{
-			ISMSPItemID:   itemID,
-			ISMSPItemName: acc.name,
-			TotalRules:    acc.total,
-			Passed:        acc.passed,
-			Failed:        acc.failed,
-			Skipped:       acc.skipped,
-			FailedRules:   acc.fails,
-		})
+		item := PodViolatedISMSPItem{
+			ISMSPItemID:      itemID,
+			ISMSPItemName:    acc.name,
+			TotalRules:       acc.total,
+			Passed:           acc.passed,
+			Failed:           acc.failed,
+			Skipped:          acc.skipped,
+			NeedsReview:      acc.needsReview,
+			FailedRules:      acc.fails,
+			NeedsReviewRules: acc.reviews,
+		}
+		if acc.failed > 0 {
+			result.ViolatedItems = append(result.ViolatedItems, item)
+		} else {
+			result.NeedsReviewItems = append(result.NeedsReviewItems, item)
+		}
 	}
 	result.TotalViolatedItems = len(result.ViolatedItems)
+	result.TotalNeedsReviewItems = len(result.NeedsReviewItems)
 	return result, nil
 }
 
