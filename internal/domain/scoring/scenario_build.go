@@ -175,12 +175,14 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 			fmt.Sprintf("이미지의 %s 취약점이 가용성에 영향을 줘, 공격자가 서비스 중단·파괴를 일으킬 수 있습니다.", cveLabel(in)),
 			"heuristic", "CVSS 가용성 영향 기반")
 		f.CVE = in.TopCVE
+		f.Enrichment = in.CVEEnrichment // 목표/노드 VULN도 CVE enrichment(영향 메커니즘) 노출
 		fs = append(fs, f)
 	} else if in.TopCVE != "" && in.CVEConfidentialityImpact {
 		f := mkFinding("VULN", DirNode, TacticCredAccess,
 			fmt.Sprintf("이미지의 %s 취약점이 정보 유출로 이어져, 공격자가 민감정보를 수집할 수 있습니다.", cveLabel(in)),
 			"heuristic", "CVSS 기밀성 영향 기반")
 		f.CVE = in.TopCVE
+		f.Enrichment = in.CVEEnrichment // 목표/노드 VULN도 CVE enrichment(영향 메커니즘) 노출
 		fs = append(fs, f)
 	}
 	if in.TopCVE != "" && in.CVEScopeChanged {
@@ -188,6 +190,7 @@ func BuildPodScenario(in ScenarioInput) PodScenarioResult {
 			fmt.Sprintf("이미지의 %s 취약점이 컨테이너 권한 경계를 벗어나, 공격자가 호스트/노드로 권한을 끌어올리거나 탈출할 수 있습니다.", cveLabel(in)),
 			"heuristic", "CVSS Scope:Changed(또는 v4.0 후속 시스템 영향) 기반")
 		f.CVE = in.TopCVE
+		f.Enrichment = in.CVEEnrichment // 목표/노드 VULN도 CVE enrichment(영향 메커니즘) 노출
 		fs = append(fs, f)
 	}
 

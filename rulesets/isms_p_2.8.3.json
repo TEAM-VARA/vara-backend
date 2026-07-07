@@ -1,4 +1,4 @@
-{
+﻿{
   "schema_version": "4.0.0",
   "isms_p_revision": "2023.11",
   "item": {
@@ -20,93 +20,6 @@
     }
   ],
   "rules": [
-    {
-      "rule_id": "R-2.8.3-SG01",
-      "name": "Security Group 환경 간(운영↔개발) 인바운드 허용 (환경 분리)",
-      "judgment_source": "aws_api",
-      "extraction_method": "api",
-      "verdict_type": "potential_finding",
-      "risk_scope": "account",
-      "fanout": "nodes_pods",
-      "manual_meta": {
-        "target_resource": "AWS::EC2::SecurityGroup",
-        "required_data": [
-          "aws_security_groups.ingress_rules",
-          "aws_security_groups.group_name",
-          "aws_security_groups.vpc_id"
-        ],
-        "condition": {
-          "operator": "sg_cross_env_ingress",
-          "env_tag_key": "env",
-          "env_name_patterns": {
-            "prod": [
-              "prod",
-              "production",
-              "prd"
-            ],
-            "nonprod": [
-              "dev",
-              "develop",
-              "test",
-              "stg",
-              "staging",
-              "qa"
-            ]
-          },
-          "no_data_when_env_undeterminable": true
-        },
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.8.3",
-            "match_strength": "indirect"
-          }
-        ],
-        "kisa_defect_case_refs": [
-          {
-            "case_number": null,
-            "description": "운영·개발 환경 간 네트워크 미분리",
-            "match": "partial"
-          }
-        ],
-        "automation_coverage": {
-          "percentage": 60,
-          "covered": "SG 간 cross-env 인바운드 참조 자동 탐지(환경 식별 가능 시)",
-          "not_covered": "환경 태그/명명이 없으면 판별 불가, 계정·클러스터 단위 분리"
-        },
-        "offcluster_satisfaction_conditions": [
-          "회사 환경 분리 정책이 cluster 단위이고 그 수준에서 분리되는지",
-          "env 라벨이 없어도 별도 클러스터/별도 VPC/namespace 네이밍 컨벤션으로 환경 식별·분리됨"
-        ],
-        "k8s_only_check": false,
-        "deferred": false
-      },
-      "promoted_from": "SG-2.8.3-01",
-      "manual_check_output": {
-        "applies_when": "fail",
-        "absorbed_from": "SG-2.8.3-01",
-        "compliance_mappings": [
-          {
-            "framework": "ISMS-P",
-            "item": "2.8.3",
-            "match_strength": "indirect"
-          }
-        ],
-        "offcluster_satisfaction_conditions": [
-          "회사 환경 분리 정책이 cluster 단위이고 그 수준에서 분리되는지",
-          "env 라벨이 없어도 별도 클러스터/별도 VPC/namespace 네이밍 컨벤션으로 환경 식별·분리됨"
-        ]
-      },
-      "remediation": {
-        "source": {
-          "framework": "CIS AWS Foundations Benchmark",
-          "version": "v5.0.0",
-          "reference": "§5 Networking — 환경 간 SG 차단",
-          "url": "https://www.cisecurity.org/benchmark/amazon_web_services"
-        },
-        "action": "운영↔개발 환경 간 Security Group 인바운드 허용을 제거해 환경을 분리한다."
-      }
-    },
     {
       "rule_id": "R-2.8.3-GL01",
       "name": "개발·시험과 운영 환경 분리 원칙",

@@ -189,8 +189,6 @@ func evaluateSingleManualRule(rule Rule, snap *ClusterSnapshot) grc.RuleResult {
 		result = evalSGSensitivePortWorldOpen(base, snap, cond)
 	case "sg_unrestricted_egress":
 		result = evalSGUnrestrictedEgress(base, snap, cond)
-	case "sg_cross_env_ingress":
-		result = evalSGCrossEnvIngress(base, snap, cond)
 	case "cloudtrail_audit_logging":
 		result = evalCloudTrailAuditLogging(base, snap, cond)
 	case "kms_key_rotation":

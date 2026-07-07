@@ -1,4 +1,4 @@
-{
+﻿{
   "schema_version": "4.0.0",
   "isms_p_revision": "2023.11",
   "item": {
@@ -399,7 +399,7 @@
     {
       "rule_id": "R-2.5.5-07",
       "name": "EKS 접근 표준화(access entries/API) 점검",
-      "judgment_source": "aws_api",
+      "judgment_source": "k8s_api",
       "extraction_method": "api",
       "compliance_indicators": [
         {

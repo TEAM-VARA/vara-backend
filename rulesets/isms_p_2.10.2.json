@@ -230,6 +230,36 @@
         },
         "action": "워크로드를 목적별 전용 네임스페이스로 이전하고 default 네임스페이스에는 워크로드를 두지 않는다."
       }
+    },
+    {
+      "rule_id": "R-2.10.2-12",
+      "name": "컨테이너 권한 상승 차단(allowPrivilegeEscalation)",
+      "judgment_source": "k8s_api",
+      "extraction_method": "api",
+      "risk_scope": "pod",
+      "description": "워크로드 컨테이너가 securityContext.allowPrivilegeEscalation=false로 권한 상승(setuid·file capability)을 차단한다. 미설정 시 기본 허용(true)이므로 명시적 false만 준수로 본다: 명시 true=미준수, 전부 명시 false=준수, 미설정=확인필요(명시 false 권고). init/ephemeral 컨테이너 포함.",
+      "compliance_indicators": [
+        {
+          "field": "containers[].securityContext.allowPrivilegeEscalation",
+          "op": "==",
+          "value": false,
+          "description": "allowPrivilegeEscalation=false 명시(권한 상승 차단)"
+        }
+      ],
+      "judgment_logic": {
+        "type": "structured_match",
+        "aggregation": "all_compliance_required",
+        "min_pass_ratio": 1.0
+      },
+      "remediation": {
+        "source": {
+          "framework": "CIS Amazon EKS Benchmark",
+          "version": "v2.0.0",
+          "reference": "§4.2.5 Minimize the admission of containers with allowPrivilegeEscalation (Automated)",
+          "url": "https://www.cisecurity.org/benchmark/kubernetes"
+        },
+        "action": "해당 워크로드 컨테이너의 securityContext에 allowPrivilegeEscalation: false를 명시한다(PSA restricted 프로파일 권장)."
+      }
     }
   ],
   "evaluation_strategy": {
