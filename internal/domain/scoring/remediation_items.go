@@ -133,17 +133,14 @@ func BuildRemediationItems(in RemediationInput) RemediationSet {
 		cves := append([]CVEItem(nil), in.CVEs...)
 		sort.SliceStable(cves, func(i, j int) bool { return cves[i].Score > cves[j].Score })
 
-		// ★ 패치탭 CVE 점수 차감은 기본 가중치(0.7/0.3)로 투영한다.
-		//   전역 scoring_weights·실제 final_score(헤더 risk_score)는 그대로 두고, 여기 CVE 차감
-		//   표시에만 0.7/0.3을 적용한다. → CVE 전부 제거 시 잔여 = 노출만(노출O 30×toxic, 노출X 0).
-		const ptWGlobal, ptWExposure = 0.7, 0.3
-		ptExposure := 0.0
-		if in.Exposed {
-			ptExposure = 100
-		}
-		// Global=g 일 때 0.7/0.3 기준 재계산 Final (clamp 0~100)
+		// ★ 패치탭 CVE 축은 CVE(Global) 기여분만 투영한다 — 노출분은 여기서 제외한다.
+		//   (외부 노출 위험은 별도 net:exposure 항목으로 표시.) 전역 scoring_weights·실제
+		//   final_score(헤더 risk_score)는 그대로 두고, 여기 CVE 차감 표시에만 0.7×Global×toxic을
+		//   쓴다. → CVE 전부 제거 시 이 축 잔여 = 0 (노출이 있어도 30이 안 남는다).
+		const ptWGlobal = 0.7
+		// Global=g 일 때 CVE 기여 Final (clamp 0~100). 노출분 미포함.
 		finalAt := func(g float64) float64 {
-			v := (ptWGlobal*g + ptWExposure*ptExposure) * toxic
+			v := ptWGlobal * g * toxic
 			if v < 0 {
 				v = 0
 			}
@@ -152,9 +149,9 @@ func BuildRemediationItems(in RemediationInput) RemediationSet {
 			}
 			return v
 		}
-		ptCurrent := finalAt(in.GlobalImage) // 0.7/0.3 기준 현재 risk = CVE 차감 앵커
+		ptCurrent := finalAt(in.GlobalImage) // CVE 기여 기준 현재 risk = CVE 차감 앵커
 
-		// 전체 CVE 패치 시(Global=0) 잔여(노출만) → 그룹 delta
+		// 전체 CVE 패치 시(Global=0) → 0 (노출은 CVE 축에서 제외) → 그룹 delta = ptCurrent
 		totalReducible := ptCurrent - finalAt(0)
 		if totalReducible < 0 {
 			totalReducible = 0
@@ -208,7 +205,7 @@ func BuildRemediationItems(in RemediationInput) RemediationSet {
 			}
 			if rr.Delta == 0 {
 				if totalReducible == 0 {
-					item.ZeroReason = "노출·독성 요인 때문에 CVE를 다 패치해도 점수가 안 내려감"
+					item.ZeroReason = "독성 배수(toxic)가 0이거나 CVE 위험 기여분이 없어 CVE를 다 패치해도 점수가 안 내려감"
 				} else {
 					item.ZeroReason = "이 위험도 tier는 바로 아래 점수와 차이가 없어 단계 하락이 0 (전체 패치로 해소)"
 				}

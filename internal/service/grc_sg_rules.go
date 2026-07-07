@@ -307,22 +307,6 @@ func evalSGUnrestrictedEgress(base grc.RuleResult, snap *ClusterSnapshot, cond m
 }
 
 // ─────────────────────────────────────────────
-// R-2.8.3-SG01: sg_cross_env_ingress
-// 운영↔개발 SG 간 인바운드 허용 여부. 현재 aws-reader는 CIDR만 수집하고
-// SG 간 참조(UserIdGroupPairs)·서브넷/계정 env 매핑을 수집하지 않으므로 판별 불가 → NO_DATA.
-// (활성화하려면 agent mapRules에 UserIdGroupPairs + SG 태그(env) 수집을 추가해야 함)
-// ─────────────────────────────────────────────
-func evalSGCrossEnvIngress(base grc.RuleResult, snap *ClusterSnapshot, cond map[string]any) grc.RuleResult {
-	_ = cond
-	return sgNoData(base,
-		"환경 간(운영↔개발) SG 통신 판별 불가 — 현재 수집 데이터에 SG 간 참조(UserIdGroupPairs)와 서브넷/계정 env 매핑이 없음(aws-reader가 CIDR만 수집).",
-		map[string]any{
-			"sg_total": len(snap.Related.SecurityGroups),
-			"reason":   "source_sg_refs_and_env_mapping_not_collected",
-		})
-}
-
-// ─────────────────────────────────────────────
 // R-2.9.4-01: cloudtrail_audit_logging
 // 감사로그(CloudTrail)가 활성 + 멀티리전 + 로그 무결성 검증 + KMS 암호화로
 // 안전하게 보존되는 trail이 하나라도 있으면 "감사로그 체계 존재"로 준수.

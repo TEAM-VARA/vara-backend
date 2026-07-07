@@ -369,6 +369,7 @@ var podRuleFailInfo = map[string]ruleFailInfo{
 	"R-2.9.1-02": {"revisionHistoryLimit이 미설정이거나 부적절한 값", "Deployment의 revisionHistoryLimit을 적정 수준(5~10)으로 설정하여 롤백 이력을 관리하세요"},
 	// 2.10.2 클라우드 보안
 	"R-2.10.2-11": {"Pod이 default 네임스페이스에 배포됨", "워크로드를 목적별 전용 네임스페이스로 이전하세요"},
+	"R-2.10.2-12": {"컨테이너가 allowPrivilegeEscalation을 차단하지 않음(권한 상승 허용)", "securityContext.allowPrivilegeEscalation: false를 명시하세요(PSA restricted 프로파일 권장)"},
 	// 2.10.3 공개서버 보안
 	"R-2.10.3-01": {"LoadBalancer Service에 sourceRanges 미설정으로 모든 IP에서 접근 가능", "LoadBalancer Service에 spec.loadBalancerSourceRanges를 설정하여 접근 IP를 제한하세요"},
 	"R-2.10.3-02": {"Ingress에 WAF(Web Application Firewall) annotation 미설정", "Ingress에 WAF annotation을 추가하여 웹 공격으로부터 보호하세요"},
@@ -452,7 +453,7 @@ var implementedPodRules = map[string]bool{
 	"R-2.7.1-01": true, "R-2.7.1-05": true, // R-2.7.1-05: CIS EKS 4.4.1 Secret-as-env
 	"R-2.8.3-02": true, "R-2.8.3-03": true,
 	"R-2.9.1-02":  true,
-	"R-2.10.2-01": true, "R-2.10.2-11": true, // -01: hostNS 격리(2.6.1→2.10.2 이관); -11: CIS EKS 4.5.2 default ns
+	"R-2.10.2-01": true, "R-2.10.2-09": true, "R-2.10.2-11": true, "R-2.10.2-12": true, // -01: hostNS 격리; -09: privileged(CIS 4.2.1); -11: default ns(CIS 4.5.2); -12: allowPrivilegeEscalation(CIS 4.2.5)
 	"R-2.10.3-01": true,
 	"R-2.10.5-01": true,
 	"R-2.10.8-01": true, "R-2.10.8-02": true, "R-2.10.8-03": true,
@@ -640,6 +641,8 @@ func evaluatePodRule(rule Rule, ismspItemID, ismspItemName string, req PodGraphR
 		result = evalPrivilegedContainer(rule, req, base)
 	case "R-2.10.2-POD-11", "R-2.10.2-11": // CIS EKS 4.5.2: default 네임스페이스 미사용
 		result = evalDefaultNamespace(rule, req, base)
+	case "R-2.10.2-POD-12", "R-2.10.2-12": // CIS EKS 4.2.5: allowPrivilegeEscalation 차단
+		result = evalAllowPrivilegeEscalation(rule, req, base)
 	// 2.10.3 공개서버 보안
 	case "R-2.10.3-POD-01", "R-2.10.3-01":
 		result = evalLBSourceRange(rule, req, base)
@@ -1014,6 +1017,71 @@ func evalPrivilegedContainer(_ Rule, req PodGraphRequest, base PodRuleResult) Po
 		base.Verdict = "미준수"
 		base.Violations = violations
 	} else {
+		base.Verdict = "준수"
+		base.MatchedIndicators = matched
+	}
+	return base
+}
+
+// evalAllowPrivilegeEscalation (R-2.10.2-12) — 컨테이너 권한 상승 차단.
+// CIS Amazon EKS Benchmark v2.0.0 §4.2.5. 데이터: cluster_pods.containers[].allowPrivilegeEscalation
+// (컬렉터가 securityContext를 평탄화해 최상위 flat으로 저장; 미평탄화 대비 securityContext.* 도 확인).
+// allowPrivilegeEscalation은 미설정 시 기본 허용(true)이라, 명시적 false만 준수로 본다:
+//   명시 true → 미준수, 전부 명시 false → 준수, 일부/전부 미설정 → 확인필요(명시 false 권고).
+// init/ephemeral 컨테이너 포함.
+func evalAllowPrivilegeEscalation(_ Rule, req PodGraphRequest, base PodRuleResult) PodRuleResult {
+	base.Severity = "medium"
+	podName := jsonStr(req.Pod, "metadata", "name")
+	podNS := jsonStr(req.Pod, "metadata", "namespace")
+
+	var conts []any
+	conts = append(conts, jsonSlice(req.Pod, "spec", "containers")...)
+	conts = append(conts, jsonSlice(req.Pod, "spec", "initContainers")...)
+	conts = append(conts, jsonSlice(req.Pod, "spec", "ephemeralContainers")...)
+
+	var violations []grc.Violation
+	var matched []string
+	var unsetContainers []string
+	for _, c := range conts {
+		cm := toMap(c)
+		if cm == nil {
+			continue
+		}
+		cName := strVal(cm["name"])
+		// flat(평탄화) 우선, 없으면 nested securityContext 확인
+		raw, set := cm["allowPrivilegeEscalation"]
+		if !set {
+			if sc := toMap(cm["securityContext"]); sc != nil {
+				raw, set = sc["allowPrivilegeEscalation"]
+			}
+		}
+		b, _ := raw.(bool)
+		switch {
+		case set && b: // 명시적 true → 권한 상승 허용
+			violations = append(violations, grc.Violation{
+				Field:       "containers[].securityContext.allowPrivilegeEscalation",
+				Expected:    "false",
+				Actual:      true,
+				Description: fmt.Sprintf("Pod '%s/%s' 컨테이너 '%s'이 allowPrivilegeEscalation=true (setuid·file capability로 권한 상승 허용)", podNS, podName, cName),
+				Severity:    "medium",
+				K8sSource:   grc.K8sSource{Namespace: podNS, ResourceKind: "Pod", ResourceName: podName, ContainerName: cName},
+			})
+		case set && !b: // 명시적 false → 준수
+			matched = append(matched, fmt.Sprintf("컨테이너 '%s': allowPrivilegeEscalation=false", cName))
+		default: // 미설정 → 기본 허용(true)
+			unsetContainers = append(unsetContainers, cName)
+		}
+	}
+
+	switch {
+	case len(violations) > 0:
+		base.Verdict = "미준수"
+		base.Violations = violations
+	case len(unsetContainers) > 0:
+		base.Verdict = grc.VerdictNEEDS_REVIEW
+		base.Reason = fmt.Sprintf("컨테이너 [%s]가 allowPrivilegeEscalation 미설정 — 미설정 시 기본 허용(true)이므로 securityContext.allowPrivilegeEscalation: false 명시 권고", strings.Join(unsetContainers, ", "))
+		base.MatchedIndicators = []string{base.Reason}
+	default:
 		base.Verdict = "준수"
 		base.MatchedIndicators = matched
 	}

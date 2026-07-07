@@ -113,6 +113,7 @@
         ],
         "condition": {
           "operator": "kms_key_rotation",
+          "require_cmk": false,
           "require_enabled": true,
           "require_rotation": true,
           "approved_key_specs": [
