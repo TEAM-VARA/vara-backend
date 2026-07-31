@@ -332,19 +332,7 @@ embedding-server/           # BGE-M3 임베딩 서버
 
 ---
 
-## 9. 팀 구성  
-
-| 이름 | 역할 | GitHub |
-|------|------|--------|
-| 김태형 | PM / Frontend / UI·UX / 발표 | [@th-mong](https://github.com/th-mong) |
-| 김준서 | Backend / Risk Scoring / AI / 그래프 알고리즘 / 자동화 | [@jacknafa](https://github.com/jacknafa) |
-| 송채린 | Infra / train-ticket / 수집 에이전트 / 이상 탐지 | [@songchearin](https://github.com/songchearin) |
-| 이예은 | Backend / GRC·ISMS-P / 패치 탭 / 공격 시나리오 | [@Yenniiii](https://github.com/Yenniiii) |
-| 이준혁 | Backend / RBAC·IAM 권한 상승 분석 | [@hubkorea](https://github.com/hubkorea) |
-
----
-
-## 10. 기여 (Contributing)  
+## 9. 기여 (Contributing)  
 
 VARA 프로젝트에 기여할 때는 기능 단위 브랜치와 Conventional Commits 사용을 권장합니다.
 
@@ -368,7 +356,7 @@ git push origin feature/기능명
 
 ---
 
-## 11. 오픈소스 라이선스  
+## 10. 오픈소스 라이선스  
 
 VARA에서 팀이 직접 작성한 소스코드는 [MIT License](./LICENSE) 하에 배포됩니다.  
 외부 오픈소스 구성 요소는 각각의 원 라이선스를 따르며, 세부 고지 사항은 [`THIRD_PARTY_LICENSES.md`](./THIRD_PARTY_LICENSES.md)에서 확인할 수 있습니다.
@@ -396,7 +384,7 @@ VARA에서 팀이 직접 작성한 소스코드는 [MIT License](./LICENSE) 하�
 
 ---
 
-## 12. License Summary  
+## 11. License Summary  
 
 - **Main Project:** MIT License (TEAM VARA)
 - **Third-party Components:** MIT, ISC, BSD, Apache-2.0, PostgreSQL License 등
