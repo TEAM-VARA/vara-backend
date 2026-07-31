@@ -1,12 +1,29 @@
 <!-- VARA HEADER -->
-![VARA Header](./images/header.png)
+<p align="center">
+  <img src="./images/header.png" alt="VARA Header" width="800">
+</p>
 
-[![go](https://img.shields.io/badge/Go-Gin-00ADD8.svg?style=flat-square&labelColor=black&logo=go&logoColor=white)](https://go.dev/)
-[![react](https://img.shields.io/badge/React-18-61DAFB.svg?style=flat-square&labelColor=black&logo=react&logoColor=white)](https://react.dev/)
-[![kubernetes](https://img.shields.io/badge/Kubernetes-EKS-326CE5.svg?style=flat-square&labelColor=black&logo=kubernetes&logoColor=white)](https://kubernetes.io/)
-[![aws](https://img.shields.io/badge/AWS-EKS%20%7C%20EC2-FF9900.svg?style=flat-square&labelColor=black&logo=amazonwebservices&logoColor=white)](https://aws.amazon.com/)
-[![docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg?style=flat-square&labelColor=black&logo=docker&logoColor=white)](https://www.docker.com/)
-[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1-6BA539.svg?style=flat-square&labelColor=black&logo=openapiinitiative&logoColor=white)](./public/openapi.yaml)
+<p align="center">
+  <a href="https://go.dev/">
+    <img src="https://img.shields.io/badge/Go-Gin-00ADD8.svg?style=flat-square&labelColor=black&logo=go&logoColor=white" alt="Go Gin">
+  </a>
+  <a href="https://react.dev/">
+    <img src="https://img.shields.io/badge/React-18-61DAFB.svg?style=flat-square&labelColor=black&logo=react&logoColor=white" alt="React 18">
+  </a>
+  <a href="https://kubernetes.io/">
+    <img src="https://img.shields.io/badge/Kubernetes-EKS-326CE5.svg?style=flat-square&labelColor=black&logo=kubernetes&logoColor=white" alt="Kubernetes EKS">
+  </a>
+  <a href="https://aws.amazon.com/">
+    <img src="https://img.shields.io/badge/AWS-EKS%20%7C%20EC2-FF9900.svg?style=flat-square&labelColor=black&logo=amazonwebservices&logoColor=white" alt="AWS EKS EC2">
+  </a>
+  <a href="https://www.docker.com/">
+    <img src="https://img.shields.io/badge/Docker-Compose-2496ED.svg?style=flat-square&labelColor=black&logo=docker&logoColor=white" alt="Docker Compose">
+  </a>
+  <a href="./public/openapi.yaml">
+    <img src="https://img.shields.io/badge/OpenAPI-3.1-6BA539.svg?style=flat-square&labelColor=black&logo=openapiinitiative&logoColor=white" alt="OpenAPI 3.1">
+  </a>
+</p>
+
 
 ---
 
@@ -394,5 +411,5 @@ VARA에서 팀이 직접 작성한 소스코드는 [MIT License](./LICENSE) 하�
 
 ---
 
-### VARA — 취약점 목록에서, 확산을 막는 의사결정으로  
+### VARA - 취약점 목록에서, 확산을 막는 의사결정으로  
 한 번의 침해가 어디까지 번지는지 파악하고, 가장 효과적인 차단 지점부터 대응하세요.
